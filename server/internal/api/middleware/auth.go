@@ -56,7 +56,7 @@ func NewJWTMiddleware(secret string) fiber.Handler {
 		}
 
 		userID := claims["sub"].(string)
-		c.Locals("userId", userID)
+		c.Locals("user_id", userID)
 
 		return c.Next()
 	}
