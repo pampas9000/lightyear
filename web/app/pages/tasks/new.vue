@@ -6,7 +6,7 @@ import AwsS3 from '@uppy/aws-s3'
 import { useApi } from '~/composables/useApi'
 
 useHead({
-    title: 'New Task | Transcoder',
+    title: $t('new_task.title') + ' | Transcoder',
 })
 
 const router = useRouter()
@@ -194,31 +194,31 @@ const submitTask = async () => {
     }
 }
 const submitButtonText = computed(() => {
-    if (isUploading.value) return 'Processing Upload...'
-    if (uploadComplete.value) return 'Task Created'
-    return 'Start Processing'
+    if (isUploading.value) return $t('new_task.processing')
+    if (uploadComplete.value) return $t('new_task.task_created')
+    return $t('new_task.start_processing')
 })
 </script>
 
 <template>
-    <div class="max-w-[1000px] mx-auto w-full">
+    <div class="max-w-250 mx-auto w-full">
         <!-- Header -->
         <div class="mb-10">
-            <h1 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-2">Create New Task</h1>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Upload media files and configure bulk transcoding
-                parameters.</p>
+            <h1 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-2">{{
+                $t('new_task.title') }}</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">{{ $t('new_task.subtitle') }}</p>
         </div>
 
         <div class="space-y-8">
             <!-- Parameters Section -->
             <section
                 class="bg-white dark:bg-slate-900 rounded-xl p-8 shadow-sm border border-slate-100 dark:border-slate-800">
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-6">Transcoding Parameters</h2>
+                <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-6">{{ $t('new_task.params') }}</h2>
 
                 <div class="grid gap-8 md:grid-cols-2">
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Target
-                            Format</label>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{{
+                            $t('new_task.target_format') }}</label>
                         <div class="relative">
                             <select v-model="targetFormat"
                                 class="w-full appearance-none rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-2.5 text-sm font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
@@ -240,7 +240,8 @@ const submitButtonText = computed(() => {
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Quality
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{{
+                            $t('new_task.quality') }}
                             (0-100)</label>
                         <input type="number" v-model="quality" min="0" max="100"
                             class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-4 py-2.5 text-sm font-medium text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors" />
@@ -252,7 +253,8 @@ const submitButtonText = computed(() => {
             <section
                 class="bg-white dark:bg-slate-900 rounded-xl p-8 shadow-sm border border-slate-100 dark:border-slate-800">
                 <div class="flex items-center justify-between mb-6">
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Media Files</h2>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ $t('new_task.media_files') }}
+                    </h2>
 
                     <div class="relative">
                         <input type="file" multiple
@@ -267,7 +269,7 @@ const submitButtonText = computed(() => {
                                 <path d="M5 12h14" />
                                 <path d="M12 5v14" />
                             </svg>
-                            Add Files
+                            {{ $t('new_task.add_files') }}
                         </button>
                     </div>
                 </div>
@@ -334,14 +336,14 @@ const submitButtonText = computed(() => {
                             <line x1="12" x2="12" y1="3" y2="15" />
                         </svg>
                     </div>
-                    <p class="text-sm font-medium text-slate-900 dark:text-white mb-1">No files selected</p>
-                    <p class="text-xs text-slate-500">Drag and drop files here, or click "Add Files" to browse.</p>
+                    <p class="text-sm font-medium text-slate-900 dark:text-white mb-1">{{ $t('new_task.no_files') }}</p>
+                    <p class="text-xs text-slate-500">{{ $t('new_task.no_files_desc') }}</p>
                 </div>
 
                 <div v-if="files.length > 0" class="pt-8 mt-8 border-t border-slate-100 dark:border-slate-800">
                     <div v-if="isUploading" class="space-y-2 mb-6">
                         <div class="flex justify-between text-sm font-medium text-slate-700 dark:text-slate-300">
-                            <span>Uploading {{ files.length }} files...</span>
+                            <span>{{ $t('new_task.uploading', { count: files.length }) }}</span>
                             <span>{{ globalProgress }}%</span>
                         </div>
                         <div

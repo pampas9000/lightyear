@@ -17,7 +17,7 @@
             
             <NuxtLink to="/tasks/new" class="mb-6 w-full py-2.5 px-4 bg-blue-600 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-2 hover:bg-blue-700 transition-all duration-200 shadow-sm shadow-blue-600/20 active:scale-[0.98]">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                New Task
+                {{ $t('nav.new_task') }}
             </NuxtLink>
 
             <nav class="flex-1 flex flex-col gap-1">
@@ -26,14 +26,18 @@
                     active-class="text-blue-700 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400" 
                     exact-active-class="text-blue-700 bg-blue-50 dark:bg-blue-900/30 dark:text-blue-400">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-80"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
-                    Dashboard
+                    {{ $t('nav.console') }}
                 </NuxtLink>
             </nav>
+
+            <div class="mt-4">
+                <LanguageSwitcher />
+            </div>
 
             <div class="mt-auto border-t border-slate-200 dark:border-slate-800 pt-4">
                 <a href="http://localhost:5173" target="_blank" class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 transition-colors duration-200 ease-in-out mb-4">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="opacity-80"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-                    Documentation
+                    {{ $t('common.documentation') }}
                 </a>
                 
                 <div v-if="isAuthenticated" class="flex items-center gap-3 px-3">
@@ -42,12 +46,12 @@
                     </div>
                     <div class="flex flex-col min-w-0 flex-1">
                         <span class="text-xs font-semibold text-slate-900 dark:text-white truncate">{{ user?.username }}</span>
-                        <button @click="logout" class="text-[10px] font-bold text-slate-500 hover:text-red-500 dark:hover:text-red-400 text-left transition-colors truncate uppercase tracking-tighter">Sign out</button>
+                        <button @click="logout" class="text-[10px] font-bold text-slate-500 hover:text-red-500 dark:hover:text-red-400 text-left transition-colors truncate uppercase tracking-tighter">{{ $t('nav.logout') }}</button>
                     </div>
                 </div>
                 <div v-else class="px-3">
                     <button @click="showAuthModal = true" class="w-full py-2 px-4 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                        Sign In
+                        {{ $t('common.login') }}
                     </button>
                 </div>
             </div>

@@ -7,7 +7,7 @@ const { user, isAuthenticated } = useAuth()
 const api = useApi()
 
 useHead({
-    title: "Transcoder | Console",
+    title: $t("dashboard.title") + " | Transcoder",
 })
 
 const stats = ref({
@@ -66,14 +66,14 @@ const getStatusColor = (status: string) => {
 </script>
 
 <template>
-    <div class="max-w-[1200px] mx-auto w-full">
+    <div class="max-w-300 mx-auto w-full">
         <!-- Header -->
         <div class="mb-10 flex justify-between items-end">
             <div>
-                <h1 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-2">Transcoding Tasks
+                <h1 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-2">{{
+                    $t('dashboard.title') }}
                 </h1>
-                <p class="text-sm text-slate-500 dark:text-slate-400">Monitor and manage your active and queued media
-                    processing tasks.</p>
+                <p class="text-sm text-slate-500 dark:text-slate-400">{{ $t('dashboard.subtitle') }}</p>
             </div>
             <div class="hidden sm:block">
                 <NuxtLink to="/tasks/new"
@@ -84,7 +84,7 @@ const getStatusColor = (status: string) => {
                         <path d="M5 12h14" />
                         <path d="M12 5v14" />
                     </svg>
-                    New Task
+                    {{ $t('nav.new_task') }}
                 </NuxtLink>
             </div>
         </div>
@@ -94,25 +94,25 @@ const getStatusColor = (status: string) => {
             <div
                 class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
                 <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    Active Jobs</div>
+                    {{ $t('dashboard.stats.active') }}</div>
                 <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.PROCESSING }}</div>
             </div>
             <div
                 class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
                 <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    Queued</div>
+                    {{ $t('dashboard.stats.queued') }}</div>
                 <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.PENDING }}</div>
             </div>
             <div
                 class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
                 <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    Completed</div>
+                    {{ $t('dashboard.stats.completed') }}</div>
                 <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.COMPLETED }}</div>
             </div>
             <div
                 class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
                 <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    Failed</div>
+                    {{ $t('dashboard.stats.failed') }}</div>
                 <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ stats.FAILED }}</div>
             </div>
         </div>
@@ -122,11 +122,12 @@ const getStatusColor = (status: string) => {
             class="bg-white dark:bg-slate-900 rounded-xl shadow-soft border border-slate-100 dark:border-slate-800 overflow-hidden">
             <div
                 class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
-                <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Recent Tasks
+                <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{{
+                    $t('dashboard.recent_tasks') }}
                 </h2>
                 <NuxtLink to="/tasks"
                     class="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 uppercase tracking-tight">
-                    View All</NuxtLink>
+                    {{ $t('dashboard.view_all') }}</NuxtLink>
             </div>
 
             <!-- Loading -->
@@ -138,7 +139,7 @@ const getStatusColor = (status: string) => {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
                     </path>
                 </svg>
-                <p class="text-sm font-medium text-slate-500">Loading your tasks...</p>
+                <p class="text-sm font-medium text-slate-500">{{ $t('dashboard.loading_tasks') }}</p>
             </div>
 
             <!-- Display Task List -->
@@ -147,10 +148,10 @@ const getStatusColor = (status: string) => {
                     <thead>
                         <tr
                             class="text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
-                            <th class="px-6 py-3">Task ID</th>
-                            <th class="px-6 py-3">Status</th>
-                            <th class="px-6 py-3 text-right">Items</th>
-                            <th class="px-6 py-3 text-right">Created At</th>
+                            <th class="px-6 py-3">ID</th>
+                            <th class="px-6 py-3">{{ $t('common.status') }}</th>
+                            <th class="px-6 py-3 text-right">{{ $t('common.items') }}</th>
+                            <th class="px-6 py-3 text-right">{{ $t('common.created_at') }}</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-50 dark:divide-slate-800">
@@ -170,7 +171,7 @@ const getStatusColor = (status: string) => {
                                 <span
                                     class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight border"
                                     :class="getStatusColor(task.status)">
-                                    {{ task.status }}
+                                    {{ $t(`status.${task.status}`) }}
                                 </span>
                             </td>
                             <td class="px-6 py-4 text-right">
@@ -199,12 +200,11 @@ const getStatusColor = (status: string) => {
                         <path d="m9 16 2 2 4-4" />
                     </svg>
                 </div>
-                <h3 class="text-base font-bold text-slate-900 dark:text-white mb-2">No active tasks</h3>
-                <p class="text-sm text-slate-500 max-w-xs mx-auto mb-8">You haven't created any transcoding tasks yet.
-                    Get started by uploading some media.</p>
+                <h3 class="text-base font-bold text-slate-900 dark:text-white mb-2">{{ $t('dashboard.no_tasks') }}</h3>
+                <p class="text-sm text-slate-500 max-w-xs mx-auto mb-8">{{ $t('dashboard.no_tasks_desc') }}</p>
                 <NuxtLink to="/tasks/new"
                     class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98]">
-                    Create your first task
+                    {{ $t('dashboard.create_first') }}
                 </NuxtLink>
             </div>
         </div>
