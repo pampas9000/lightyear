@@ -21,7 +21,11 @@ const tasks = ref<any[] | null>(null)
 const loading = ref(true)
 
 const fetchDashboardData = async () => {
-    if (!isAuthenticated.value) return
+    // If not logged in, show empty state
+    if (!isAuthenticated.value) {
+        loading.value = false
+        return
+    }
 
     loading.value = true
     try {
