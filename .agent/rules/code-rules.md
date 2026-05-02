@@ -14,6 +14,8 @@ trigger: always_on
 - Use Modern TypeScript
   - Use Temporal API to replace Date.
 
+## Web
+- Use shadcn components when possible.
 
 ## Rust
 -

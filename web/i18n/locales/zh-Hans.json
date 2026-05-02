@@ -18,7 +18,8 @@
     "new_task": "新建任务",
     "history": "历史记录",
     "settings": "设置",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "select_language": "选择语言"
   },
   "dashboard": {
     "title": "转码任务",

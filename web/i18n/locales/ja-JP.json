@@ -1,0 +1,62 @@
+{
+  "common": {
+    "loading": "読み込み中...",
+    "cancel": "キャンセル",
+    "submit": "送信",
+    "delete": "削除",
+    "edit": "編集",
+    "save": "保存",
+    "actions": "操作",
+    "status": "ステータス",
+    "created_at": "作成日時",
+    "items": "項目",
+    "documentation": "ドキュメント",
+    "login": "ログイン"
+  },
+  "nav": {
+    "console": "コンソール",
+    "new_task": "新規タスク",
+    "history": "履歴",
+    "settings": "設定",
+    "logout": "ログアウト",
+    "select_language": "言語を選択"
+  },
+  "dashboard": {
+    "title": "トランスコードタスク",
+    "subtitle": "アクティブおよび待機中のメディア処理タスクを監視および管理します。",
+    "stats": {
+      "active": "実行中",
+      "queued": "待機中",
+      "completed": "完了",
+      "failed": "失敗"
+    },
+    "recent_tasks": "最近のタスク",
+    "view_all": "すべて表示",
+    "no_tasks": "アクティブなタスクはありません",
+    "no_tasks_desc": "トランスコードタスクはまだ作成されていません。メディアをアップロードして開始しましょう。",
+    "create_first": "最初のタスクを作成する",
+    "loading_tasks": "タスクを読み込み中..."
+  },
+  "new_task": {
+    "title": "新規タスク作成",
+    "subtitle": "メディアファイルをアップロードし、一括トランスコードパラメータを設定します。",
+    "params": "トランスコードパラメータ",
+    "target_format": "ターゲットフォーマット",
+    "quality": "品質",
+    "media_files": "メディアファイル",
+    "add_files": "ファイルを追加",
+    "no_files": "ファイルが選択されていません",
+    "no_files_desc": "ファイルをここにドラッグ＆ドロップするか、「ファイルを追加」をクリックして参照してください。",
+    "uploading": "{count} 個のファイルをアップロード中...",
+    "start_processing": "処理を開始",
+    "processing": "アップロードを処理中...",
+    "task_created": "タスクが作成されました"
+  },
+  "status": {
+    "PENDING": "保留中",
+    "PROCESSING": "処理中",
+    "COMPLETED": "完了",
+    "FAILED": "失敗",
+    "CANCELLED": "キャンセル済み"
+  }
+}

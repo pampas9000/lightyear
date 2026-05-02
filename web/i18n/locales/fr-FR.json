@@ -18,8 +18,7 @@
     "new_task": "New Task",
     "history": "History",
     "settings": "Settings",
-    "logout": "Logout",
-    "select_language": "Select Language"
+    "logout": "Logout"
   },
   "dashboard": {
     "title": "Transcoding Tasks",

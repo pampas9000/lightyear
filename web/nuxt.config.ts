@@ -5,11 +5,19 @@ export default defineNuxtConfig({
     srcDir: "app",
     ssr: true,
     devtools: { enabled: true },
-    modules: ["shadcn-nuxt", "@nuxtjs/i18n"],
+    modules: ["shadcn-nuxt", "@nuxtjs/i18n", "@vueuse/nuxt"],
+    shadcn: {
+        prefix: "",
+        componentDir: "./app/components/ui",
+    },
     i18n: {
         locales: [
             { code: "en-US", name: "English", file: "en-US.json" },
             { code: "zh-Hans", name: "简体中文", file: "zh-Hans.json" },
+            { code: "zh-Hant", name: "繁體中文", file: "zh-Hant.json" },
+            { code: "ja-JP", name: "日本語", file: "ja-JP.json" },
+            { code: "de-DE", name: "Deutsch", file: "de-DE.json" },
+            { code: "fr-FR", name: "Français", file: "fr-FR.json" },
         ],
         langDir: "locales",
         defaultLocale: "en-US",
