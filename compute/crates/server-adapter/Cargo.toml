@@ -1,0 +1,8 @@
+[package]
+name = "compute-server-adapter"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compute-types.workspace = true
+anyhow.workspace = true

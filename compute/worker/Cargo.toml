@@ -1,0 +1,20 @@
+[package]
+name = "compute-worker"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compute-types.workspace = true
+compute-engine.workspace = true
+compute-server-adapter.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+sea-orm.workspace = true
+redis.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+serde.workspace = true
+config.workspace = true
+validator.workspace = true
+dotenvy = "0.15.7"
+serde_json = "1.0.149"

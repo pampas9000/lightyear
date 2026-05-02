@@ -1,0 +1,10 @@
+[package]
+name = "compute-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+compute-types.workspace = true
+image.workspace = true
+cfg-if.workspace = true
+anyhow.workspace = true

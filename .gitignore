@@ -1,0 +1,35 @@
+# Rust workspace
+/target
+/compute/bindings/wasm/pkg
+
+# Go
+/server/bin/
+/server/dist/
+/server/.tmp/
+/server/coverage.out
+/server/*.test
+__debug_bin*
+
+# Nuxt / Node
+/node_modules/
+/web/node_modules/
+/web/.nuxt/
+/web/.output/
+/web/.nitro/
+/web/dist/
+/web/.cache/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docs (VitePress)
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+
+.env
+temp

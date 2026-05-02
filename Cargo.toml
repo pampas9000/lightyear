@@ -1,0 +1,32 @@
+[workspace]
+members = [
+    "compute/crates/types",
+    "compute/crates/engine",
+    "compute/crates/server-adapter",
+    "compute/worker",
+    "compute/bindings/wasm",
+    "compute/bindings/ffi"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+compute-types = { path = "compute/crates/types" }
+compute-engine = { path = "compute/crates/engine" }
+compute-server-adapter = { path = "compute/crates/server-adapter" }
+
+# Common dependencies
+serde = { version = "1.0", features = ["derive"] }
+image = { version = "0.25" }
+tokio = { version = "1", features = ["full"] }
+cfg-if = "1.0"
+anyhow = "1.0"
+sea-orm = { version = "1.1", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
+redis = { version = "1.2", features = ["tokio-comp"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.23", features = ["v4","v7", "serde"] }
+config = "0.15"
+validator = { version = "0.20", features = ["derive"] }
