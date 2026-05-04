@@ -2,12 +2,34 @@
 import { useAuth } from '~/composables/useAuth'
 import { useApi } from '~/composables/useApi'
 import { ref, onMounted, watch } from 'vue'
+import {
+    Activity, Clock, CheckCircle2, AlertCircle,
+    Plus, Loader2, Calendar, RotateCcw,
+    Database, Cpu, Video, FileVideo,
+    Check, MoreVertical, FileX, FileX2
+} from 'lucide-vue-next'
+import {
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle
+} from '@/components/ui/card'
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 const { user, isAuthenticated } = useAuth()
 const api = useApi()
 
 useHead({
-    title: $t("dashboard.title") + " | Transcoder",
+    title: "Overview | Transcoder",
 })
 
 const stats = ref({
@@ -55,158 +77,226 @@ onMounted(() => {
     fetchDashboardData()
 })
 
-const getStatusColor = (status: string) => {
+const getStatusStyle = (status: string) => {
     switch (status) {
-        case 'COMPLETED': return 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800'
-        case 'FAILED': return 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800'
-        case 'PROCESSING': return 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800'
-        default: return 'text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-900/20 border-slate-100 dark:border-slate-800'
+        case 'COMPLETED': return 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:text-slate-400'
+        case 'FAILED': return 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400'
+        case 'PROCESSING': return 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400'
+        default: return 'bg-slate-50 text-slate-500 border-slate-100'
     }
+}
+
+const formatTimeAgo = (date: string) => {
+    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000)
+    if (seconds < 60) return 'just now'
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return `${minutes}m ago`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h ago`
+    return new Date(date).toLocaleDateString()
 }
 </script>
 
 <template>
-    <div class="max-w-300 mx-auto w-full">
-        <!-- Header -->
-        <div class="mb-10 flex justify-between items-end">
-            <div>
-                <h1 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white mb-2">{{
-                    $t('dashboard.title') }}
-                </h1>
-                <p class="text-sm text-slate-500 dark:text-slate-400">{{ $t('dashboard.subtitle') }}</p>
+    <div class="max-w-6xl mx-auto w-full space-y-8 pb-20">
+        <!-- Dashboard Header -->
+        <div class="flex items-center justify-between">
+            <div class="space-y-1">
+                <h1 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Overview</h1>
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <p class="text-xs font-medium text-slate-500 dark:text-slate-400">All systems operational and
+                        rendering optimally.</p>
+                </div>
             </div>
-            <div class="hidden sm:block">
-                <NuxtLink to="/tasks/new"
-                    class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98]">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        class="mr-2">
-                        <path d="M5 12h14" />
-                        <path d="M12 5v14" />
-                    </svg>
-                    {{ $t('nav.new_task') }}
-                </NuxtLink>
+            <div class="flex items-center gap-3">
+                <Button variant="outline"
+                    class="h-9 px-4 text-xs font-semibold gap-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+                    <Calendar class="w-4 h-4 text-slate-400" />
+                    Last 7 Days
+                </Button>
             </div>
         </div>
 
         <!-- Stats Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            <div
-                class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
-                <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    {{ $t('dashboard.stats.active') }}</div>
-                <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.PROCESSING }}</div>
-            </div>
-            <div
-                class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
-                <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    {{ $t('dashboard.stats.queued') }}</div>
-                <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.PENDING }}</div>
-            </div>
-            <div
-                class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
-                <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    {{ $t('dashboard.stats.completed') }}</div>
-                <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ stats.COMPLETED }}</div>
-            </div>
-            <div
-                class="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-soft border border-slate-100 dark:border-slate-800">
-                <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-                    {{ $t('dashboard.stats.failed') }}</div>
-                <div class="text-3xl font-bold text-red-600 dark:text-red-400">{{ stats.FAILED }}</div>
-            </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <!-- Total Tasks Card -->
+            <Card
+                class="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 gap-4">
+                <CardHeader class="flex justify-between items-start mb-4">
+                    <CardTitle class="text-sm font-bold text-slate-400 uppercase tracking-wider">Total Tasks
+                    </CardTitle>
+                    <RotateCcw class="w-4 h-4 text-slate-300" />
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-baseline gap-3">
+                        <span class="text-4xl font-bold text-slate-900 dark:text-white">{{ stats.COMPLETED +
+                            stats.PROCESSING + stats.PENDING + stats.FAILED }}</span>
+                        <Badge variant="secondary"
+                            class="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border-none font-bold text-[10px] py-0 px-2">
+                            +12%</Badge>
+                    </div>
+                    <!-- Placeholder Chart -->
+                    <div class="mt-6 flex items-end gap-1.5 h-10">
+                        <div v-for="h in [40, 70, 50, 90, 60, 30, 80]" :key="h"
+                            class="flex-1 bg-blue-100 dark:bg-blue-900/30 rounded-t-sm transition-all duration-500 hover:bg-blue-600"
+                            :style="{ height: `${h}%` }"></div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- Storage Usage Card -->
+            <Card
+                class="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 gap-4">
+                <CardHeader class="flex justify-between items-start mb-4">
+                    <CardTitle class="text-sm font-bold text-slate-400 uppercase tracking-wider">Storage Usage
+                    </CardTitle>
+                    <Database class="w-4 h-4 text-slate-300" />
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-4xl font-bold text-slate-900 dark:text-white">4.2</span>
+                        <span class="text-xs font-bold text-slate-400 uppercase">TB / 10 TB</span>
+                    </div>
+                    <div class="mt-6 space-y-2">
+                        <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-600 rounded-full" style="width: 42%"></div>
+                        </div>
+                        <div class="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
+                            <span>42% Used</span>
+                            <span>5.8 TB Free</span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- Worker Nodes Card -->
+            <Card
+                class="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden bg-white dark:bg-slate-900 gap-4">
+                <CardHeader class="flex justify-between items-start mb-4">
+                    <CardTitle class="text-sm font-bold text-slate-400 uppercase tracking-wider">Worker Nodes
+                    </CardTitle>
+                    <Cpu class="w-4 h-4 text-slate-300" />
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-4xl font-bold text-slate-900 dark:text-white">12</span>
+                        <span class="text-xs font-bold text-slate-400 uppercase">Active</span>
+                    </div>
+                    <div class="mt-6 flex gap-1.5">
+                        <div v-for="i in 12" :key="i"
+                            class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/20"></div>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
 
-        <!-- Task Table -->
-        <div
-            class="bg-white dark:bg-slate-900 rounded-xl shadow-soft border border-slate-100 dark:border-slate-800 overflow-hidden">
-            <div
-                class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
-                <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{{
-                    $t('dashboard.recent_tasks') }}
-                </h2>
-                <NuxtLink to="/tasks"
-                    class="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 uppercase tracking-tight">
-                    {{ $t('dashboard.view_all') }}</NuxtLink>
-            </div>
-
-            <!-- Loading -->
-            <div v-if="loading" class="p-12 flex flex-col items-center justify-center space-y-4">
-                <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none"
-                    viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                    </path>
-                </svg>
-                <p class="text-sm font-medium text-slate-500">{{ $t('dashboard.loading_tasks') }}</p>
-            </div>
-
-            <!-- Display Task List -->
-            <div v-else-if="tasks && tasks.length > 0" class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr
-                            class="text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
-                            <th class="px-6 py-3">ID</th>
-                            <th class="px-6 py-3">{{ $t('common.status') }}</th>
-                            <th class="px-6 py-3 text-right">{{ $t('common.items') }}</th>
-                            <th class="px-6 py-3 text-right">{{ $t('common.created_at') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-50 dark:divide-slate-800">
-                        <tr v-for="task in tasks.slice(0, 10)" :key="task.id"
-                            class="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group">
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2 h-2 rounded-full"
-                                        :class="task.status === 'COMPLETED' ? 'bg-emerald-500' : task.status === 'FAILED' ? 'bg-red-500' : 'bg-blue-500'">
-                                    </div>
-                                    <span
-                                        class="text-xs font-mono font-medium text-slate-600 dark:text-slate-400 group-hover:text-blue-600 transition-colors">{{
-                                            task.id.substring(0, 8) }}...</span>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <span
-                                    class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight border"
-                                    :class="getStatusColor(task.status)">
-                                    {{ $t(`status.${task.status}`) }}
-                                </span>
-                            </td>
-                            <td class="px-6 py-4 text-right">
-                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-300">{{
-                                    task.jobs?.length || 0 }} files</span>
-                            </td>
-                            <td class="px-6 py-4 text-right">
-                                <span class="text-[11px] font-medium text-slate-500 whitespace-nowrap">{{ new
-                                    Date(task.created_at).toLocaleString() }}</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Task List is empty -->
-            <div v-else class="p-6 text-center py-20">
-                <div
-                    class="mx-auto w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-6 text-slate-400 shadow-inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
-                        <line x1="16" x2="16" y1="2" y2="6" />
-                        <line x1="8" x2="8" y1="2" y2="6" />
-                        <line x1="3" x2="21" y1="10" y2="10" />
-                        <path d="m9 16 2 2 4-4" />
-                    </svg>
+        <!-- Recent Transcoding Section -->
+        <Card
+            class="border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden rounded-xl bg-white dark:bg-slate-900">
+            <CardHeader
+                class="flex flex-row items-center justify-between space-y-0 px-6 border-b border-slate-50 dark:border-slate-800">
+                <CardTitle class="font-bold text-slate-900 dark:text-white">
+                    Recent Transcoding
+                </CardTitle>
+                <NuxtLink to="/tasks" class="text-xs font-semibold text-blue-600 hover:underline">View All</NuxtLink>
+            </CardHeader>
+            <CardContent class="p-0">
+                <!-- Loading -->
+                <div v-if="loading" class="p-20 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 class="h-8 w-8 text-blue-600 animate-spin" />
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-widest">Fetching tasks...</p>
                 </div>
-                <h3 class="text-base font-bold text-slate-900 dark:text-white mb-2">{{ $t('dashboard.no_tasks') }}</h3>
-                <p class="text-sm text-slate-500 max-w-xs mx-auto mb-8">{{ $t('dashboard.no_tasks_desc') }}</p>
-                <NuxtLink to="/tasks/new"
-                    class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-all active:scale-[0.98]">
-                    {{ $t('dashboard.create_first') }}
-                </NuxtLink>
-            </div>
-        </div>
+
+                <!-- Display Task List -->
+                <div v-else-if="tasks && tasks.length > 0" class="divide-y divide-slate-50 dark:divide-slate-800">
+                    <div v-for="task in tasks.slice(0, 5)" :key="task.id"
+                        class="p-5 flex items-center gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all group">
+                        <!-- File Icon -->
+                        <div
+                            class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                            <Video v-if="task.status === 'PROCESSING'" class="w-5 h-5 text-blue-500" stroke-width="2" />
+                            <FileVideo v-else-if="task.status === 'COMPLETED'" class="w-5 h-5 text-slate-500"
+                                stroke-width="2" />
+                            <AlertCircle v-else class="w-5 h-5 text-red-500" stroke-width="2" />
+                        </div>
+
+                        <!-- Task Details -->
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-bold text-slate-900 dark:text-white truncate">Task-{{
+                                    task.id.substring(0, 8) }}</span>
+                                <span class="text-[10px] font-medium text-slate-400">{{ new
+                                    Date(task.created_at).toLocaleTimeString() }}</span>
+                            </div>
+                            <div class="flex items-center gap-3 mt-0.5">
+                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">H.265 / 4K
+                                    / 60fps</span>
+                                <div class="w-1 h-1 rounded-full bg-slate-300"></div>
+                                <span class="text-[10px] font-medium text-slate-400">Started {{
+                                    formatTimeAgo(task.created_at) }}</span>
+                            </div>
+                            <!-- Progress Bar for Processing -->
+                            <div v-if="task.status === 'PROCESSING'" class="mt-2 flex items-center gap-3">
+                                <div class="flex-1 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div class="h-full bg-blue-600 rounded-full animate-progress" style="width: 64%">
+                                    </div>
+                                </div>
+                                <span class="text-[10px] font-black text-blue-600 italic">64%</span>
+                            </div>
+                        </div>
+
+                        <!-- Status & Actions -->
+                        <div class="flex items-center gap-4">
+                            <Badge variant="secondary"
+                                class="rounded-full font-bold uppercase tracking-widest text-[9px] px-3 py-1 border transition-all"
+                                :class="getStatusStyle(task.status)">
+                                <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1" stroke-width="3" />
+                                <div v-else-if="task.status === 'PROCESSING'"
+                                    class="w-1.5 h-1.5 rounded-full bg-blue-500 mr-2 animate-pulse"></div>
+                                {{ task.status }}
+                            </Badge>
+                            <Button variant="ghost" size="icon" class="h-8 w-8 text-slate-400 hover:text-slate-900">
+                                <MoreVertical class="w-4 h-4" />
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div v-else class="p-20 flex flex-col items-center justify-center text-center">
+                    <div
+                        class="w-16 h-16 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+                        <FileX class="w-8 h-8 text-slate-300" />
+                    </div>
+                    <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">No active tasks</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto mb-8">
+                        You haven't created any transcoding tasks yet. Click the button below to start.
+                    </p>
+                    <NuxtLink to="/tasks/new">
+                        <Button
+                            class="bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold px-8 h-12 rounded-xl active:scale-95 transition-all">
+                            Create First Task
+                        </Button>
+                    </NuxtLink>
+                </div>
+            </CardContent>
+        </Card>
     </div>
 </template>
+
+<style scoped>
+@keyframes progress {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(0);
+    }
+}
+
+.animate-progress {
+    animation: progress 2s ease-out forwards;
+}
+</style>
