@@ -30,10 +30,10 @@ pub unsafe extern "C" fn transcoder_process(
 
     // Map i32 to Format enum (Simplified example)
     let target_format = match target_format_code {
-        0 => Format::JPEG,
-        1 => Format::PNG,
-        2 => Format::WEBP,
-        3 => Format::AVIF,
+        0 => Format::Jpeg,
+        1 => Format::Png,
+        2 => Format::Webp,
+        3 => Format::Avif,
         _ => return std::ptr::null_mut(),
     };
 

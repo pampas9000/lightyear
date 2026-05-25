@@ -2,12 +2,12 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -23,7 +23,7 @@ type CreateWorkflowInput struct {
 	OwnerID      uuid.UUID
 	Name         string
 	TargetFormat string
-	Params       map[string]any
+	Params       transcode.Params
 }
 
 type Service struct {
@@ -45,15 +45,15 @@ func (s *Service) CreateWorkflow(ctx context.Context, input CreateWorkflowInput)
 		return nil, ErrTargetFormatRequired
 	}
 
+	if err := input.Params.Validate(input.TargetFormat); err != nil {
+		return nil, fmt.Errorf("validate transcode params: %w", err)
+	}
+
 	wf := &models.Workflow{
 		OwnerID:      input.OwnerID,
 		Name:         input.Name,
 		TargetFormat: input.TargetFormat,
-	}
-
-	if input.Params != nil {
-		b, _ := json.Marshal(input.Params)
-		wf.Params = string(b)
+		Params:       input.Params,
 	}
 
 	if err := s.db.WithContext(ctx).Create(wf).Error; err != nil {

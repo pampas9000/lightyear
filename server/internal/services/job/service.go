@@ -2,13 +2,13 @@ package job
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/task"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -43,7 +43,7 @@ type CreateJobInput struct {
 	InputPath    string
 	OutputPath   string
 	TargetFormat string
-	Params       map[string]any
+	Params       transcode.Params
 }
 
 // Service orchestrates job persistence and queue handoff.
@@ -68,17 +68,17 @@ func (s *Service) CreateJob(ctx context.Context, input CreateJobInput) (*models.
 		return nil, err
 	}
 
+	if err := normalized.Params.Validate(normalized.TargetFormat); err != nil {
+		return nil, fmt.Errorf("validate transcode params: %w", err)
+	}
+
 	jobModel := &models.Job{
 		OwnerID:      normalized.OwnerID,
 		InputPath:    normalized.InputPath,
 		OutputPath:   normalized.OutputPath,
 		TargetFormat: normalized.TargetFormat,
 		Status:       "PENDING",
-	}
-
-	if normalized.Params != nil {
-		b, _ := json.Marshal(normalized.Params)
-		jobModel.Params = string(b)
+		Params:       normalized.Params,
 	}
 
 	if err := s.db.WithContext(ctx).Create(jobModel).Error; err != nil {

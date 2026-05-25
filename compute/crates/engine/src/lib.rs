@@ -22,19 +22,19 @@ pub fn process(
     let mut out_buffer = Cursor::new(Vec::new());
 
     match target_format {
-        Format::WEBP => {
+        Format::Webp => {
             img.write_to(&mut out_buffer, image::ImageFormat::WebP)?;
             Ok(out_buffer.into_inner())
         }
-        Format::JPEG => {
+        Format::Jpeg => {
             img.write_to(&mut out_buffer, image::ImageFormat::Jpeg)?;
             Ok(out_buffer.into_inner())
         }
-        Format::PNG => {
+        Format::Png => {
             img.write_to(&mut out_buffer, image::ImageFormat::Png)?;
             Ok(out_buffer.into_inner())
         }
-        Format::AVIF => {
+        Format::Avif => {
             img.write_to(&mut out_buffer, image::ImageFormat::Avif)?;
             Ok(out_buffer.into_inner())
         }

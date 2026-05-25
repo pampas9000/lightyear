@@ -4,13 +4,13 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub fn browser_convert(data: &[u8], format: &str, quality: u8) -> Result<Vec<u8>, JsValue> {
     let target_format = match format.to_lowercase().as_str() {
-        "jxl" => Format::JXL,
-        "avif" => Format::AVIF,
-        "webp" => Format::WEBP,
-        "heic" => Format::HEIC,
+        "jxl" => Format::Jxl,
+        "avif" => Format::Avif,
+        "webp" => Format::Webp,
+        "heic" => Format::Heic,
         // jfif, jpeg, jpg are all JPEG
-        "jfif" | "jpg" | "jpeg" => Format::JPEG,
-        "png" => Format::PNG,
+        "jfif" | "jpg" | "jpeg" => Format::Jpeg,
+        "png" => Format::Png,
         _ => {
             return Err(JsValue::from_str(&format!(
                 "Unsupported format: {}",

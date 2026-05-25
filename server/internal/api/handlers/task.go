@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/task"
 
@@ -90,10 +91,10 @@ func (h *TaskHandler) GetStats(c fiber.Ctx) error {
 }
 
 type CreateTaskRequest struct {
-	WorkflowID   *uuid.UUID           `json:"workflow_id,omitempty"`
-	Items        []task.TaskItemInput `json:"items"`
-	TargetFormat string               `json:"target_format,omitempty"`
-	Params       map[string]any       `json:"params,omitempty"`
+	WorkflowID   *uuid.UUID             `json:"workflow_id,omitempty"`
+	Items        []task.TaskItemInput   `json:"items"`
+	TargetFormat string                 `json:"target_format,omitempty"`
+	Params       transcode.Params `json:"params,omitempty"`
 }
 
 func (h *TaskHandler) CreateTask(c fiber.Ctx) error {

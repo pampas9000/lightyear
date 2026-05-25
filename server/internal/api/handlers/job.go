@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 
+	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/job"
 
@@ -33,10 +34,10 @@ func (h *Handler) Install(router fiber.Router) {
 }
 
 type CreateJobRequest struct {
-	InputPath    string         `json:"inputPath"`
-	OutputPath   string         `json:"outputPath"`
-	TargetFormat string         `json:"targetFormat"`
-	Params       map[string]any `json:"params,omitempty"`
+	InputPath    string                 `json:"inputPath"`
+	OutputPath   string                 `json:"outputPath"`
+	TargetFormat string                 `json:"targetFormat"`
+	Params       transcode.Params `json:"params,omitempty"`
 }
 
 type validationDetail struct {

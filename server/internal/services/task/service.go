@@ -2,13 +2,13 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/task"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -27,7 +27,7 @@ type CreateTaskInput struct {
 	Items      []TaskItemInput
 
 	TargetFormat string
-	Params       map[string]any
+	Params       transcode.Params
 }
 
 type TaskItemInput struct {
@@ -50,7 +50,7 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 	}
 
 	var targetFormat string
-	var params map[string]any
+	var params transcode.Params
 
 	if input.WorkflowID != nil {
 		var wf models.Workflow
@@ -61,9 +61,7 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 			return nil, fmt.Errorf("fetch workflow: %w", err)
 		}
 		targetFormat = wf.TargetFormat
-		if wf.Params != "" {
-			json.Unmarshal([]byte(wf.Params), &params)
-		}
+		params = wf.Params
 	} else {
 		targetFormat = input.TargetFormat
 		params = input.Params
@@ -71,6 +69,10 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 
 	if targetFormat == "" {
 		return nil, errors.New("targetFormat is required if workflow is not specified")
+	}
+
+	if err := params.Validate(targetFormat); err != nil {
+		return nil, fmt.Errorf("validate transcode params: %w", err)
 	}
 
 	var createdTaskID uuid.UUID
@@ -114,10 +116,7 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 				TargetFormat: targetFormat,
 				Status:       "PENDING",
 				WorkflowID:   input.WorkflowID,
-			}
-			if params != nil {
-				b, _ := json.Marshal(params)
-				jobModel.Params = string(b)
+				Params:       params,
 			}
 			jobs = append(jobs, jobModel)
 		}

@@ -11,12 +11,17 @@ export interface Base {
     updated_at: string;
 }
 
+export interface TranscodeParams {
+    engine: string;
+    engine_params: Record<string, any>;
+}
+
 export interface Job extends Base {
     status: TaskStatus;
     input_path: string;
     output_path: string;
     target_format: string;
-    params: string;
+    params: TranscodeParams;
     progress: number;
     error_message?: string;
     owner_id: string;

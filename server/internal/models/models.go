@@ -3,6 +3,7 @@ package models
 import (
 	"time"
 
+	"transcoder/server/internal/transcode"
 	"transcoder/server/pkg/util"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ func (b *Base) BeforeCreate(tx *gorm.DB) (err error) {
 	}
 	return
 }
+
 
 type User struct {
 	Base
@@ -59,9 +61,9 @@ type Job struct {
 	Status       string    `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
 	InputPath    string    `json:"input_path"`
 	OutputPath   string    `json:"output_path"`
-	TargetFormat string    `json:"target_format"`
-	Params       string    `gorm:"type:json" json:"params"`
-	Progress     int       `gorm:"default:0" json:"progress"`
+	TargetFormat string          `json:"target_format"`
+	Params       transcode.Params `gorm:"type:json" json:"params"`
+	Progress     int             `gorm:"default:0" json:"progress"`
 	ErrorMessage string    `json:"error_message,omitempty"`
 	OwnerID      uuid.UUID `gorm:"not null" json:"owner_id"`
 	Owner        User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
@@ -88,9 +90,9 @@ type Task struct {
 type Workflow struct {
 	Base
 	Name         string    `gorm:"not null" json:"name"`
-	TargetFormat string    `gorm:"not null" json:"target_format"`
-	Params       string    `gorm:"type:json" json:"params"`
-	OwnerID      uuid.UUID `gorm:"not null" json:"owner_id"`
+	TargetFormat string          `gorm:"not null" json:"target_format"`
+	Params       transcode.Params `gorm:"type:json" json:"params"`
+	OwnerID      uuid.UUID       `gorm:"not null" json:"owner_id"`
 	Owner        User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 	Jobs         []Job     `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
 	Tasks        []Task    `gorm:"foreignKey:WorkflowID" json:"tasks,omitempty"`

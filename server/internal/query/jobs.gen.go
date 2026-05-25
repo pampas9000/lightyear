@@ -35,7 +35,7 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 	_job.InputPath = field.NewString(tableName, "input_path")
 	_job.OutputPath = field.NewString(tableName, "output_path")
 	_job.TargetFormat = field.NewString(tableName, "target_format")
-	_job.Params = field.NewString(tableName, "params")
+	_job.Params = field.NewField(tableName, "params")
 	_job.Progress = field.NewInt(tableName, "progress")
 	_job.ErrorMessage = field.NewString(tableName, "error_message")
 	_job.OwnerID = field.NewField(tableName, "owner_id")
@@ -257,7 +257,7 @@ type job struct {
 	InputPath    field.String
 	OutputPath   field.String
 	TargetFormat field.String
-	Params       field.String
+	Params       field.Field
 	Progress     field.Int
 	ErrorMessage field.String
 	OwnerID      field.Field
@@ -297,7 +297,7 @@ func (j *job) updateTableName(table string) *job {
 	j.InputPath = field.NewString(table, "input_path")
 	j.OutputPath = field.NewString(table, "output_path")
 	j.TargetFormat = field.NewString(table, "target_format")
-	j.Params = field.NewString(table, "params")
+	j.Params = field.NewField(table, "params")
 	j.Progress = field.NewInt(table, "progress")
 	j.ErrorMessage = field.NewString(table, "error_message")
 	j.OwnerID = field.NewField(table, "owner_id")

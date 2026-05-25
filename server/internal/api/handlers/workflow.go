@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 
+	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/workflow"
 
@@ -29,9 +30,9 @@ func (h *WorkflowHandler) Install(router fiber.Router) {
 }
 
 type CreateWorkflowRequest struct {
-	Name         string         `json:"name"`
-	TargetFormat string         `json:"targetFormat"`
-	Params       map[string]any `json:"params,omitempty"`
+	Name         string                 `json:"name"`
+	TargetFormat string                 `json:"targetFormat"`
+	Params       transcode.Params `json:"params,omitempty"`
 }
 
 func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {

@@ -33,7 +33,7 @@ func newWorkflow(db *gorm.DB, opts ...gen.DOOption) workflow {
 	_workflow.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_workflow.Name = field.NewString(tableName, "name")
 	_workflow.TargetFormat = field.NewString(tableName, "target_format")
-	_workflow.Params = field.NewString(tableName, "params")
+	_workflow.Params = field.NewField(tableName, "params")
 	_workflow.OwnerID = field.NewField(tableName, "owner_id")
 	_workflow.Jobs = workflowHasManyJobs{
 		db: db.Session(&gorm.Session{}),
@@ -232,7 +232,7 @@ type workflow struct {
 	UpdatedAt    field.Time
 	Name         field.String
 	TargetFormat field.String
-	Params       field.String
+	Params       field.Field
 	OwnerID      field.Field
 	Jobs         workflowHasManyJobs
 
@@ -260,7 +260,7 @@ func (w *workflow) updateTableName(table string) *workflow {
 	w.UpdatedAt = field.NewTime(table, "updated_at")
 	w.Name = field.NewString(table, "name")
 	w.TargetFormat = field.NewString(table, "target_format")
-	w.Params = field.NewString(table, "params")
+	w.Params = field.NewField(table, "params")
 	w.OwnerID = field.NewField(table, "owner_id")
 
 	w.fillFieldMap()

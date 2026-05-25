@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Uppy } from '@uppy/core'
 import AwsS3 from '@uppy/aws-s3'
@@ -27,7 +27,13 @@ import {
     FileVideo,
     FileCode,
     UploadCloud,
-    AlertCircle
+    AlertCircle,
+    Sliders,
+    Settings,
+    Layers,
+    Zap,
+    Gauge,
+    HardDrive
 } from 'lucide-vue-next'
 
 useHead({
@@ -39,7 +45,114 @@ const api = useApi()
 
 // Form state
 const targetFormat = ref('avif')
-const quality = ref(80)
+
+const defaultEngines: Record<string, string> = {
+    avif: 'libavif:avif',
+    webp: 'libwebp:webp',
+    jpeg: 'libjpeg:jpeg',
+    png: 'libpng:png',
+    jxl: 'libjxl:jxl'
+}
+
+const selectedEngine = ref('libavif:avif')
+
+const templates: Record<string, Record<string, Record<string, any>>> = {
+    'libavif:avif': {
+        size: { quality: 65, speed: 4, sharp_yuv: true },
+        balanced: { quality: 75, speed: 6, sharp_yuv: true },
+        speed: { quality: 75, speed: 8, sharp_yuv: false }
+    },
+    'libheif:avif': {
+        size: { quality: 60, chroma_downsampling: 'sharp-yuv' },
+        balanced: { quality: 70, chroma_downsampling: 'sharp-yuv' },
+        speed: { quality: 75, chroma_downsampling: 'average' }
+    },
+    'libwebp:webp': {
+        size: { quality: 75, lossless: false, method: 6 },
+        balanced: { quality: 80, lossless: false, method: 4 },
+        speed: { quality: 80, lossless: false, method: 2 }
+    },
+    'libjpeg:jpeg': {
+        size: { quality: 75 },
+        balanced: { quality: 85 },
+        speed: { quality: 85 }
+    },
+    'libpng:png': {
+        size: { compression_level: 9 },
+        balanced: { compression_level: 6 },
+        speed: { compression_level: 1 }
+    },
+    'libjxl:jxl': {
+        size: { distance: 1.5, effort: 7, progressive: true },
+        balanced: { distance: 1.0, effort: 5, progressive: true },
+        speed: { distance: 1.0, effort: 3, progressive: false }
+    }
+}
+
+const expertMode = ref(false)
+const selectedProfile = ref<'size' | 'balanced' | 'speed' | 'custom'>('balanced')
+const engineParams = ref<Record<string, any>>({ quality: 75, speed: 6, sharp_yuv: true })
+
+// Auto-switch engine when target format changes
+watch(targetFormat, (newFormat) => {
+    const defaultEngine = defaultEngines[newFormat] || 'libavif:avif'
+    selectedEngine.value = defaultEngine
+    resetParamsToProfile()
+})
+
+// Reset params when engine changes
+watch(selectedEngine, () => {
+    resetParamsToProfile()
+})
+
+const isApplyingTemplate = ref(false)
+const resetParamsToProfile = () => {
+    isApplyingTemplate.value = true
+    const engineTemplates = templates[selectedEngine.value]
+    if (engineTemplates && selectedProfile.value !== 'custom') {
+        const profileData = engineTemplates[selectedProfile.value]
+        if (profileData) {
+            engineParams.value = JSON.parse(JSON.stringify(profileData))
+        }
+    }
+    isApplyingTemplate.value = false
+}
+
+// Reset params when profile changes
+watch(selectedProfile, (newProfile) => {
+    if (newProfile !== 'custom') {
+        resetParamsToProfile()
+    }
+})
+
+// Check if manually modified params match any template profile
+const checkProfileMatch = () => {
+    if (isApplyingTemplate.value) return
+    const engineTemplates = templates[selectedEngine.value]
+    if (!engineTemplates) return
+
+    let matchedProfile: 'size' | 'balanced' | 'speed' | 'custom' = 'custom'
+    for (const profile of ['size', 'balanced', 'speed'] as const) {
+        const templateData = engineTemplates[profile]
+        let match = true
+        for (const key in templateData) {
+            if (engineParams.value[key] !== templateData[key]) {
+                match = false
+                break
+            }
+        }
+        if (match) {
+            matchedProfile = profile
+            break
+        }
+    }
+    selectedProfile.value = matchedProfile
+}
+
+// Deep watch engineParams for manual changes
+watch(engineParams, () => {
+    checkProfileMatch()
+}, { deep: true })
 
 // Uppy state
 const files = ref<any[]>([])
@@ -136,7 +249,7 @@ onMounted(() => {
         if (key) {
             uploadedKeys.value.push({
                 inputPath: key,
-                outputPath: key.replace(/\.[^/.]+$/, "") + "." + targetFormat.value
+                outputPath: key.replace(/\.[^/.]+$/, "") + "." + targetFormat.value.toLowerCase()
             })
         }
     })
@@ -205,9 +318,10 @@ const submitTask = async () => {
             method: 'POST',
             body: {
                 items: uploadedKeys.value,
-                target_format: targetFormat.value,
+                target_format: targetFormat.value.toUpperCase(),
                 params: {
-                    quality: quality.value,
+                    engine: selectedEngine.value,
+                    engine_params: engineParams.value
                 }
             }
         })
@@ -271,15 +385,32 @@ const handleDrop = (e: DragEvent) => {
 
         <div class="grid gap-8">
             <!-- Parameters Card -->
-            <Card class="border-slate-200/60 dark:border-slate-800/60 shadow-sm overflow-hidden">
-                <CardHeader class="px-8 pt-8 pb-4">
-                    <CardTitle class="text-xl font-bold">{{ $t('new_task.params') }}</CardTitle>
+            <Card class="border-slate-200/60 dark:border-slate-800/60 shadow-sm overflow-hidden bg-white dark:bg-slate-900">
+                <CardHeader class="px-8 pt-8 pb-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
+                    <div class="space-y-1">
+                        <CardTitle class="text-xl font-bold flex items-center gap-2">
+                            <Settings class="w-5 h-5 text-blue-500" />
+                            {{ $t('new_task.params') }}
+                        </CardTitle>
+                        <p class="text-xs text-slate-500 font-medium">Configure image optimization and transcoding parameters</p>
+                    </div>
+                    <button 
+                        @click="expertMode = !expertMode" 
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200"
+                        :class="expertMode ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 border-blue-200 dark:border-blue-900/50' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-600 border-slate-200 dark:border-slate-700'"
+                    >
+                        <Sliders class="w-3.5 h-3.5" />
+                        Expert Mode
+                    </button>
                 </CardHeader>
-                <CardContent class="px-8 pb-8">
-                    <div class="grid gap-8 md:grid-cols-2">
+                <CardContent class="px-8 py-6 space-y-8">
+                    <!-- Target Format & Engine Selection -->
+                    <div class="grid gap-6 md:grid-cols-2">
                         <div class="space-y-3">
-                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{
-                                $t('new_task.target_format') }}</Label>
+                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                <Layers class="w-4 h-4 text-slate-400" />
+                                {{ $t('new_task.target_format') }}
+                            </Label>
                             <Select v-model="targetFormat">
                                 <SelectTrigger
                                     class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 focus:ring-blue-500/20">
@@ -295,12 +426,242 @@ const handleDrop = (e: DragEvent) => {
                             </Select>
                         </div>
 
-                        <div class="space-y-3">
-                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                {{ $t('new_task.quality') }} (0-100)
+                        <!-- Engine Select (expert mode only) -->
+                        <div v-if="expertMode" class="space-y-3">
+                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                <Settings class="w-4 h-4 text-slate-400" />
+                                Engine
                             </Label>
-                            <Input type="number" v-model="quality" min="0" max="100"
-                                class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 focus:ring-blue-500/20" />
+                            <Select v-model="selectedEngine">
+                                <SelectTrigger
+                                    class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 focus:ring-blue-500/20">
+                                    <SelectValue placeholder="Select engine" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <template v-if="targetFormat === 'avif'">
+                                        <SelectItem value="libavif:avif">libavif (Official)</SelectItem>
+                                        <SelectItem value="libheif:avif">libheif (avifenc)</SelectItem>
+                                    </template>
+                                    <template v-else-if="targetFormat === 'webp'">
+                                        <SelectItem value="libwebp:webp">libwebp</SelectItem>
+                                    </template>
+                                    <template v-else-if="targetFormat === 'jpeg'">
+                                        <SelectItem value="libjpeg:jpeg">libjpeg</SelectItem>
+                                    </template>
+                                    <template v-else-if="targetFormat === 'png'">
+                                        <SelectItem value="libpng:png">libpng</SelectItem>
+                                    </template>
+                                    <template v-else-if="targetFormat === 'jxl'">
+                                        <SelectItem value="libjxl:jxl">libjxl</SelectItem>
+                                    </template>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <!-- Optimize Profile Presets -->
+                    <div class="space-y-3">
+                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Optimize Template</Label>
+                        <div class="grid grid-cols-4 gap-3 p-1 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                            <button 
+                                @click="selectedProfile = 'balanced'"
+                                class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
+                                :class="selectedProfile === 'balanced' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+                            >
+                                <Gauge class="w-4 h-4 shrink-0" />
+                                <span>Balanced</span>
+                            </button>
+                            <button 
+                                @click="selectedProfile = 'size'"
+                                class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
+                                :class="selectedProfile === 'size' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+                            >
+                                <HardDrive class="w-4 h-4 shrink-0" />
+                                <span>Size First</span>
+                            </button>
+                            <button 
+                                @click="selectedProfile = 'speed'"
+                                class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
+                                :class="selectedProfile === 'speed' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+                            >
+                                <Zap class="w-4 h-4 shrink-0" />
+                                <span>Speed First</span>
+                            </button>
+                            <button 
+                                disabled
+                                class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold border border-transparent"
+                                :class="selectedProfile === 'custom' ? 'bg-blue-50/50 dark:bg-blue-950/20 text-amber-600 dark:text-amber-400 border-amber-200/40 dark:border-amber-900/30' : 'text-slate-300 dark:text-slate-600 opacity-60'"
+                            >
+                                <Sliders class="w-4 h-4 shrink-0" />
+                                <span>Custom</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Parameters Controls -->
+                    <div class="border-t border-slate-100 dark:border-slate-800 pt-6 space-y-6">
+                        <!-- Quality Option (Universal for most engines except PNG / JXL) -->
+                        <div v-if="selectedEngine !== 'libpng:png' && selectedEngine !== 'libjxl:jxl'" class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                    Quality
+                                </Label>
+                                <span class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                    {{ engineParams.quality }}
+                                </span>
+                            </div>
+                            <input 
+                                type="range" 
+                                v-model.number="engineParams.quality" 
+                                min="0" 
+                                max="100" 
+                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                            />
+                            <p class="text-xs text-slate-400 font-medium">Higher quality values result in better details but larger file sizes.</p>
+                        </div>
+
+                        <!-- Distance Option (JXL exclusive) -->
+                        <div v-if="selectedEngine === 'libjxl:jxl'" class="space-y-3">
+                            <div class="flex justify-between items-center">
+                                <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                    Distance (Max visual error)
+                                </Label>
+                                <span class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                    {{ engineParams.distance }}
+                                </span>
+                            </div>
+                            <input 
+                                type="range" 
+                                v-model.number="engineParams.distance" 
+                                min="0" 
+                                max="5" 
+                                step="0.1" 
+                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                            />
+                            <p class="text-xs text-slate-400 font-medium">0.0 is lossless, 1.0 is visually lossless. Higher distance values mean smaller files and higher degradation.</p>
+                        </div>
+
+                        <!-- Advanced Parameters Grid (expert mode only) -->
+                        <div v-if="expertMode" class="grid gap-6 md:grid-cols-2 bg-slate-50/50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                            <!-- libavif:avif settings -->
+                            <template v-if="selectedEngine === 'libavif:avif'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Speed</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.speed }} / 10</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        v-model.number="engineParams.speed" 
+                                        min="0" 
+                                        max="10" 
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                                    />
+                                    <p class="text-[10px] text-slate-400">0 is slowest (highest compression), 10 is fastest (larger size).</p>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div class="space-y-0.5">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Sharp YUV</Label>
+                                        <p class="text-[10px] text-slate-400">Improve edge details and color matching</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="engineParams.sharp_yuv" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                            </template>
+
+                            <!-- libheif:avif settings -->
+                            <template v-if="selectedEngine === 'libheif:avif'">
+                                <div class="space-y-3">
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Chroma Downsampling</Label>
+                                    <Select v-model="engineParams.chroma_downsampling">
+                                        <SelectTrigger
+                                            class="h-10 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                                            <SelectValue placeholder="Select method" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="nn">Nearest Neighbor (Fastest)</SelectItem>
+                                            <SelectItem value="average">Average (Smooth)</SelectItem>
+                                            <SelectItem value="sharp-yuv">Sharp YUV (Sharp edges)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </template>
+
+                            <!-- libwebp:webp settings -->
+                            <template v-if="selectedEngine === 'libwebp:webp'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Method (Complexity)</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.method }} / 6</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        v-model.number="engineParams.method" 
+                                        min="0" 
+                                        max="6" 
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                                    />
+                                    <p class="text-[10px] text-slate-400">0 is fastest, 6 is slowest/best quality compression.</p>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div class="space-y-0.5">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Lossless Mode</Label>
+                                        <p class="text-[10px] text-slate-400">Enforce mathematical pixel losslessness</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="engineParams.lossless" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                            </template>
+
+                            <!-- libpng:png settings -->
+                            <template v-if="selectedEngine === 'libpng:png'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Compression Level</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.compression_level }} / 9</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        v-model.number="engineParams.compression_level" 
+                                        min="0" 
+                                        max="9" 
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                                    />
+                                    <p class="text-[10px] text-slate-400">0 is uncompressed (largest file), 9 is max compression.</p>
+                                </div>
+                            </template>
+
+                            <!-- libjxl:jxl settings -->
+                            <template v-if="selectedEngine === 'libjxl:jxl'">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Effort</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.effort }} / 9</span>
+                                    </div>
+                                    <input 
+                                        type="range" 
+                                        v-model.number="engineParams.effort" 
+                                        min="1" 
+                                        max="9" 
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+                                    />
+                                    <p class="text-[10px] text-slate-400">1 is fastest, 9 is slowest/most optimized.</p>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div class="space-y-0.5">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Progressive</Label>
+                                        <p class="text-[10px] text-slate-400">Support progressive rendering</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="engineParams.progressive" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </CardContent>
