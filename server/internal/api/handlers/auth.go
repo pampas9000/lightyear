@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/config"
@@ -40,6 +41,7 @@ func (h *AuthHandler) Install(router fiber.Router) {
 	router.Post("/login", h.Login)
 	router.Get("/auth/:provider", h.OAuthLogin)
 	router.Get("/auth/:provider/callback", h.OAuthCallback)
+	router.Get("/auth/callback/:provider", h.OAuthCallback) // Support alternative callback URL formats like /api/auth/callback/github
 	router.Post("/logout", h.Logout)
 }
 
@@ -133,6 +135,7 @@ func (h *AuthHandler) OAuthCallback(c fiber.Ctx) error {
 
 	u, err := h.service.OAuthLogin(c.Context(), provider, code)
 	if err != nil {
+		slog.Error("OAuth login failed", "provider", provider, "error", err)
 		return c.Status(fiber.StatusUnauthorized).SendString("OAuth login failed.")
 	}
 

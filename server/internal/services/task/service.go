@@ -31,8 +31,8 @@ type CreateTaskInput struct {
 }
 
 type TaskItemInput struct {
-	InputPath  string
-	OutputPath string
+	InputPath  string `json:"input_path"`
+	OutputPath string `json:"output_path"`
 }
 
 type Service struct {
@@ -151,14 +151,48 @@ func (s *Service) GetTask(ctx context.Context, id uuid.UUID) (*models.Task, erro
 	return &t, nil
 }
 
-func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID) ([]models.Task, error) {
-	var tasks []models.Task
-	if err := s.db.WithContext(ctx).Preload("Jobs").Where("owner_id = ?", ownerID).Order("created_at desc").Find(&tasks).Error; err != nil {
-		return nil, err
-	}
-	return tasks, nil
+type ListTasksParams struct {
+	Count  int
+	Page   int
+	Status string
 }
 
+// ListTasks lists tasks for the given owner.
+//
+// It returns the tasks, the total count of tasks, and an error if any.
+func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID, params ListTasksParams) ([]models.Task, int64, error) {
+	var tasks []models.Task
+	var total int64
+
+	query := s.db.WithContext(ctx).Debug().Model(&models.Task{}).Where("owner_id = ?", ownerID)
+
+	if params.Status != "" {
+		query = query.Where("status = ?", params.Status)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var limit int = 20
+	var offset int = 0
+
+	if params.Count > 0 && params.Count <= 100 {
+		limit = params.Count
+	}
+	if params.Page > 0 {
+		offset = (params.Page - 1) * limit
+	}
+
+	if err := query.Preload("Jobs").Order("created_at DESC").Limit(limit).Offset(offset).Find(&tasks).Error; err != nil {
+		return nil, 0, err
+	}
+	return tasks, total, nil
+}
+
+// GetStats gets the stats for the given owner.
+//
+// It returns a map of status to count, and an error if any.
 func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (map[string]int, error) {
 	var results []struct {
 		Status string `gorm:"column:status"`

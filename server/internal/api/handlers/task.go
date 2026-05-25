@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"strconv"
 
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/task"
@@ -41,12 +42,32 @@ func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
 	}
 
-	results, err := h.service.ListTasks(c.Context(), ownerID)
+	pageStr := c.Query("page", "1")
+	countStr := c.Query("count", "20")
+	status := c.Query("status", "")
+
+	count, err := strconv.Atoi(countStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid limit.", map[string]any{"reason": err.Error()})
+	}
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid offset.", map[string]any{"reason": err.Error()})
+	}
+
+	results, total, err := h.service.ListTasks(c.Context(), ownerID, task.ListTasksParams{
+		Page:   page,
+		Count:  count,
+		Status: status,
+	})
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to list tasks.", map[string]any{"reason": err.Error()})
 	}
 
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", results)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", fiber.Map{
+		"tasks": results,
+		"total": total,
+	})
 }
 
 func (h *TaskHandler) GetStats(c fiber.Ctx) error {
@@ -69,9 +90,9 @@ func (h *TaskHandler) GetStats(c fiber.Ctx) error {
 }
 
 type CreateTaskRequest struct {
-	WorkflowID   *uuid.UUID           `json:"workflowId,omitempty"`
+	WorkflowID   *uuid.UUID           `json:"workflow_id,omitempty"`
 	Items        []task.TaskItemInput `json:"items"`
-	TargetFormat string               `json:"targetFormat,omitempty"`
+	TargetFormat string               `json:"target_format,omitempty"`
 	Params       map[string]any       `json:"params,omitempty"`
 }
 

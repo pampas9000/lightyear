@@ -121,9 +121,51 @@ func (s *Service) OAuthLogin(ctx context.Context, providerName string, code stri
 
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// Create new user and account
+				// 1. Check if a user with this email already exists
+				var existingUser models.User
+				err = tx.Where("email = ?", oauthUser.Email).First(&existingUser).Error
+				if err == nil {
+					// User exists! Link this OAuth account to the existing user
+					account = models.UserOauthAccount{
+						UserID:            existingUser.ID,
+						Provider:          providerName,
+						ProviderAccountID: oauthUser.ID,
+						Email:             oauthUser.Email,
+					}
+					if err := tx.Create(&account).Error; err != nil {
+						return fmt.Errorf("failed to create oauth account link: %w", err)
+					}
+					user = existingUser
+					return nil
+				}
+
+				if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+					return fmt.Errorf("failed to check existing user email: %w", err)
+				}
+
+				// 2. No user with this email exists. Let's create a new user. Ensure Username is unique.
+				username := oauthUser.Name
+				if username == "" {
+					username = oauthUser.Email // fallback
+				}
+				baseUsername := username
+				var tempUser models.User
+				suffix := 1
+				for {
+					err := tx.Where("username = ?", username).First(&tempUser).Error
+					if err != nil {
+						if errors.Is(err, gorm.ErrRecordNotFound) {
+							break // Username is unique!
+						}
+						return fmt.Errorf("failed to verify username uniqueness: %w", err)
+					}
+					// Username taken, append a number
+					username = fmt.Sprintf("%s-%d", baseUsername, suffix)
+					suffix++
+				}
+
 				user = models.User{
-					Username: oauthUser.Name, // Or generate a unique one
+					Username: username,
 					Email:    oauthUser.Email,
 				}
 				if err := tx.Create(&user).Error; err != nil {

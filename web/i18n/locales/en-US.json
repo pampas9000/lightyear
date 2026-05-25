@@ -47,6 +47,7 @@
     "add_files": "Add Files",
     "no_files": "No files selected",
     "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
+    "drop_files": "Drop files here to upload",
     "uploading": "Uploading {count} files...",
     "start_processing": "Start Processing",
     "processing": "Processing Upload...",

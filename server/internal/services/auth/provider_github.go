@@ -86,11 +86,34 @@ func (p *GithubProvider) Exchange(ctx context.Context, code string) (*OAuthUser,
 						Verified bool   `json:"verified"`
 					}
 					if err := json.Unmarshal(emailBody, &emails); err == nil {
+						// 1. Try to find primary verified email
 						for _, e := range emails {
 							if e.Primary && e.Verified {
 								ghUser.Email = e.Email
 								break
 							}
+						}
+						// 2. Fall back to any verified email
+						if ghUser.Email == "" {
+							for _, e := range emails {
+								if e.Verified {
+									ghUser.Email = e.Email
+									break
+								}
+							}
+						}
+						// 3. Fall back to any primary email
+						if ghUser.Email == "" {
+							for _, e := range emails {
+								if e.Primary {
+									ghUser.Email = e.Email
+									break
+								}
+							}
+						}
+						// 4. Fall back to the first email in the list
+						if ghUser.Email == "" && len(emails) > 0 {
+							ghUser.Email = emails[0].Email
 						}
 					}
 				}

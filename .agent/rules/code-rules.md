@@ -16,6 +16,10 @@ trigger: always_on
 
 ## Web
 - Use shadcn components when possible.
+- Type Safety for Backend APIs Responses.
+- Stale-while-revalidate: Use TanStack Query.
+- Virtual Scroll: Use TanStack Virtual.
+
 
 ## Rust
 -

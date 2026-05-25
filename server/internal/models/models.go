@@ -35,63 +35,63 @@ type User struct {
 
 type UserOauthAccount struct {
 	Base
-	UserID            uuid.UUID `gorm:"not null;uniqueIndex:idx_provider_account"`
-	User              User      `gorm:"foreignKey:UserID"`
-	Provider          string    `gorm:"not null;uniqueIndex:idx_provider_account"`
-	ProviderAccountID string    `gorm:"not null;uniqueIndex:idx_provider_account"`
-	Email             string
+	UserID            uuid.UUID `gorm:"not null;uniqueIndex:idx_provider_account" json:"user_id"`
+	User              User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	Provider          string    `gorm:"not null;uniqueIndex:idx_provider_account" json:"provider"`
+	ProviderAccountID string    `gorm:"not null;uniqueIndex:idx_provider_account" json:"provider_account_id"`
+	Email             string    `json:"email"`
 }
 
 type File struct {
 	Base
-	Name           string `gorm:"not null"`
-	Path           string `gorm:"not null"`
-	Size           int64
-	MimeType       string
-	OwnerID        uuid.UUID `gorm:"not null"`
-	Owner          User      `gorm:"foreignKey:OwnerID"`
-	InputToJobs    []Job     `gorm:"foreignKey:InputFileID"`
-	OutputFromJobs []Job     `gorm:"foreignKey:OutputFileID"`
+	Name           string    `gorm:"not null" json:"name"`
+	Path           string    `gorm:"not null" json:"path"`
+	Size           int64     `json:"size"`
+	MimeType       string    `json:"mime_type"`
+	OwnerID        uuid.UUID `gorm:"not null" json:"owner_id"`
+	Owner          User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	InputToJobs    []Job     `gorm:"foreignKey:InputFileID" json:"input_to_jobs,omitempty"`
+	OutputFromJobs []Job     `gorm:"foreignKey:OutputFileID" json:"output_from_jobs,omitempty"`
 }
 
 type Job struct {
 	Base
-	Status       string `gorm:"type:varchar(20);default:'PENDING'"`
-	InputPath    string
-	OutputPath   string
-	TargetFormat string
-	Params       string `gorm:"type:json"`
-	Progress     int    `gorm:"default:0"`
-	ErrorMessage string
-	OwnerID      uuid.UUID `gorm:"not null"`
-	Owner        User      `gorm:"foreignKey:OwnerID"`
-	TaskID       *uuid.UUID
-	Task         *Task `gorm:"foreignKey:TaskID"`
-	WorkflowID   *uuid.UUID
-	Workflow     *Workflow `gorm:"foreignKey:WorkflowID"`
-	InputFileID  *uuid.UUID
-	InputFile    *File `gorm:"foreignKey:InputFileID"`
-	OutputFileID *uuid.UUID
-	OutputFile   *File `gorm:"foreignKey:OutputFileID"`
+	Status       string    `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
+	InputPath    string    `json:"input_path"`
+	OutputPath   string    `json:"output_path"`
+	TargetFormat string    `json:"target_format"`
+	Params       string    `gorm:"type:json" json:"params"`
+	Progress     int       `gorm:"default:0" json:"progress"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+	OwnerID      uuid.UUID `gorm:"not null" json:"owner_id"`
+	Owner        User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	TaskID       *uuid.UUID `json:"task_id,omitempty"`
+	Task         *Task     `gorm:"foreignKey:TaskID" json:"task,omitempty"`
+	WorkflowID   *uuid.UUID `json:"workflow_id,omitempty"`
+	Workflow     *Workflow `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
+	InputFileID  *uuid.UUID `json:"input_file_id,omitempty"`
+	InputFile    *File     `gorm:"foreignKey:InputFileID" json:"input_file,omitempty"`
+	OutputFileID *uuid.UUID `json:"output_file_id,omitempty"`
+	OutputFile   *File     `gorm:"foreignKey:OutputFileID" json:"output_file,omitempty"`
 }
 
 type Task struct {
 	Base
-	Status     string    `gorm:"type:varchar(20);default:'PENDING'"`
-	OwnerID    uuid.UUID `gorm:"not null"`
-	Owner      User      `gorm:"foreignKey:OwnerID"`
-	Jobs       []Job     `gorm:"foreignKey:TaskID"`
-	WorkflowID *uuid.UUID
-	Workflow   *Workflow `gorm:"foreignKey:WorkflowID"`
+	Status     string     `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
+	OwnerID    uuid.UUID  `gorm:"not null" json:"owner_id"`
+	Owner      User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Jobs       []Job      `gorm:"foreignKey:TaskID" json:"jobs,omitempty"`
+	WorkflowID *uuid.UUID  `json:"workflow_id,omitempty"`
+	Workflow   *Workflow  `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
 }
 
 type Workflow struct {
 	Base
-	Name         string    `gorm:"not null"`
-	TargetFormat string    `gorm:"not null"`
-	Params       string    `gorm:"type:json"`
-	OwnerID      uuid.UUID `gorm:"not null"`
-	Owner        User      `gorm:"foreignKey:OwnerID"`
-	Jobs         []Job     `gorm:"foreignKey:WorkflowID"`
-	Tasks        []Task    `gorm:"foreignKey:WorkflowID"`
+	Name         string    `gorm:"not null" json:"name"`
+	TargetFormat string    `gorm:"not null" json:"target_format"`
+	Params       string    `gorm:"type:json" json:"params"`
+	OwnerID      uuid.UUID `gorm:"not null" json:"owner_id"`
+	Owner        User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Jobs         []Job     `gorm:"foreignKey:WorkflowID" json:"jobs,omitempty"`
+	Tasks        []Task    `gorm:"foreignKey:WorkflowID" json:"tasks,omitempty"`
 }

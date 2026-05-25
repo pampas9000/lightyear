@@ -2,6 +2,9 @@
 import { useAuth } from '~/composables/useAuth'
 import { useApi } from '~/composables/useApi'
 import { ref, onMounted, watch } from 'vue'
+import type { Task, TaskStats, ListTasksData } from '~/lib/types/task'
+import { TaskStatus } from '~/lib/types/task'
+import type { ApiResponse } from '~/lib/types/api'
 import {
     Activity, Clock, CheckCircle2, AlertCircle,
     Plus, Loader2, Calendar, RotateCcw,
@@ -32,14 +35,14 @@ useHead({
     title: "Overview | Transcoder",
 })
 
-const stats = ref({
+const stats = ref<TaskStats>({
     PENDING: 0,
     PROCESSING: 0,
     COMPLETED: 0,
     FAILED: 0
 })
 
-const tasks = ref<any[] | null>(null)
+const tasks = ref<Task[] | null>(null)
 const loading = ref(true)
 
 const fetchDashboardData = async () => {
@@ -51,16 +54,16 @@ const fetchDashboardData = async () => {
 
     loading.value = true
     try {
-        const [statsRes, tasksRes]: any = await Promise.all([
-            api('/tasks/stats'),
-            api('/tasks')
+        const [statsRes, tasksRes] = await Promise.all([
+            api<ApiResponse<TaskStats>>('/tasks/stats'),
+            api<ApiResponse<ListTasksData>>('/tasks')
         ])
 
         if (statsRes.success) {
             stats.value = statsRes.data
         }
         if (tasksRes.success) {
-            tasks.value = tasksRes.data
+            tasks.value = tasksRes.data.tasks || []
         }
     } catch (err) {
         console.error("Failed to fetch dashboard data:", err)
@@ -77,11 +80,11 @@ onMounted(() => {
     fetchDashboardData()
 })
 
-const getStatusStyle = (status: string) => {
+const getStatusStyle = (status: TaskStatus) => {
     switch (status) {
-        case 'COMPLETED': return 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:text-slate-400'
-        case 'FAILED': return 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400'
-        case 'PROCESSING': return 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400'
+        case TaskStatus.COMPLETED: return 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:text-slate-400'
+        case TaskStatus.FAILED: return 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400'
+        case TaskStatus.PROCESSING: return 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400'
         default: return 'bg-slate-50 text-slate-500 border-slate-100'
     }
 }
