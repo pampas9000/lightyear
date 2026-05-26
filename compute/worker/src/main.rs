@@ -172,7 +172,7 @@ async fn main() -> Result<()> {
     loop {
         let opts = redis::streams::StreamReadOptions::default()
             .group(group_name, &consumer_name)
-            .block(2000)
+            // .block(200)
             .count(1);
 
         let result: redis::RedisResult<redis::streams::StreamReadReply> = kv_connection
