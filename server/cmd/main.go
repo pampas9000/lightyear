@@ -101,6 +101,18 @@ func openDatabase(ctx context.Context, cfg config.DatabaseConfig) (*gorm.DB, err
 	}
 
 	if cfg.AutoMigrate {
+		// 1. Create custom enum type if not exists
+		createEnumSQL := `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_status') THEN CREATE TYPE job_status AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'); END IF; END $$;`
+		if err := db.Exec(createEnumSQL).Error; err != nil {
+			return nil, fmt.Errorf("create job_status enum: %w", err)
+		}
+
+		// 2. Convert existing varchar column to enum if table and column exist
+		alterColumnSQL := `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'jobs' AND column_name = 'status' AND data_type = 'character varying') THEN ALTER TABLE jobs ALTER COLUMN status DROP DEFAULT; ALTER TABLE jobs ALTER COLUMN status TYPE job_status USING status::job_status; ALTER TABLE jobs ALTER COLUMN status SET DEFAULT 'PENDING'::job_status; END IF; END $$;`
+		if err := db.Exec(alterColumnSQL).Error; err != nil {
+			return nil, fmt.Errorf("alter jobs status column to enum: %w", err)
+		}
+
 		if err := db.AutoMigrate(
 			&models.User{},
 			&models.UserOauthAccount{},

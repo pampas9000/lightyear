@@ -77,7 +77,7 @@ func (s *Service) CreateJob(ctx context.Context, input CreateJobInput) (*models.
 		InputPath:    normalized.InputPath,
 		OutputPath:   normalized.OutputPath,
 		TargetFormat: normalized.TargetFormat,
-		Status:       "PENDING",
+		Status:       models.JobPending,
 		Params:       normalized.Params,
 	}
 

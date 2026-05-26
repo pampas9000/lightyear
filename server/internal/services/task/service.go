@@ -121,7 +121,7 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		t := &models.Task{
 			OwnerID:            input.OwnerID,
-			Status:             "PENDING",
+			Status:             models.TaskPending,
 			WorkflowID:         input.WorkflowID,
 			IdempotencyKey:     input.IdempotencyKey,
 			RequestFingerprint: fingerprint,
@@ -171,7 +171,7 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 				InputPath:    inputFile.Path,
 				OutputPath:   outputPath,
 				TargetFormat: targetFormat,
-				Status:       "PENDING",
+				Status:       models.JobPending,
 				WorkflowID:   input.WorkflowID,
 				Params:       params,
 			}

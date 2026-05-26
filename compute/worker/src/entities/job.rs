@@ -25,7 +25,7 @@ pub struct Model {
     pub output_path: String,
     pub target_format: String,
     pub params: Option<serde_json::Value>,
-    pub progress: i32,
+    pub progress: i64,
     pub error_message: Option<String>,
     pub created_at: chrono::DateTime<chrono::FixedOffset>,
     pub updated_at: chrono::DateTime<chrono::FixedOffset>,

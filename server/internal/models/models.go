@@ -59,9 +59,27 @@ type File struct {
 	OutputFromJobs  []Job      `gorm:"foreignKey:OutputFileID" json:"output_from_jobs,omitempty"`
 }
 
+type JobStatus string
+
+const (
+	JobPending    JobStatus = "PENDING"
+	JobProcessing JobStatus = "PROCESSING"
+	JobCompleted  JobStatus = "COMPLETED"
+	JobFailed     JobStatus = "FAILED"
+)
+
+type TaskStatus string
+
+const (
+	TaskPending    TaskStatus = "PENDING"
+	TaskProcessing TaskStatus = "PROCESSING"
+	TaskCompleted  TaskStatus = "COMPLETED"
+	TaskFailed     TaskStatus = "FAILED"
+)
+
 type Job struct {
 	Base
-	Status       string    `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
+	Status       JobStatus `gorm:"type:job_status;default:'PENDING'" json:"status"`
 	InputPath    string    `json:"input_path"`
 	OutputPath   string    `json:"output_path"`
 	TargetFormat string          `json:"target_format"`
@@ -82,7 +100,7 @@ type Job struct {
 
 type Task struct {
 	Base
-	Status             string     `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
+	Status             TaskStatus `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
 	OwnerID            uuid.UUID  `gorm:"not null;uniqueIndex:idx_tasks_owner_idempotency,priority:1;column:owner_id" json:"owner_id"`
 	Owner              User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 	Jobs               []Job      `gorm:"foreignKey:TaskID" json:"jobs,omitempty"`
