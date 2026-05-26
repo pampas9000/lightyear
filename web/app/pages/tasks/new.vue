@@ -16,6 +16,12 @@ import {
     SelectTrigger,
     SelectValue
 } from '@/components/ui/select'
+import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger
+} from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -116,8 +122,105 @@ const resetParamsToProfile = () => {
             engineParams.value = JSON.parse(JSON.stringify(profileData))
         }
     }
+    // Initialize helper modes
+    if (selectedEngine.value === 'libjxl:jxl') {
+        if (engineParams.value.quality !== undefined) {
+            engineParams.value.mode = 'quality'
+        } else {
+            engineParams.value.mode = 'distance'
+        }
+    }
     isApplyingTemplate.value = false
 }
+
+const handleJxlModeChange = (newMode: string | number) => {
+    if (selectedEngine.value !== 'libjxl:jxl') return
+    const modeStr = String(newMode)
+    engineParams.value.mode = modeStr
+    if (modeStr === 'quality') {
+        delete engineParams.value.distance
+        if (engineParams.value.quality === undefined) {
+            engineParams.value.quality = 85
+        }
+    } else {
+        delete engineParams.value.quality
+        if (engineParams.value.distance === undefined) {
+            engineParams.value.distance = 1.0
+        }
+    }
+}
+
+const preparedEngineParams = computed(() => {
+    const params = JSON.parse(JSON.stringify(engineParams.value))
+
+    // For libavif:avif
+    if (selectedEngine.value === 'libavif:avif') {
+        const advanced: Record<string, number> = {}
+        let hasAdvanced = false
+
+        if (params.sharpness !== undefined && params.sharpness !== null && params.sharpness !== '') {
+            advanced.sharpness = Number(params.sharpness)
+            hasAdvanced = true
+        }
+        if (params.color_sharpness !== undefined && params.color_sharpness !== null && params.color_sharpness !== '') {
+            advanced.color_sharpness = Number(params.color_sharpness)
+            hasAdvanced = true
+        }
+        if (params.alpha_sharpness !== undefined && params.alpha_sharpness !== null && params.alpha_sharpness !== '') {
+            advanced.alpha_sharpness = Number(params.alpha_sharpness)
+            hasAdvanced = true
+        }
+
+        delete params.sharpness
+        delete params.color_sharpness
+        delete params.alpha_sharpness
+
+        if (hasAdvanced) {
+            params.advanced = advanced
+        }
+
+        if (params.jobs !== undefined && params.jobs !== null && params.jobs !== '') {
+            params.jobs = Number(params.jobs)
+        } else {
+            delete params.jobs
+        }
+
+        if (!params.use_custom_alpha_quality) {
+            delete params.alpha_quality
+        } else if (params.alpha_quality !== undefined && params.alpha_quality !== null && params.alpha_quality !== '') {
+            params.alpha_quality = Number(params.alpha_quality)
+        }
+        delete params.use_custom_alpha_quality
+
+        if (params.speed !== undefined && params.speed !== null && params.speed !== '') {
+            params.speed = Number(params.speed)
+        }
+    }
+
+    // For libjxl:jxl
+    if (selectedEngine.value === 'libjxl:jxl') {
+        delete params.mode
+
+        if (params.quality !== undefined && params.quality !== null && params.quality !== '') {
+            params.quality = Number(params.quality)
+        }
+        if (params.distance !== undefined && params.distance !== null && params.distance !== '') {
+            params.distance = Number(params.distance)
+        }
+        if (params.effort !== undefined && params.effort !== null && params.effort !== '') {
+            params.effort = Number(params.effort)
+        }
+    }
+
+    // Global clean up
+    for (const key in params) {
+        if (params[key] === undefined || params[key] === null || params[key] === '') {
+            delete params[key]
+        }
+    }
+
+    return params
+})
 
 // Reset params when profile changes
 watch(selectedProfile, (newProfile) => {
@@ -135,6 +238,8 @@ const checkProfileMatch = () => {
     let matchedProfile: 'size' | 'balanced' | 'speed' | 'custom' = 'custom'
     for (const profile of ['size', 'balanced', 'speed'] as const) {
         const templateData = engineTemplates[profile]
+        if (!templateData) continue
+
         let match = true
         for (const key in templateData) {
             if (engineParams.value[key] !== templateData[key]) {
@@ -142,6 +247,24 @@ const checkProfileMatch = () => {
                 break
             }
         }
+
+        // Also check if any additional configured key has a non-default/active value
+        if (match) {
+            for (const key in engineParams.value) {
+                if (key === 'mode' || key === 'use_custom_alpha_quality') continue
+                if (templateData[key] === undefined) {
+                    const val = engineParams.value[key]
+                    if (val !== undefined && val !== null && val !== '') {
+                        // Check if it represents an active setting (like jobs set, sharpness set, yuv not auto, etc.)
+                        if (key === 'yuv' && val === 'auto') continue
+                        if ((key === 'sharpness' || key === 'color_sharpness' || key === 'alpha_sharpness') && Number(val) === 0) continue
+                        match = false
+                        break
+                    }
+                }
+            }
+        }
+
         if (match) {
             matchedProfile = profile
             break
@@ -336,7 +459,7 @@ const submitTask = async () => {
                 target_format: targetFormat.value.toUpperCase(),
                 params: {
                     engine: selectedEngine.value,
-                    engine_params: engineParams.value
+                    engine_params: preparedEngineParams.value
                 }
             }
         })
@@ -546,22 +669,63 @@ const handleDrop = (e: DragEvent) => {
                                 sizes.</p>
                         </div>
 
-                        <!-- Distance Option (JXL exclusive) -->
-                        <div v-if="selectedEngine === 'libjxl:jxl'" class="space-y-3">
-                            <div class="flex justify-between items-center">
+                        <!-- JXL Quality / Distance Options -->
+                        <div v-if="selectedEngine === 'libjxl:jxl'" class="space-y-6">
+                            <div class="flex flex-col gap-2">
                                 <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                    Distance (Max visual error)
+                                    Encoding Mode
                                 </Label>
-                                <span
-                                    class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
-                                    {{ engineParams.distance }}
-                                </span>
+                                <Tabs :model-value="engineParams.mode || 'distance'"
+                                    @update:model-value="handleJxlModeChange" class="w-full">
+                                    <TabsList
+                                        class="grid grid-cols-2 w-full max-w-[400px] h-10 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                                        <TabsTrigger value="distance" class="rounded-lg text-xs font-bold py-1.5">Visual
+                                            Distance (d)
+                                        </TabsTrigger>
+                                        <TabsTrigger value="quality" class="rounded-lg text-xs font-bold py-1.5">Target
+                                            Quality (q)
+                                        </TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
                             </div>
-                            <input type="range" v-model.number="engineParams.distance" min="0" max="5" step="0.1"
-                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
-                            <p class="text-xs text-slate-400 font-medium">0.0 is lossless, 1.0 is visually lossless.
-                                Higher distance values
-                                mean smaller files and higher degradation.</p>
+
+                            <!-- Distance Control -->
+                            <div v-if="(engineParams.mode || 'distance') === 'distance'" class="space-y-3">
+                                <div class="flex justify-between items-center">
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                        Visual Distance
+                                    </Label>
+                                    <span
+                                        class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                        {{ engineParams.distance }}
+                                    </span>
+                                </div>
+                                <input type="range" v-model.number="engineParams.distance" min="0" max="15" step="0.1"
+                                    class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                <p class="text-xs text-slate-400 font-medium">
+                                    0.0 is lossless, 1.0 is visually lossless. Higher values mean smaller files and
+                                    higher degradation (max
+                                    15.0).
+                                </p>
+                            </div>
+
+                            <!-- Quality Control -->
+                            <div v-else class="space-y-3">
+                                <div class="flex justify-between items-center">
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                        Target Quality
+                                    </Label>
+                                    <span
+                                        class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                        {{ engineParams.quality }}
+                                    </span>
+                                </div>
+                                <input type="range" v-model.number="engineParams.quality" min="0" max="100"
+                                    class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                <p class="text-xs text-slate-400 font-medium">
+                                    0-100 scale, where 100 is mathematically lossless. Recommended range: 80-95.
+                                </p>
+                            </div>
                         </div>
 
                         <!-- Advanced Parameters Grid (expert mode only) -->
@@ -591,10 +755,109 @@ const handleDrop = (e: DragEvent) => {
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.sharp_yuv" class="sr-only peer">
-                                        <div
-                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
-                                        </div>
+                                            <div
+                                                class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                            </div>
                                     </label>
+                                </div>
+                                <div class="space-y-3">
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Chroma
+                                        Subsampling (YUV)</Label>
+                                    <Select v-model="engineParams.yuv">
+                                        <SelectTrigger
+                                            class="h-10 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                                            <SelectValue placeholder="Select YUV format" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="auto">Auto (Default)</SelectItem>
+                                            <SelectItem value="420">4:2:0 (Standard / Compact)</SelectItem>
+                                            <SelectItem value="422">4:2:2 (High color fidelity)</SelectItem>
+                                            <SelectItem value="444">4:4:4 (Lossless color / Sharp details)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p class="text-[10px] text-slate-400">Output chroma subsampling format. 4:2:0 is
+                                        recommended for compatibility.</p>
+                                </div>
+                                <div class="space-y-3">
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Jobs (Thread
+                                        Count)</Label>
+                                    <Input type="number" v-model.number="engineParams.jobs" :min="1"
+                                        placeholder="Auto (All threads)"
+                                        class="h-10 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus-visible:ring-blue-500/20" />
+                                    <p class="text-[10px] text-slate-400">Specify maximum encoding threads. Default uses
+                                        all available cores.</p>
+                                </div>
+                                <div
+                                    class="space-y-3 md:col-span-2 p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                                    <div class="flex items-center justify-between">
+                                        <div class="space-y-0.5">
+                                            <Label
+                                                class="text-sm font-semibold text-slate-700 dark:text-slate-300">Custom
+                                                Alpha Quality</Label>
+                                            <p class="text-[10px] text-slate-400">Enable customized quality setting
+                                                specifically for the transparency channel</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" v-model="engineParams.use_custom_alpha_quality"
+                                                class="sr-only peer">
+                                                <div
+                                                    class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                                </div>
+                                        </label>
+                                    </div>
+                                    <div v-if="engineParams.use_custom_alpha_quality"
+                                        class="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800/50 mt-3 animate-in fade-in duration-200">
+                                        <div class="flex justify-between items-center">
+                                            <Label
+                                                class="text-sm font-semibold text-slate-700 dark:text-slate-300">Alpha
+                                                Quality</Label>
+                                            <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                                engineParams.alpha_quality ?? 100 }} / 100</span>
+                                        </div>
+                                        <input type="range" v-model.number="engineParams.alpha_quality" min="0"
+                                            max="100"
+                                            class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    </div>
+                                </div>
+                                <div class="col-span-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                    <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">AOM
+                                        Advanced Tuning</h4>
+                                </div>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Sharpness</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.sharpness ?? 0 }} / 7</span>
+                                    </div>
+                                    <input type="range" v-model.number="engineParams.sharpness" min="0" max="7"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">Sharpness of the transform blocks (0-7,
+                                        default 0). Higher values reduce blur on line-art.</p>
+                                </div>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Color
+                                            Sharpness</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.color_sharpness ?? 0 }} / 7</span>
+                                    </div>
+                                    <input type="range" v-model.number="engineParams.color_sharpness" min="0" max="7"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">Sharpness specifically for color channels
+                                        (0-7). Higher values help with color bleeding.</p>
+                                </div>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Alpha
+                                            Sharpness</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.alpha_sharpness ?? 0 }} / 7</span>
+                                    </div>
+                                    <input type="range" v-model.number="engineParams.alpha_sharpness" min="0" max="7"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">Sharpness specifically for the alpha
+                                        transparency channel (0-7).</p>
                                 </div>
                             </template>
 
@@ -641,9 +904,9 @@ const handleDrop = (e: DragEvent) => {
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.lossless" class="sr-only peer">
-                                        <div
-                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
-                                        </div>
+                                            <div
+                                                class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                            </div>
                                     </label>
                                 </div>
                             </template>
@@ -672,11 +935,12 @@ const handleDrop = (e: DragEvent) => {
                                         <Label
                                             class="text-sm font-semibold text-slate-700 dark:text-slate-300">Effort</Label>
                                         <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
-                                            engineParams.effort }} / 9</span>
+                                            engineParams.effort }} / 10</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.effort" min="1" max="9"
+                                    <input type="range" v-model.number="engineParams.effort" min="1" max="10"
                                         class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
-                                    <p class="text-[10px] text-slate-400">1 is fastest, 9 is slowest/most optimized.</p>
+                                    <p class="text-[10px] text-slate-400">1 is fastest, 10 is slowest/most optimized.
+                                    </p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
@@ -687,9 +951,9 @@ const handleDrop = (e: DragEvent) => {
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.progressive" class="sr-only peer">
-                                        <div
-                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
-                                        </div>
+                                            <div
+                                                class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                            </div>
                                     </label>
                                 </div>
                             </template>
