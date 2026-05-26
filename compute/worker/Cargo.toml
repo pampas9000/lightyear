@@ -18,3 +18,10 @@ config.workspace = true
 validator.workspace = true
 dotenvy = "0.15.7"
 serde_json = "1.0.149"
+aws-config = { workspace = true, features = ["rustls", "behavior-version-latest"] }
+aws-sdk-s3 = { workspace = true, features = ["rustls"] }
+tempfile.workspace = true
+rustls.workspace = true
+
+
+

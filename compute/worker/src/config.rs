@@ -3,11 +3,16 @@ use dotenvy::dotenv;
 use serde::Deserialize;
 use validator::Validate;
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, Clone)]
 pub struct Settings {
     pub database_url: String,
     pub redis_url: String,
     pub worker_id: i32,
+    pub s3_endpoint: Option<String>,
+    pub s3_access_id: String,
+    pub s3_access_key: String,
+    pub s3_region: Option<String>,
+    pub s3_bucket: String,
 }
 
 impl Settings {
