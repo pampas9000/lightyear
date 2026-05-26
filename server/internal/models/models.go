@@ -51,7 +51,7 @@ type File struct {
 	Size            int64      `json:"size"`
 	MimeType        string     `json:"mime_type"`
 	Status          string     `gorm:"type:varchar(20);default:'UPLOADING'" json:"status"`
-	UploadID        string     `gorm:"type:varchar(255)" json:"upload_id,omitempty"`
+	UploadID        string     `gorm:"type:text" json:"upload_id,omitempty"`
 	UploadExpiresAt *time.Time `json:"upload_expires_at,omitempty"`
 	OwnerID         uuid.UUID  `gorm:"not null" json:"owner_id"`
 	Owner           User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
