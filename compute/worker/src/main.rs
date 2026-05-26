@@ -169,20 +169,24 @@ async fn main() -> Result<()> {
         stream_key, group_name
     );
 
+    let mut read_id = "0";
+    let mut failed_attempts = std::collections::HashMap::new();
+
     loop {
         let opts = redis::streams::StreamReadOptions::default()
             .group(group_name, &consumer_name)
-            // .block(200)
             .count(1);
 
         let result: redis::RedisResult<redis::streams::StreamReadReply> = kv_connection
-            .xread_options(&[stream_key], &[">"], &opts)
+            .xread_options(&[stream_key], &[read_id], &opts)
             .await;
 
         match result {
             Ok(reply) => {
+                let mut processed_any = false;
                 for stream in reply.keys {
                     for entry in stream.ids {
+                        processed_any = true;
                         let job_id_str: String = entry.get("job_id").unwrap_or_default();
                         if job_id_str.is_empty() {
                             println!("Received empty job_id field in stream entry: {}", entry.id);
@@ -192,18 +196,56 @@ async fn main() -> Result<()> {
                             continue;
                         }
 
-                        println!("Received job ID from stream: {}", job_id_str);
+                        println!("Received job ID from stream (read_id: {}): {}", read_id, job_id_str);
 
                         match handle_job_processing(&db, &s3_client, &settings.s3_bucket, &job_id_str).await {
                             Ok(_) => {
                                 let _: redis::RedisResult<()> = kv_connection
                                     .xack(stream_key, group_name, &[&entry.id])
                                     .await;
+                                failed_attempts.remove(&entry.id);
                             }
                             Err(e) => {
                                 eprintln!("Error processing job {} (retaining in stream): {}", job_id_str, e);
+                                let attempts = failed_attempts.entry(entry.id.clone()).or_insert(0);
+                                *attempts += 1;
+                                if *attempts >= 3 {
+                                    eprintln!("Job {} / Entry {} failed {} times. Acknowledging to avoid infinite loop.", job_id_str, entry.id, attempts);
+                                    
+                                    // Try to mark the job as FAILED in the database if possible
+                                    if let Ok(job_id) = uuid::Uuid::parse_str(&job_id_str) {
+                                        let active_job = entities::job::ActiveModel {
+                                            id: Set(job_id),
+                                            status: Set(JobStatus::Failed),
+                                            error_message: Set(Some(format!("Worker internal error: exceeded max retry attempts ({}). Original error: {}", attempts, e))),
+                                            updated_at: Set(chrono::Utc::now().into()),
+                                            ..Default::default()
+                                        };
+                                        if let Err(update_err) = active_job.update(&db).await {
+                                            eprintln!("Failed to update job status to Failed in DB: {}", update_err);
+                                        } else {
+                                            println!("Successfully marked job {} as Failed in DB.", job_id_str);
+                                        }
+                                    }
+
+                                    let _: redis::RedisResult<()> = kv_connection
+                                        .xack(stream_key, group_name, &[&entry.id])
+                                        .await;
+                                    failed_attempts.remove(&entry.id);
+                                }
                             }
                         }
+                    }
+                }
+
+                if !processed_any {
+                    if read_id == "0" {
+                        // Switch to reading new messages if no pending messages are found
+                        read_id = ">";
+                    } else {
+                        // Switch back to checking pending messages and sleep for a bit to avoid busy looping
+                        read_id = "0";
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                     }
                 }
             }
