@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Uppy } from '@uppy/core'
 import AwsS3 from '@uppy/aws-s3'
-import { useApi } from '~/composables/useApi'
+import { useApi, parseApiError } from '~/composables/useApi'
 import type { Task } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
 import type { MultipartUploadResponse, PartSignatureResponse } from '~/lib/types/s3'
@@ -278,6 +278,8 @@ watch(engineParams, () => {
     checkProfileMatch()
 }, { deep: true })
 
+
+
 // Uppy and Task Creation state
 const files = ref<any[]>([])
 const isUploading = ref(false)
@@ -387,7 +389,7 @@ onMounted(() => {
         const f = files.value.find((f) => f.id === file.id)
         if (f) {
             f.status = 'error'
-            f.error = error?.message || 'Unknown upload error'
+            f.error = parseApiError(error).userMessage
         }
     })
 
@@ -396,9 +398,10 @@ onMounted(() => {
         if (result.failed && result.failed.length > 0) {
             console.error('Some uploads failed:', result.failed)
             uploadSucceeded.value = false
-            toast.error('Upload failed', {
-                "description": `Failed to upload: ${result.failed.map((f: any) => f.name).join(', ')}. Please verify your network/CORS policy.`,
-                "position": "top-right",
+
+            toast.error($t('new_task.upload_failed'), {
+                description: $t('new_task.upload_failed_desc', { count: result.failed.length }),
+                position: "top-right",
             })
             return
         }
@@ -468,8 +471,8 @@ const submitTask = async () => {
         router.push('/')
     } catch (err) {
         console.error('Failed to create task:', err)
-        toast.error('Task creation failed', {
-            description: err instanceof Error ? err.message : String(err)
+        toast.error($t('new_task.task_creation_failed'), {
+            description: parseApiError(err).userMessage
         })
     } finally {
         isCreatingTask.value = false
@@ -1030,7 +1033,10 @@ const handleDrop = (e: DragEvent) => {
                                 </div>
                                 <div class="flex-1 truncate">
                                     <p class="text-sm font-semibold text-slate-900 dark:text-[#f7f8f8] truncate">{{ file.name }}</p>
-                                    <p class="text-[10px] font-bold text-slate-400 dark:text-[#8a8f98] mt-1 uppercase tracking-wider">
+                                    <p v-if="file.status === 'error' && file.error" class="text-xs font-medium text-red-500 mt-1 truncate" :title="file.error">
+                                        {{ file.error }}
+                                    </p>
+                                    <p v-else class="text-[10px] font-bold text-slate-400 dark:text-[#8a8f98] mt-1 uppercase tracking-wider">
                                         {{ (file.size / 1024 / 1024).toFixed(2) }} MB
                                     </p>
                                 </div>

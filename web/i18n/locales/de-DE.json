@@ -48,6 +48,9 @@
     "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
     "drop_files": "Dateien hier ablegen zum Hochladen",
     "uploading": "Uploading {count} files...",
+    "upload_failed": "Upload fehlgeschlagen",
+    "upload_failed_desc": "Hochladen von {count} Datei(en) fehlgeschlagen.",
+    "task_creation_failed": "Erstellung der Aufgabe fehlgeschlagen",
     "start_processing": "Start Processing",
     "processing": "Processing Upload...",
     "task_created": "Task Created"

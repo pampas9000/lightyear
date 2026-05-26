@@ -48,6 +48,9 @@
     "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
     "drop_files": "Déposez les fichiers ici pour les charger",
     "uploading": "Uploading {count} files...",
+    "upload_failed": "Échec de l'upload",
+    "upload_failed_desc": "Échec de l'upload pour {count} fichier(s).",
+    "task_creation_failed": "Échec de la création de la tâche",
     "start_processing": "Start Processing",
     "processing": "Processing Upload...",
     "task_created": "Task Created"

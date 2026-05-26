@@ -49,6 +49,9 @@
     "no_files_desc": "拖放文件到這裡，或點擊 \"添加文件\" 瀏覽。",
     "drop_files": "釋放檔案以在此處上傳",
     "uploading": "正在上傳 {count} 個文件...",
+    "upload_failed": "上傳失敗",
+    "upload_failed_desc": "有 {count} 個文件上傳失敗。",
+    "task_creation_failed": "任務創建失敗",
     "start_processing": "開始處理",
     "processing": "正在處理上傳...",
     "task_created": "任務已創建"
