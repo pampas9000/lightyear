@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"transcoder/server/internal/api"
 	"transcoder/server/internal/config"
@@ -71,6 +72,9 @@ func run() error {
 
 	// Initialize Storage Service with S3 Client
 	s3Service := storage.NewS3Service(s3Client)
+
+	// Start background task to clean up expired upload records
+	storage.StartCleanupTask(ctx, db, 1*time.Hour)
 
 	// Initialize Fiber App with Storage Service
 	app := newFiberApp(db, kv, config, s3Service)
