@@ -82,12 +82,14 @@ type Job struct {
 
 type Task struct {
 	Base
-	Status     string     `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
-	OwnerID    uuid.UUID  `gorm:"not null" json:"owner_id"`
-	Owner      User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
-	Jobs       []Job      `gorm:"foreignKey:TaskID" json:"jobs,omitempty"`
-	WorkflowID *uuid.UUID  `json:"workflow_id,omitempty"`
-	Workflow   *Workflow  `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
+	Status             string     `gorm:"type:varchar(20);default:'PENDING'" json:"status"`
+	OwnerID            uuid.UUID  `gorm:"not null;uniqueIndex:idx_tasks_owner_idempotency,priority:1;column:owner_id" json:"owner_id"`
+	Owner              User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Jobs               []Job      `gorm:"foreignKey:TaskID" json:"jobs,omitempty"`
+	WorkflowID         *uuid.UUID  `json:"workflow_id,omitempty"`
+	Workflow           *Workflow  `gorm:"foreignKey:WorkflowID" json:"workflow,omitempty"`
+	IdempotencyKey     *string    `gorm:"type:varchar(255);uniqueIndex:idx_tasks_owner_idempotency,priority:2;column:idempotency_key" json:"idempotency_key,omitempty"`
+	RequestFingerprint string     `gorm:"type:varchar(64);column:request_fingerprint" json:"request_fingerprint,omitempty"`
 }
 
 type Workflow struct {

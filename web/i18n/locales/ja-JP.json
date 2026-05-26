@@ -54,7 +54,8 @@
     "task_creation_failed": "タスク作成失敗",
     "start_processing": "処理を開始",
     "processing": "アップロードを処理中...",
-    "task_created": "タスクが作成されました"
+    "task_created": "タスクが作成されました",
+    "retry_creation": "タスク作成を再試行"
   },
   "status": {
     "PENDING": "保留中",

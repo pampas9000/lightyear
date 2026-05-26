@@ -4,9 +4,9 @@ import (
 	"errors"
 	"strconv"
 
-	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/task"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -91,10 +91,11 @@ func (h *TaskHandler) GetStats(c fiber.Ctx) error {
 }
 
 type CreateTaskRequest struct {
-	WorkflowID   *uuid.UUID             `json:"workflow_id,omitempty"`
-	Items        []task.TaskItemInput   `json:"items"`
-	TargetFormat string                 `json:"target_format,omitempty"`
-	Params       transcode.Params `json:"params,omitempty"`
+	WorkflowID     *uuid.UUID           `json:"workflow_id,omitempty"`
+	Items          []task.TaskItemInput `json:"items"`
+	TargetFormat   string               `json:"target_format,omitempty"`
+	Params         *transcode.Params    `json:"params,omitempty"`
+	IdempotencyKey string               `json:"idempotency_key,omitempty"`
 }
 
 func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
@@ -113,12 +114,23 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
 	}
 
+	var idempotencyPtr *string
+	if req.IdempotencyKey != "" {
+		idempotencyPtr = &req.IdempotencyKey
+	}
+
+	var transcodeParams transcode.Params
+	if req.Params != nil {
+		transcodeParams = *req.Params
+	}
+
 	created, err := h.service.CreateTask(c.Context(), task.CreateTaskInput{
-		OwnerID:      ownerID,
-		WorkflowID:   req.WorkflowID,
-		Items:        req.Items,
-		TargetFormat: req.TargetFormat,
-		Params:       req.Params,
+		OwnerID:        ownerID,
+		WorkflowID:     req.WorkflowID,
+		Items:          req.Items,
+		TargetFormat:   req.TargetFormat,
+		Params:         transcodeParams,
+		IdempotencyKey: idempotencyPtr,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Task created successfully.", created)
@@ -129,6 +141,12 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", validationDetail{Field: "items", Reason: "empty"})
 	case errors.Is(err, task.ErrWorkflowNotFound):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", validationDetail{Field: "workflowId", Reason: "not found"})
+	case errors.Is(err, task.ErrInvalidFileID):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "file_id is required and must not be nil.", validationDetail{Field: "items", Reason: "file_id is required"})
+	case errors.Is(err, task.ErrFileNotFound):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "input file not found or not uploaded.", validationDetail{Field: "items", Reason: "input file not found or not uploaded"})
+	case errors.Is(err, task.ErrIdempotencyConflict):
+		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, "Idempotency key conflict: request payload mismatch.")
 	}
 
 	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create task.", map[string]any{"reason": err.Error()})

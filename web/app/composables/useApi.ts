@@ -76,24 +76,24 @@ export const parseApiError = (err: unknown): ApiError => {
     // If there is no backend-supplied message, try to map from the code or status
     if (!data || !data.message) {
         if (code && friendlyMessages[code]) {
-            userMessage = friendlyMessages[code];
+            userMessage = friendlyMessages[code] || 'An unexpected error occurred';
         } else {
             // Fallback for standard HTTP status codes
             if (status === 401) {
                 code = 'error.auth.unauthorized';
-                userMessage = friendlyMessages[code];
+                userMessage = friendlyMessages[code] || 'You are not logged in. Please sign in.';
             } else if (status === 403) {
                 code = 'error.auth.forbidden';
-                userMessage = friendlyMessages[code];
+                userMessage = friendlyMessages[code] || 'You do not have permission to perform this action.';
             } else if (status === 404) {
                 code = 'error.not_found';
-                userMessage = friendlyMessages[code];
+                userMessage = friendlyMessages[code] || 'The requested resource was not found.';
             } else if (status === 500) {
                 code = 'error.internal';
-                userMessage = friendlyMessages[code];
+                userMessage = friendlyMessages[code] || 'A server-side error occurred. Please try again.';
             } else if (status >= 502 && status <= 504) {
                 code = 'error.gateway';
-                userMessage = friendlyMessages[code];
+                userMessage = friendlyMessages[code] || 'The server is temporarily unreachable. Please check your connection.';
             } else if (fetchErr.message) {
                 // Clean up FetchError message formatting prefix if present
                 let cleanMsg = String(fetchErr.message);

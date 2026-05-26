@@ -54,7 +54,8 @@
     "task_creation_failed": "任務創建失敗",
     "start_processing": "開始處理",
     "processing": "正在處理上傳...",
-    "task_created": "任務已創建"
+    "task_created": "任務已創建",
+    "retry_creation": "重試創建任務"
   },
   "status": {
     "PENDING": "等待中",

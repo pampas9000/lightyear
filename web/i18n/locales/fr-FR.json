@@ -53,7 +53,8 @@
     "task_creation_failed": "Échec de la création de la tâche",
     "start_processing": "Start Processing",
     "processing": "Processing Upload...",
-    "task_created": "Task Created"
+    "task_created": "Task Created",
+    "retry_creation": "Réessayer la création de la tâche"
   },
   "status": {
     "PENDING": "Pending",

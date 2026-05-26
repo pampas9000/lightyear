@@ -2,13 +2,17 @@ package task
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/task"
 	"transcoder/server/internal/transcode"
+	"transcoder/server/pkg/util"
 
 	"gorm.io/gorm"
 
@@ -17,22 +21,39 @@ import (
 )
 
 var (
-	ErrNoItemsProvided  = errors.New("at least one item is required to create a task")
-	ErrWorkflowNotFound = errors.New("workflow not found")
+	ErrNoItemsProvided     = errors.New("at least one item is required to create a task")
+	ErrWorkflowNotFound    = errors.New("workflow not found")
+	ErrInvalidFileID       = errors.New("file_id is required and must not be nil")
+	ErrFileNotFound        = errors.New("file not found or not uploaded")
+	ErrIdempotencyConflict = errors.New("idempotency key conflict: request payload mismatch")
 )
 
 type CreateTaskInput struct {
-	OwnerID    uuid.UUID
-	WorkflowID *uuid.UUID
-	Items      []TaskItemInput
-
-	TargetFormat string
-	Params       transcode.Params
+	OwnerID        uuid.UUID
+	WorkflowID     *uuid.UUID
+	Items          []TaskItemInput
+	TargetFormat   string
+	Params         transcode.Params
+	IdempotencyKey *string
 }
 
 type TaskItemInput struct {
-	InputPath  string `json:"input_path"`
-	OutputPath string `json:"output_path"`
+	FileID uuid.UUID `json:"file_id"`
+}
+
+// Fingerprint calculates a SHA-256 hash representing the task creation request details.
+func (input *CreateTaskInput) Fingerprint() string {
+	var sb strings.Builder
+	sb.WriteString(input.TargetFormat)
+	sb.WriteString(":")
+	for _, item := range input.Items {
+		sb.WriteString(item.FileID.String())
+		sb.WriteString(",")
+	}
+	sb.WriteString(fmt.Sprintf(":%s", input.Params.Engine))
+	sb.WriteString(fmt.Sprintf(":%v", input.Params.EngineParams))
+	hash := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(hash[:])
 }
 
 type Service struct {
@@ -49,6 +70,25 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 		return nil, ErrNoItemsProvided
 	}
 
+	var idempotencyStr string
+	if input.IdempotencyKey != nil {
+		idempotencyStr = *input.IdempotencyKey
+	}
+
+	fingerprint := input.Fingerprint()
+
+	if idempotencyStr != "" {
+		var existing models.Task
+		if err := s.db.WithContext(ctx).Preload("Jobs").Where("idempotency_key = ? AND owner_id = ?", idempotencyStr, input.OwnerID).First(&existing).Error; err == nil {
+			if existing.RequestFingerprint != fingerprint {
+				return nil, ErrIdempotencyConflict
+			}
+			return &existing, nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("check idempotency: %w", err)
+		}
+	}
+
 	var targetFormat string
 	var params transcode.Params
 
@@ -60,10 +100,10 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 			}
 			return nil, fmt.Errorf("fetch workflow: %w", err)
 		}
-		targetFormat = wf.TargetFormat
+		targetFormat = strings.ToUpper(strings.TrimSpace(wf.TargetFormat))
 		params = wf.Params
 	} else {
-		targetFormat = input.TargetFormat
+		targetFormat = strings.ToUpper(strings.TrimSpace(input.TargetFormat))
 		params = input.Params
 	}
 
@@ -80,9 +120,11 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		t := &models.Task{
-			OwnerID:    input.OwnerID,
-			Status:     "PENDING",
-			WorkflowID: input.WorkflowID,
+			OwnerID:            input.OwnerID,
+			Status:             "PENDING",
+			WorkflowID:         input.WorkflowID,
+			IdempotencyKey:     input.IdempotencyKey,
+			RequestFingerprint: fingerprint,
 		}
 
 		if err := tx.Create(t).Error; err != nil {
@@ -92,15 +134,30 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 
 		var jobs []models.Job
 		for _, item := range input.Items {
-			var inputFile models.File
-			if err := tx.Where("path = ? AND owner_id = ? AND status = ?", item.InputPath, input.OwnerID, "UPLOADED").First(&inputFile).Error; err != nil {
-				return fmt.Errorf("find input file %q (must be UPLOADED): %w", item.InputPath, err)
+			if item.FileID == uuid.Nil {
+				return ErrInvalidFileID
 			}
 
+			var inputFile models.File
+			if err := tx.Where("id = ? AND owner_id = ? AND status = ?", item.FileID, input.OwnerID, "UPLOADED").First(&inputFile).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrFileNotFound
+				}
+				return fmt.Errorf("find input file %q (must be UPLOADED): %w", item.FileID, err)
+			}
+
+			outputFileID := util.NewUuidV7()
+			outputPath := fmt.Sprintf("outputs/%s/%s.%s", input.OwnerID.String(), outputFileID.String(), strings.ToLower(targetFormat))
+			outputName := strings.TrimSuffix(inputFile.Name, filepath.Ext(inputFile.Name)) + "." + strings.ToLower(targetFormat)
+
 			outputFile := models.File{
+				Base: models.Base{
+					ID: outputFileID,
+				},
 				OwnerID: input.OwnerID,
-				Name:    filepath.Base(item.OutputPath),
-				Path:    item.OutputPath,
+				Name:    outputName,
+				Path:    outputPath,
+				Status:  "GENERATING",
 			}
 			if err := tx.Create(&outputFile).Error; err != nil {
 				return fmt.Errorf("create output file: %w", err)
@@ -111,8 +168,8 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 				TaskID:       &t.ID,
 				InputFileID:  &inputFile.ID,
 				OutputFileID: &outputFile.ID,
-				InputPath:    item.InputPath,
-				OutputPath:   item.OutputPath,
+				InputPath:    inputFile.Path,
+				OutputPath:   outputPath,
 				TargetFormat: targetFormat,
 				Status:       "PENDING",
 				WorkflowID:   input.WorkflowID,
@@ -132,6 +189,15 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 	})
 
 	if err != nil {
+		if idempotencyStr != "" && isUniqueConstraintViolation(err) {
+			var existing models.Task
+			if errSelect := s.db.WithContext(ctx).Preload("Jobs").Where("idempotency_key = ? AND owner_id = ?", idempotencyStr, input.OwnerID).First(&existing).Error; errSelect == nil {
+				if existing.RequestFingerprint != fingerprint {
+					return nil, ErrIdempotencyConflict
+				}
+				return &existing, nil
+			}
+		}
 		return nil, err
 	}
 
@@ -219,4 +285,12 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (map[string]i
 	}
 
 	return stats, nil
+}
+
+func isUniqueConstraintViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "23505") || strings.Contains(errStr, "duplicate key") || strings.Contains(errStr, "unique constraint")
 }

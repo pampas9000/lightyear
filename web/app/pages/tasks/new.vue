@@ -287,9 +287,19 @@ const globalProgress = ref(0)
 const uploadSucceeded = ref(false)
 const isCreatingTask = ref(false)
 const taskCreated = ref(false)
-const uploadedKeys = ref<{ inputPath: string; outputPath: string }[]>([])
+const uploadedFileIds = ref<Record<string, string>>({})
+const idempotencyKey = ref('')
+const uploadStarted = ref(false)
 
-const isFormDisabled = computed(() => isUploading.value || uploadSucceeded.value || isCreatingTask.value || taskCreated.value)
+const isFormDisabled = computed(() => uploadStarted.value || isCreatingTask.value || taskCreated.value)
+const isParamsDisabled = computed(() => isUploading.value || isCreatingTask.value || taskCreated.value)
+const isSubmitDisabled = computed(() => {
+    if (isUploading.value) return true
+    if (isCreatingTask.value) return true
+    if (taskCreated.value) return true
+    if (!uploadSucceeded.value && files.value.length === 0) return true
+    return false
+})
 
 let uppy: Uppy
 
@@ -372,15 +382,10 @@ onMounted(() => {
             f.status = 'success'
         }
 
-        // Extract key from response, handling plugin-injected properties
-        const uppyFile = file as any
-        const key = uppyFile.s3Multipart?.key || response.body?.key || (response.body as any)?.location?.split('/').slice(2).join('/')
-
-        if (key) {
-            uploadedKeys.value.push({
-                inputPath: key,
-                outputPath: key.replace(/\.[^/.]+$/, "") + "." + targetFormat.value.toLowerCase()
-            })
+        // Extract fileId from response body (returned from complete multipart upload)
+        const fileId = response.body?.fileId || (response.body as any)?.file_id
+        if (fileId) {
+            uploadedFileIds.value[file.id] = fileId
         }
     })
 
@@ -405,6 +410,18 @@ onMounted(() => {
             })
             return
         }
+
+        const uploadedCount = Object.keys(uploadedFileIds.value).length
+        if (uploadedCount !== files.value.length) {
+            console.error('Uploaded file IDs mismatch:', uploadedFileIds.value, files.value)
+            uploadSucceeded.value = false
+            toast.error($t('new_task.upload_failed'), {
+                description: 'Uploaded files count mismatch or upload IDs are invalid.',
+                position: "top-right",
+            })
+            return
+        }
+
         uploadSucceeded.value = true
         submitTask()
     })
@@ -446,24 +463,40 @@ const removeFile = (id: string) => {
 
 const startUpload = () => {
     if (files.value.length === 0) return
+    uploadStarted.value = true
+    if (!idempotencyKey.value) {
+        idempotencyKey.value = crypto.randomUUID()
+    }
     isUploading.value = true
     uppy.upload()
 }
 
 const submitTask = async () => {
-    if (uploadedKeys.value.length === 0) return
+    const uploadedCount = Object.keys(uploadedFileIds.value).length
+    const hasMismatchedFiles = files.value.some(f => !uploadedFileIds.value[f.id])
+    if (files.value.length === 0 || uploadedCount !== files.value.length || hasMismatchedFiles) {
+        toast.error($t('new_task.upload_failed'), {
+            description: 'Cannot submit task: uploaded files count mismatch or some files have not been uploaded successfully.'
+        })
+        return
+    }
+
+    const items = files.value.map(f => ({
+        file_id: uploadedFileIds.value[f.id]
+    }))
 
     isCreatingTask.value = true
     try {
         const response = await api<ApiResponse<Task>>('/tasks', {
             method: 'POST',
             body: {
-                items: uploadedKeys.value,
+                items,
                 target_format: targetFormat.value.toUpperCase(),
                 params: {
                     engine: selectedEngine.value,
                     engine_params: preparedEngineParams.value
-                }
+                },
+                idempotency_key: idempotencyKey.value
             }
         })
 
@@ -491,6 +524,7 @@ const submitButtonText = computed(() => {
     if (isUploading.value) return $t('new_task.processing')
     if (isCreatingTask.value) return $t('new_task.creating_task')
     if (taskCreated.value) return $t('new_task.task_created')
+    if (uploadSucceeded.value && !taskCreated.value) return $t('new_task.retry_creation', 'Retry Creating Task')
     return $t('new_task.start_processing')
 })
 
@@ -558,8 +592,8 @@ const handleDrop = (e: DragEvent) => {
                             Configure image optimization and transcoding parameters
                         </p>
                     </div>
-                    <button @click="expertMode = !expertMode"
-                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-200"
+                    <button @click="expertMode = !expertMode" :disabled="isParamsDisabled"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                         :class="expertMode ? 'bg-[#5e6ad2]/10 text-[#5e6ad2] dark:text-[#828fff] border-[#5e6ad2]/20 dark:border-[#5e6ad2]/30' : 'bg-slate-50 dark:bg-[#141516] text-slate-600 dark:text-[#8a8f98] border-slate-200 dark:border-[#23252a] hover:bg-slate-100 dark:hover:bg-[#18191a]'">
                         <Sliders class="w-3.5 h-3.5" />
                         Expert Mode
@@ -574,7 +608,7 @@ const handleDrop = (e: DragEvent) => {
                                 <Layers class="w-4 h-4 text-slate-400 dark:text-[#8a8f98]" />
                                 {{ $t('new_task.target_format') }}
                             </Label>
-                            <Select v-model="targetFormat">
+                            <Select v-model="targetFormat" :disabled="isFormDisabled">
                                 <SelectTrigger
                                     class="h-10 rounded-lg bg-slate-50 dark:bg-[#141516] border-slate-200/60 dark:border-[#23252a] text-slate-900 dark:text-[#f7f8f8] focus:ring-0 focus:border-[#5e6ad2] text-xs font-medium transition-colors">
                                     <SelectValue placeholder="Select format" />
@@ -596,7 +630,7 @@ const handleDrop = (e: DragEvent) => {
                                 <Settings class="w-4 h-4 text-slate-400 dark:text-[#8a8f98]" />
                                 Engine
                             </Label>
-                            <Select v-model="selectedEngine">
+                            <Select v-model="selectedEngine" :disabled="isParamsDisabled">
                                 <SelectTrigger
                                     class="h-10 rounded-lg bg-slate-50 dark:bg-[#141516] border-slate-200/60 dark:border-[#23252a] text-slate-900 dark:text-[#f7f8f8] focus:ring-0 focus:border-[#5e6ad2] text-xs font-medium transition-colors">
                                     <SelectValue placeholder="Select engine" />
@@ -630,20 +664,20 @@ const handleDrop = (e: DragEvent) => {
                         </Label>
                         <div
                             class="p-1 bg-slate-100/50 dark:bg-[#141516] rounded-xl border border-slate-200/50 dark:border-[#23252a] flex gap-1 w-full">
-                            <button @click="selectedProfile = 'balanced'"
-                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200"
+                            <button @click="selectedProfile = 'balanced'" :disabled="isParamsDisabled"
+                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="selectedProfile === 'balanced' ? 'bg-white dark:bg-[#1e2022] text-[#5e6ad2] dark:text-[#828fff] shadow-sm border border-slate-200/50 dark:border-[#2d3039]' : 'text-slate-500 hover:text-slate-800 dark:text-[#8a8f98] dark:hover:text-[#f7f8f8]'">
                                 <Gauge class="w-4 h-4 shrink-0" />
                                 <span>Balanced</span>
                             </button>
-                            <button @click="selectedProfile = 'size'"
-                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200"
+                            <button @click="selectedProfile = 'size'" :disabled="isParamsDisabled"
+                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="selectedProfile === 'size' ? 'bg-white dark:bg-[#1e2022] text-[#5e6ad2] dark:text-[#828fff] shadow-sm border border-slate-200/50 dark:border-[#2d3039]' : 'text-slate-500 hover:text-slate-800 dark:text-[#8a8f98] dark:hover:text-[#f7f8f8]'">
                                 <HardDrive class="w-4 h-4 shrink-0" />
                                 <span>Size First</span>
                             </button>
-                            <button @click="selectedProfile = 'speed'"
-                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200"
+                            <button @click="selectedProfile = 'speed'" :disabled="isParamsDisabled"
+                                class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 :class="selectedProfile === 'speed' ? 'bg-white dark:bg-[#1e2022] text-[#5e6ad2] dark:text-[#828fff] shadow-sm border border-slate-200/50 dark:border-[#2d3039]' : 'text-slate-500 hover:text-slate-800 dark:text-[#8a8f98] dark:hover:text-[#f7f8f8]'">
                                 <Zap class="w-4 h-4 shrink-0" />
                                 <span>Speed First</span>
@@ -671,10 +705,10 @@ const handleDrop = (e: DragEvent) => {
                                     {{ engineParams.quality }}
                                 </span>
                             </div>
-                            <input type="range" v-model.number="engineParams.quality" min="0" max="100"
+                            <input type="range" v-model.number="engineParams.quality" min="0" max="100" :disabled="isParamsDisabled"
                                 class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                        [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                       [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
+                                       [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
                             <p class="text-[10px] text-slate-400 dark:text-[#8a8f98] font-medium">
                                 Higher quality values result in better details but larger file sizes.
                             </p>
@@ -690,12 +724,12 @@ const handleDrop = (e: DragEvent) => {
                                     @update:model-value="handleJxlModeChange" class="w-full">
                                     <TabsList
                                         class="flex p-1 bg-slate-100/50 dark:bg-[#141516] border border-slate-200/50 dark:border-[#23252a] rounded-xl w-full max-w-[400px] h-10 gap-1">
-                                        <TabsTrigger value="distance"
-                                            class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-slate-500 dark:text-[#8a8f98] data-[state=active]:bg-white data-[state=active]:dark:bg-[#1e2022] data-[state=active]:text-[#5e6ad2] data-[state=active]:dark:text-[#828fff] data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:dark:border-[#2d3039] transition-all">
+                                        <TabsTrigger value="distance" :disabled="isParamsDisabled"
+                                            class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-slate-500 dark:text-[#8a8f98] data-[state=active]:bg-white data-[state=active]:dark:bg-[#1e2022] data-[state=active]:text-[#5e6ad2] data-[state=active]:dark:text-[#828fff] data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:dark:border-[#2d3039] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             Visual Distance (d)
                                         </TabsTrigger>
-                                        <TabsTrigger value="quality"
-                                            class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-slate-500 dark:text-[#8a8f98] data-[state=active]:bg-white data-[state=active]:dark:bg-[#1e2022] data-[state=active]:text-[#5e6ad2] data-[state=active]:dark:text-[#828fff] data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:dark:border-[#2d3039] transition-all">
+                                        <TabsTrigger value="quality" :disabled="isParamsDisabled"
+                                            class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-slate-500 dark:text-[#8a8f98] data-[state=active]:bg-white data-[state=active]:dark:bg-[#1e2022] data-[state=active]:text-[#5e6ad2] data-[state=active]:dark:text-[#828fff] data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:dark:border-[#2d3039] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                             Target Quality (q)
                                         </TabsTrigger>
                                     </TabsList>
@@ -713,10 +747,10 @@ const handleDrop = (e: DragEvent) => {
                                         {{ engineParams.distance }}
                                     </span>
                                 </div>
-                                <input type="range" v-model.number="engineParams.distance" min="0" max="15" step="0.1"
+                                 <input type="range" v-model.number="engineParams.distance" min="0" max="15" step="0.1" :disabled="isParamsDisabled"
                                     class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                            [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
+                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
                                 <p class="text-[10px] text-slate-400 dark:text-[#8a8f98] font-medium">
                                     0.0 is lossless, 1.0 is visually lossless. Higher values mean smaller files and higher degradation (max 15.0).
                                 </p>
@@ -733,10 +767,10 @@ const handleDrop = (e: DragEvent) => {
                                         {{ engineParams.quality }}
                                     </span>
                                 </div>
-                                <input type="range" v-model.number="engineParams.quality" min="0" max="100"
+                                <input type="range" v-model.number="engineParams.quality" min="0" max="100" :disabled="isParamsDisabled"
                                     class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                            [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
+                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
                                 <p class="text-[10px] text-slate-400 dark:text-[#8a8f98] font-medium">
                                     0-100 scale, where 100 is mathematically lossless. Recommended range: 80-95.
                                 </p>
@@ -755,10 +789,10 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.speed }} / 10</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.speed" min="0" max="10"
+                                    <input type="range" v-model.number="engineParams.speed" min="0" max="10" :disabled="isParamsDisabled"
                                         class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
+                                               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">0 is slowest (highest compression), 10 is fastest (larger size).</p>
                                 </div>
                                 <div
@@ -768,9 +802,10 @@ const handleDrop = (e: DragEvent) => {
                                         <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Improve edge details and color matching</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
-                                        <input type="checkbox" v-model="engineParams.sharp_yuv" class="sr-only peer">
+                                        <input type="checkbox" v-model="engineParams.sharp_yuv" :disabled="isParamsDisabled" class="sr-only peer">
                                         <div class="w-10 h-5 bg-slate-200 dark:bg-[#23252a] rounded-full peer 
                                                     peer-checked:bg-[#5e6ad2]
+                                                    peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
                                                     after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
                                                     peer-checked:after:translate-x-5 peer-checked:after:bg-white
                                                     border border-slate-300/10 dark:border-[#34343a]
@@ -779,7 +814,7 @@ const handleDrop = (e: DragEvent) => {
                                 </div>
                                 <div class="space-y-3">
                                     <Label class="text-sm font-semibold text-slate-700 dark:text-[#d0d6e0]">Chroma Subsampling (YUV)</Label>
-                                    <Select v-model="engineParams.yuv">
+                                    <Select v-model="engineParams.yuv" :disabled="isParamsDisabled">
                                         <SelectTrigger
                                             class="h-10 rounded-lg bg-white dark:bg-[#141516] border-slate-200 dark:border-[#23252a] text-slate-900 dark:text-[#f7f8f8] focus:ring-0 focus:border-[#5e6ad2] text-xs font-medium transition-colors">
                                             <SelectValue placeholder="Select YUV format" />
@@ -795,9 +830,9 @@ const handleDrop = (e: DragEvent) => {
                                 </div>
                                 <div class="space-y-3">
                                     <Label class="text-sm font-semibold text-slate-700 dark:text-[#d0d6e0]">Jobs (Thread Count)</Label>
-                                    <Input type="number" v-model.number="engineParams.jobs" :min="1"
+                                    <Input type="number" v-model.number="engineParams.jobs" :min="1" :disabled="isParamsDisabled"
                                         placeholder="Auto (All threads)"
-                                        class="h-10 rounded-lg bg-white dark:bg-[#141516] border-slate-200 dark:border-[#23252a] focus-visible:ring-1 focus-visible:ring-[#5e6ad2] focus-visible:border-[#5e6ad2] text-slate-900 dark:text-[#f7f8f8] text-xs" />
+                                        class="h-10 rounded-lg bg-white dark:bg-[#141516] border-slate-200 dark:border-[#23252a] focus-visible:ring-1 focus-visible:ring-[#5e6ad2] focus-visible:border-[#5e6ad2] text-slate-900 dark:text-[#f7f8f8] text-xs disabled:opacity-50 disabled:cursor-not-allowed" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Specify maximum encoding threads. Default uses all available cores.</p>
                                 </div>
                                 <div
@@ -809,10 +844,11 @@ const handleDrop = (e: DragEvent) => {
                                             <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Enable customized quality setting specifically for the transparency channel</p>
                                         </div>
                                         <label class="relative inline-flex items-center cursor-pointer select-none">
-                                            <input type="checkbox" v-model="engineParams.use_custom_alpha_quality"
+                                            <input type="checkbox" v-model="engineParams.use_custom_alpha_quality" :disabled="isParamsDisabled"
                                                 class="sr-only peer">
                                             <div class="w-10 h-5 bg-slate-200 dark:bg-[#23252a] rounded-full peer 
                                                         peer-checked:bg-[#5e6ad2]
+                                                        peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
                                                         after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
                                                         peer-checked:after:translate-x-5 peer-checked:after:bg-white
                                                         border border-slate-300/10 dark:border-[#34343a]
@@ -827,9 +863,9 @@ const handleDrop = (e: DragEvent) => {
                                             <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                                 engineParams.alpha_quality ?? 100 }} / 100</span>
                                         </div>
-                                        <input type="range" v-model.number="engineParams.alpha_quality" min="0"
+                                        <input type="range" v-model.number="engineParams.alpha_quality" min="0" :disabled="isParamsDisabled"
                                             max="100"
-                                            class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                            class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                    [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     </div>
@@ -844,8 +880,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.sharpness ?? 0 }} / 7</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.sharpness" min="0" max="7"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.sharpness" min="0" max="7" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Sharpness of the transform blocks (0-7, default 0). Higher values reduce blur on line-art.</p>
@@ -856,8 +892,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.color_sharpness ?? 0 }} / 7</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.color_sharpness" min="0" max="7"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.color_sharpness" min="0" max="7" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Sharpness specifically for color channels (0-7). Higher values help with color bleeding.</p>
@@ -868,8 +904,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.alpha_sharpness ?? 0 }} / 7</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.alpha_sharpness" min="0" max="7"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.alpha_sharpness" min="0" max="7" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Sharpness specifically for the alpha transparency channel (0-7).</p>
@@ -880,7 +916,7 @@ const handleDrop = (e: DragEvent) => {
                             <template v-if="selectedEngine === 'libheif:avif'">
                                 <div class="space-y-3">
                                     <Label class="text-sm font-semibold text-slate-700 dark:text-[#d0d6e0]">Chroma Downsampling</Label>
-                                    <Select v-model="engineParams.chroma_downsampling">
+                                    <Select v-model="engineParams.chroma_downsampling" :disabled="isParamsDisabled">
                                         <SelectTrigger
                                             class="h-10 rounded-lg bg-white dark:bg-[#141516] border-slate-200 dark:border-[#23252a] text-slate-900 dark:text-[#f7f8f8] focus:ring-0 focus:border-[#5e6ad2] text-xs font-medium transition-colors">
                                             <SelectValue placeholder="Select method" />
@@ -902,8 +938,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.method }} / 6</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.method" min="0" max="6"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.method" min="0" max="6" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">0 is fastest, 6 is slowest/best quality compression.</p>
@@ -915,9 +951,10 @@ const handleDrop = (e: DragEvent) => {
                                         <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Enforce mathematical pixel losslessness</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
-                                        <input type="checkbox" v-model="engineParams.lossless" class="sr-only peer">
+                                        <input type="checkbox" v-model="engineParams.lossless" :disabled="isParamsDisabled" class="sr-only peer">
                                         <div class="w-10 h-5 bg-slate-200 dark:bg-[#23252a] rounded-full peer 
                                                     peer-checked:bg-[#5e6ad2]
+                                                    peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
                                                     after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
                                                     peer-checked:after:translate-x-5 peer-checked:after:bg-white
                                                     border border-slate-300/10 dark:border-[#34343a]
@@ -935,8 +972,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.compression_level }} / 9</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.compression_level" min="0" max="9"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.compression_level" min="0" max="9" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">0 is uncompressed (largest file), 9 is max compression.</p>
@@ -952,8 +989,8 @@ const handleDrop = (e: DragEvent) => {
                                         <span class="text-xs font-bold text-slate-600 dark:text-[#8a8f98]">{{
                                             engineParams.effort }} / 10</span>
                                     </div>
-                                    <input type="range" v-model.number="engineParams.effort" min="1" max="10"
-                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                    <input type="range" v-model.number="engineParams.effort" min="1" max="10" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 dark:bg-[#23252a] rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:dark:bg-[#23252a] [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-[#f7f8f8] [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-[#34343a] [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
                                     <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">1 is fastest, 10 is slowest/most optimized.</p>
@@ -966,9 +1003,10 @@ const handleDrop = (e: DragEvent) => {
                                         <p class="text-[10px] text-slate-400 dark:text-[#8a8f98]">Support progressive rendering</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
-                                        <input type="checkbox" v-model="engineParams.progressive" class="sr-only peer">
+                                        <input type="checkbox" v-model="engineParams.progressive" :disabled="isParamsDisabled" class="sr-only peer">
                                         <div class="w-10 h-5 bg-slate-200 dark:bg-[#23252a] rounded-full peer 
                                                     peer-checked:bg-[#5e6ad2]
+                                                    peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
                                                     after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
                                                     peer-checked:after:translate-x-5 peer-checked:after:bg-white
                                                     border border-slate-300/10 dark:border-[#34343a]
@@ -1100,7 +1138,7 @@ const handleDrop = (e: DragEvent) => {
                         </div>
 
                         <div class="flex justify-end">
-                            <Button @click="handleAction" :disabled="isFormDisabled" size="lg"
+                            <Button @click="handleAction" :disabled="isSubmitDisabled" size="lg"
                                 class="rounded-lg px-8 h-11 text-sm font-semibold bg-[#5e6ad2] hover:bg-[#828fff] text-white shadow-sm transition-all duration-200">
                                 <Loader2 v-if="isUploading || isCreatingTask" class="mr-2 h-4 w-4 animate-spin" />
                                 {{ submitButtonText }}
