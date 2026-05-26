@@ -7,6 +7,7 @@ import { useApi } from '~/composables/useApi'
 import type { Task } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
 import type { MultipartUploadResponse, PartSignatureResponse } from '~/lib/types/s3'
+import { toast } from 'vue-sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
     Select,
@@ -34,7 +35,7 @@ import {
     Zap,
     Gauge,
     HardDrive
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 
 useHead({
     title: $t('new_task.title') + ' | Transcoder',
@@ -154,12 +155,16 @@ watch(engineParams, () => {
     checkProfileMatch()
 }, { deep: true })
 
-// Uppy state
+// Uppy and Task Creation state
 const files = ref<any[]>([])
 const isUploading = ref(false)
 const globalProgress = ref(0)
-const uploadComplete = ref(false)
+const uploadSucceeded = ref(false)
+const isCreatingTask = ref(false)
+const taskCreated = ref(false)
 const uploadedKeys = ref<{ inputPath: string; outputPath: string }[]>([])
+
+const isFormDisabled = computed(() => isUploading.value || uploadSucceeded.value || isCreatingTask.value || taskCreated.value)
 
 let uppy: Uppy
 
@@ -265,7 +270,16 @@ onMounted(() => {
 
     uppy.on('complete', (result) => {
         isUploading.value = false
-        uploadComplete.value = true
+        if (result.failed && result.failed.length > 0) {
+            console.error('Some uploads failed:', result.failed)
+            uploadSucceeded.value = false
+            toast.error('Upload failed', {
+                "description": `Failed to upload: ${result.failed.map((f: any) => f.name).join(', ')}. Please verify your network/CORS policy.`,
+                "position": "top-right",
+            })
+            return
+        }
+        uploadSucceeded.value = true
         submitTask()
     })
 })
@@ -313,6 +327,7 @@ const startUpload = () => {
 const submitTask = async () => {
     if (uploadedKeys.value.length === 0) return
 
+    isCreatingTask.value = true
     try {
         const response = await api<ApiResponse<Task>>('/tasks', {
             method: 'POST',
@@ -326,15 +341,30 @@ const submitTask = async () => {
             }
         })
 
+        taskCreated.value = true
         router.push('/')
     } catch (err) {
         console.error('Failed to create task:', err)
-        alert('Upload succeeded but task creation failed.')
+        toast.error('Task creation failed', {
+            description: err instanceof Error ? err.message : String(err)
+        })
+    } finally {
+        isCreatingTask.value = false
     }
 }
+
+const handleAction = () => {
+    if (uploadSucceeded.value) {
+        submitTask()
+    } else {
+        startUpload()
+    }
+}
+
 const submitButtonText = computed(() => {
     if (isUploading.value) return $t('new_task.processing')
-    if (uploadComplete.value) return $t('new_task.task_created')
+    if (isCreatingTask.value) return $t('new_task.creating_task')
+    if (taskCreated.value) return $t('new_task.task_created')
     return $t('new_task.start_processing')
 })
 
@@ -343,12 +373,12 @@ const dragCounter = ref(0)
 const isDragActive = computed(() => dragCounter.value > 0)
 
 const handleDragEnter = (e: DragEvent) => {
-    if (isUploading.value || uploadComplete.value) return
+    if (isFormDisabled.value) return
     dragCounter.value++
 }
 
 const handleDragLeave = (e: DragEvent) => {
-    if (isUploading.value || uploadComplete.value) return
+    if (isFormDisabled.value) return
     dragCounter.value = Math.max(0, dragCounter.value - 1)
 }
 
@@ -357,7 +387,7 @@ const handleDragOver = (e: DragEvent) => {
 }
 
 const handleDrop = (e: DragEvent) => {
-    if (isUploading.value || uploadComplete.value) return
+    if (isFormDisabled.value) return
     dragCounter.value = 0
     if (e.dataTransfer?.files) {
         Array.from(e.dataTransfer.files).forEach((file) => {
@@ -385,20 +415,21 @@ const handleDrop = (e: DragEvent) => {
 
         <div class="grid gap-8">
             <!-- Parameters Card -->
-            <Card class="border-slate-200/60 dark:border-slate-800/60 shadow-sm overflow-hidden bg-white dark:bg-slate-900">
-                <CardHeader class="px-8 pt-8 pb-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
+            <Card
+                class="border-slate-200/60 dark:border-slate-800/60 shadow-sm overflow-hidden bg-white dark:bg-slate-900">
+                <CardHeader
+                    class="px-8 pt-8 pb-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
                     <div class="space-y-1">
                         <CardTitle class="text-xl font-bold flex items-center gap-2">
                             <Settings class="w-5 h-5 text-blue-500" />
                             {{ $t('new_task.params') }}
                         </CardTitle>
-                        <p class="text-xs text-slate-500 font-medium">Configure image optimization and transcoding parameters</p>
+                        <p class="text-xs text-slate-500 font-medium">Configure image optimization and transcoding
+                            parameters</p>
                     </div>
-                    <button 
-                        @click="expertMode = !expertMode" 
+                    <button @click="expertMode = !expertMode"
                         class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all duration-200"
-                        :class="expertMode ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 border-blue-200 dark:border-blue-900/50' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-600 border-slate-200 dark:border-slate-700'"
-                    >
+                        :class="expertMode ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 border-blue-200 dark:border-blue-900/50' : 'bg-slate-50 dark:bg-slate-800/50 text-slate-600 border-slate-200 dark:border-slate-700'">
                         <Sliders class="w-3.5 h-3.5" />
                         Expert Mode
                     </button>
@@ -407,7 +438,8 @@ const handleDrop = (e: DragEvent) => {
                     <!-- Target Format & Engine Selection -->
                     <div class="grid gap-6 md:grid-cols-2">
                         <div class="space-y-3">
-                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Label
+                                class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                                 <Layers class="w-4 h-4 text-slate-400" />
                                 {{ $t('new_task.target_format') }}
                             </Label>
@@ -428,7 +460,8 @@ const handleDrop = (e: DragEvent) => {
 
                         <!-- Engine Select (expert mode only) -->
                         <div v-if="expertMode" class="space-y-3">
-                            <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                            <Label
+                                class="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                                 <Settings class="w-4 h-4 text-slate-400" />
                                 Engine
                             </Label>
@@ -461,37 +494,31 @@ const handleDrop = (e: DragEvent) => {
 
                     <!-- Optimize Profile Presets -->
                     <div class="space-y-3">
-                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Optimize Template</Label>
-                        <div class="grid grid-cols-4 gap-3 p-1 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800/50">
-                            <button 
-                                @click="selectedProfile = 'balanced'"
+                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Optimize
+                            Template</Label>
+                        <div
+                            class="grid grid-cols-4 gap-3 p-1 bg-slate-50 dark:bg-slate-800/30 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                            <button @click="selectedProfile = 'balanced'"
                                 class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
-                                :class="selectedProfile === 'balanced' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
-                            >
+                                :class="selectedProfile === 'balanced' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
                                 <Gauge class="w-4 h-4 shrink-0" />
                                 <span>Balanced</span>
                             </button>
-                            <button 
-                                @click="selectedProfile = 'size'"
+                            <button @click="selectedProfile = 'size'"
                                 class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
-                                :class="selectedProfile === 'size' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
-                            >
+                                :class="selectedProfile === 'size' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
                                 <HardDrive class="w-4 h-4 shrink-0" />
                                 <span>Size First</span>
                             </button>
-                            <button 
-                                @click="selectedProfile = 'speed'"
+                            <button @click="selectedProfile = 'speed'"
                                 class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all duration-200"
-                                :class="selectedProfile === 'speed' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
-                            >
+                                :class="selectedProfile === 'speed' ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">
                                 <Zap class="w-4 h-4 shrink-0" />
                                 <span>Speed First</span>
                             </button>
-                            <button 
-                                disabled
+                            <button disabled
                                 class="flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold border border-transparent"
-                                :class="selectedProfile === 'custom' ? 'bg-blue-50/50 dark:bg-blue-950/20 text-amber-600 dark:text-amber-400 border-amber-200/40 dark:border-amber-900/30' : 'text-slate-300 dark:text-slate-600 opacity-60'"
-                            >
+                                :class="selectedProfile === 'custom' ? 'bg-blue-50/50 dark:bg-blue-950/20 text-amber-600 dark:text-amber-400 border-amber-200/40 dark:border-amber-900/30' : 'text-slate-300 dark:text-slate-600 opacity-60'">
                                 <Sliders class="w-4 h-4 shrink-0" />
                                 <span>Custom</span>
                             </button>
@@ -501,23 +528,22 @@ const handleDrop = (e: DragEvent) => {
                     <!-- Dynamic Parameters Controls -->
                     <div class="border-t border-slate-100 dark:border-slate-800 pt-6 space-y-6">
                         <!-- Quality Option (Universal for most engines except PNG / JXL) -->
-                        <div v-if="selectedEngine !== 'libpng:png' && selectedEngine !== 'libjxl:jxl'" class="space-y-3">
+                        <div v-if="selectedEngine !== 'libpng:png' && selectedEngine !== 'libjxl:jxl'"
+                            class="space-y-3">
                             <div class="flex justify-between items-center">
                                 <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
                                     Quality
                                 </Label>
-                                <span class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                <span
+                                    class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
                                     {{ engineParams.quality }}
                                 </span>
                             </div>
-                            <input 
-                                type="range" 
-                                v-model.number="engineParams.quality" 
-                                min="0" 
-                                max="100" 
-                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                            />
-                            <p class="text-xs text-slate-400 font-medium">Higher quality values result in better details but larger file sizes.</p>
+                            <input type="range" v-model.number="engineParams.quality" min="0" max="100"
+                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                            <p class="text-xs text-slate-400 font-medium">Higher quality values result in better details
+                                but larger file
+                                sizes.</p>
                         </div>
 
                         <!-- Distance Option (JXL exclusive) -->
@@ -526,47 +552,48 @@ const handleDrop = (e: DragEvent) => {
                                 <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">
                                     Distance (Max visual error)
                                 </Label>
-                                <span class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
+                                <span
+                                    class="text-sm font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-2.5 py-1 rounded-lg">
                                     {{ engineParams.distance }}
                                 </span>
                             </div>
-                            <input 
-                                type="range" 
-                                v-model.number="engineParams.distance" 
-                                min="0" 
-                                max="5" 
-                                step="0.1" 
-                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                            />
-                            <p class="text-xs text-slate-400 font-medium">0.0 is lossless, 1.0 is visually lossless. Higher distance values mean smaller files and higher degradation.</p>
+                            <input type="range" v-model.number="engineParams.distance" min="0" max="5" step="0.1"
+                                class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                            <p class="text-xs text-slate-400 font-medium">0.0 is lossless, 1.0 is visually lossless.
+                                Higher distance values
+                                mean smaller files and higher degradation.</p>
                         </div>
 
                         <!-- Advanced Parameters Grid (expert mode only) -->
-                        <div v-if="expertMode" class="grid gap-6 md:grid-cols-2 bg-slate-50/50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800/80">
+                        <div v-if="expertMode"
+                            class="grid gap-6 md:grid-cols-2 bg-slate-50/50 dark:bg-slate-900/50 p-6 rounded-2xl border border-slate-100 dark:border-slate-800/80">
                             <!-- libavif:avif settings -->
                             <template v-if="selectedEngine === 'libavif:avif'">
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Speed</Label>
-                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.speed }} / 10</span>
+                                        <Label
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Speed</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.speed }} / 10</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        v-model.number="engineParams.speed" 
-                                        min="0" 
-                                        max="10" 
-                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                                    />
-                                    <p class="text-[10px] text-slate-400">0 is slowest (highest compression), 10 is fastest (larger size).</p>
+                                    <input type="range" v-model.number="engineParams.speed" min="0" max="10"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">0 is slowest (highest compression), 10 is
+                                        fastest (larger size).</p>
                                 </div>
-                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <div
+                                    class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <div class="space-y-0.5">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Sharp YUV</Label>
-                                        <p class="text-[10px] text-slate-400">Improve edge details and color matching</p>
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Sharp
+                                            YUV</Label>
+                                        <p class="text-[10px] text-slate-400">Improve edge details and color matching
+                                        </p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.sharp_yuv" class="sr-only peer">
-                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                        <div
+                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                        </div>
                                     </label>
                                 </div>
                             </template>
@@ -574,7 +601,8 @@ const handleDrop = (e: DragEvent) => {
                             <!-- libheif:avif settings -->
                             <template v-if="selectedEngine === 'libheif:avif'">
                                 <div class="space-y-3">
-                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Chroma Downsampling</Label>
+                                    <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Chroma
+                                        Downsampling</Label>
                                     <Select v-model="engineParams.chroma_downsampling">
                                         <SelectTrigger
                                             class="h-10 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
@@ -593,26 +621,29 @@ const handleDrop = (e: DragEvent) => {
                             <template v-if="selectedEngine === 'libwebp:webp'">
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Method (Complexity)</Label>
-                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.method }} / 6</span>
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Method
+                                            (Complexity)</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.method }} / 6</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        v-model.number="engineParams.method" 
-                                        min="0" 
-                                        max="6" 
-                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                                    />
-                                    <p class="text-[10px] text-slate-400">0 is fastest, 6 is slowest/best quality compression.</p>
+                                    <input type="range" v-model.number="engineParams.method" min="0" max="6"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">0 is fastest, 6 is slowest/best quality
+                                        compression.</p>
                                 </div>
-                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <div
+                                    class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <div class="space-y-0.5">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Lossless Mode</Label>
-                                        <p class="text-[10px] text-slate-400">Enforce mathematical pixel losslessness</p>
+                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Lossless
+                                            Mode</Label>
+                                        <p class="text-[10px] text-slate-400">Enforce mathematical pixel losslessness
+                                        </p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.lossless" class="sr-only peer">
-                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                        <div
+                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                        </div>
                                     </label>
                                 </div>
                             </template>
@@ -621,17 +652,16 @@ const handleDrop = (e: DragEvent) => {
                             <template v-if="selectedEngine === 'libpng:png'">
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Compression Level</Label>
-                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.compression_level }} / 9</span>
+                                        <Label
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Compression
+                                            Level</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.compression_level }} / 9</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        v-model.number="engineParams.compression_level" 
-                                        min="0" 
-                                        max="9" 
-                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                                    />
-                                    <p class="text-[10px] text-slate-400">0 is uncompressed (largest file), 9 is max compression.</p>
+                                    <input type="range" v-model.number="engineParams.compression_level" min="0" max="9"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
+                                    <p class="text-[10px] text-slate-400">0 is uncompressed (largest file), 9 is max
+                                        compression.</p>
                                 </div>
                             </template>
 
@@ -639,26 +669,27 @@ const handleDrop = (e: DragEvent) => {
                             <template v-if="selectedEngine === 'libjxl:jxl'">
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Effort</Label>
-                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{ engineParams.effort }} / 9</span>
+                                        <Label
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Effort</Label>
+                                        <span class="text-xs font-bold text-slate-600 dark:text-slate-400">{{
+                                            engineParams.effort }} / 9</span>
                                     </div>
-                                    <input 
-                                        type="range" 
-                                        v-model.number="engineParams.effort" 
-                                        min="1" 
-                                        max="9" 
-                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none"
-                                    />
+                                    <input type="range" v-model.number="engineParams.effort" min="1" max="9"
+                                        class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600 focus:outline-none" />
                                     <p class="text-[10px] text-slate-400">1 is fastest, 9 is slowest/most optimized.</p>
                                 </div>
-                                <div class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                                <div
+                                    class="flex items-center justify-between p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <div class="space-y-0.5">
-                                        <Label class="text-sm font-semibold text-slate-700 dark:text-slate-300">Progressive</Label>
+                                        <Label
+                                            class="text-sm font-semibold text-slate-700 dark:text-slate-300">Progressive</Label>
                                         <p class="text-[10px] text-slate-400">Support progressive rendering</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer">
                                         <input type="checkbox" v-model="engineParams.progressive" class="sr-only peer">
-                                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                        <div
+                                            class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600">
+                                        </div>
                                     </label>
                                 </div>
                             </template>
@@ -672,28 +703,17 @@ const handleDrop = (e: DragEvent) => {
                 class="border-slate-200/60 dark:border-slate-800/60 shadow-xl overflow-hidden relative transition-all duration-300"
                 :class="{
                     'border-blue-500/50 ring-2 ring-blue-500/20 bg-blue-50/5 dark:bg-blue-950/5': isDragActive
-                }"
-                @dragenter.prevent="handleDragEnter"
-                @dragover.prevent="handleDragOver"
-                @drop.prevent="handleDrop"
-            >
+                }" @dragenter.prevent="handleDragEnter" @dragover.prevent="handleDragOver" @drop.prevent="handleDrop">
                 <!-- Drag overlay -->
-                <Transition
-                    enter-active-class="transition duration-200 ease-out"
-                    enter-from-class="opacity-0 scale-95"
-                    enter-to-class="opacity-100 scale-100"
-                    leave-active-class="transition duration-150 ease-in"
-                    leave-from-class="opacity-100 scale-100"
-                    leave-to-class="opacity-0 scale-95"
-                >
-                    <div
-                        v-if="isDragActive"
+                <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 scale-95"
+                    enter-to-class="opacity-100 scale-100" leave-active-class="transition duration-150 ease-in"
+                    leave-from-class="opacity-100 scale-100" leave-to-class="opacity-0 scale-95">
+                    <div v-if="isDragActive"
                         class="absolute inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-[2px] z-50 flex flex-col items-center justify-center gap-4 transition-all duration-300 border-2 border-dashed border-blue-500/50 rounded-xl pointer-events-auto"
-                        @dragleave.prevent="handleDragLeave"
-                        @dragover.prevent="handleDragOver"
-                        @drop.prevent="handleDrop"
-                    >
-                        <div class="h-16 w-16 rounded-2xl bg-white dark:bg-slate-900 flex items-center justify-center text-blue-500 shadow-md border border-blue-100 dark:border-blue-900/50 animate-bounce">
+                        @dragleave.prevent="handleDragLeave" @dragover.prevent="handleDragOver"
+                        @drop.prevent="handleDrop">
+                        <div
+                            class="h-16 w-16 rounded-2xl bg-white dark:bg-slate-900 flex items-center justify-center text-blue-500 shadow-md border border-blue-100 dark:border-blue-900/50 animate-bounce">
                             <UploadCloud class="w-8 h-8" />
                         </div>
                         <p class="text-sm font-bold text-blue-600 dark:text-blue-400 tracking-wide">
@@ -707,9 +727,9 @@ const handleDrop = (e: DragEvent) => {
                     <div class="relative">
                         <input type="file" multiple
                             class="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
-                            @change="handleFileSelect" :disabled="isUploading || uploadComplete" />
+                            @change="handleFileSelect" :disabled="isFormDisabled" />
                         <Button variant="secondary" size="sm" class="rounded-xl px-4 gap-2 font-bold"
-                            :disabled="isUploading || uploadComplete">
+                            :disabled="isFormDisabled">
                             <Plus class="w-4 h-4" />
                             {{ $t('new_task.add_files') }}
                         </Button>
@@ -788,9 +808,9 @@ const handleDrop = (e: DragEvent) => {
                         </div>
 
                         <div class="flex justify-end">
-                            <Button @click="startUpload" :disabled="isUploading || uploadComplete" size="lg"
+                            <Button @click="handleAction" :disabled="isFormDisabled" size="lg"
                                 class="rounded-xl px-10 h-12 text-base font-bold shadow-xl shadow-blue-600/20">
-                                <Loader2 v-if="isUploading" class="mr-2 h-5 w-5 animate-spin" />
+                                <Loader2 v-if="isUploading || isCreatingTask" class="mr-2 h-5 w-5 animate-spin" />
                                 {{ submitButtonText }}
                             </Button>
                         </div>

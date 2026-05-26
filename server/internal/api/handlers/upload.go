@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"transcoder/server/internal/api/response"
@@ -53,8 +54,13 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
-	if !ok {
-		userIdStr = "anonymous"
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
 	}
 
 	ext := filepath.Ext(req.Filename)
@@ -70,16 +76,16 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create multipart upload", map[string]any{"reason": err.Error()})
 	}
 
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID")
-	}
-
+	expiresAt := time.Now().Add(24 * time.Hour)
 	file := &models.File{
-		OwnerID:  ownerID,
-		Name:     req.Filename,
-		Path:     key,
-		MimeType: contentType,
+		OwnerID:         ownerID,
+		Name:            req.Filename,
+		Path:            key,
+		MimeType:        contentType,
+		Status:          "UPLOADING",
+		UploadID:        uploadId,
+		UploadExpiresAt: &expiresAt,
+		Size:            0,
 	}
 	if err := h.db.Create(file).Error; err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create file record", map[string]any{"reason": err.Error()})
@@ -174,10 +180,30 @@ func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key is required")
 	}
 
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	// 1. Validate prefix to prevent unauthorized access
+	expectedPrefix := fmt.Sprintf("uploads/%s/", userIdStr)
+	if !strings.HasPrefix(req.Key, expectedPrefix) {
+		return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied to the specified key prefix")
+	}
+
+	// 2. Fetch current file upload record in DB
+	var file models.File
+	if err := h.db.Where("path = ? AND owner_id = ?", req.Key, ownerID).First(&file).Error; err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusNotFound, response.CodeInternal, "Associated file upload record not found", map[string]any{"reason": err.Error()})
+	}
+
 	var completedParts []types.CompletedPart
 	for _, p := range req.Parts {
-		// ETag needs to be quoted in AWS if it isn't already, but typically S3 requires it exactly as received.
-		// AWS SDK handles it, but let's make sure it's passed directly.
 		etag := p.ETag
 		completedParts = append(completedParts, types.CompletedPart{
 			PartNumber: aws.Int32(p.PartNumber),
@@ -185,13 +211,38 @@ func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 		})
 	}
 
-	err := h.storage.CompleteMultipartUpload(c.Context(), h.cfg.S3.Bucket, req.Key, uploadId, completedParts)
+	// 3. Complete multipart upload on S3/R2
+	err = h.storage.CompleteMultipartUpload(c.Context(), h.cfg.S3.Bucket, req.Key, uploadId, completedParts)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to complete multipart upload", map[string]any{"reason": err.Error()})
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to complete multipart upload on S3", map[string]any{"reason": err.Error()})
+	}
+
+	// 4. Retrieve actual uploaded size and type from S3 using HeadObject
+	headOut, err := h.storage.HeadObject(c.Context(), h.cfg.S3.Bucket, req.Key)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to query S3 object metadata", map[string]any{"reason": err.Error()})
+	}
+
+	actualSize := int64(0)
+	if headOut.ContentLength != nil {
+		actualSize = *headOut.ContentLength
+	}
+
+	if headOut.ContentType != nil && *headOut.ContentType != "" && *headOut.ContentType != "binary/octet-stream" && *headOut.ContentType != "application/octet-stream" {
+		file.MimeType = *headOut.ContentType
+	}
+
+	// 5. Update File record status to UPLOADED and set S3-verified Size
+	file.Status = "UPLOADED"
+	file.Size = actualSize
+	if err := h.db.Save(&file).Error; err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to update file record status to UPLOADED", map[string]any{"reason": err.Error()})
 	}
 
 	return c.JSON(fiber.Map{
-		"location": fmt.Sprintf("/%s/%s", h.cfg.S3.Bucket, req.Key), // Or an actual CDN URL if configured
+		"fileId":   file.ID.String(),
+		"key":      req.Key,
+		"location": fmt.Sprintf("/%s/%s", h.cfg.S3.Bucket, req.Key),
 	})
 }
 
@@ -202,10 +253,34 @@ func (h *UploadHandler) AbortMultipartUpload(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key query parameter is required")
 	}
 
-	err := h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	// Validate prefix
+	expectedPrefix := fmt.Sprintf("uploads/%s/", userIdStr)
+	if !strings.HasPrefix(key, expectedPrefix) {
+		return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied to the specified key prefix")
+	}
+
+	err = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to abort multipart upload", map[string]any{"reason": err.Error()})
 	}
 
+	// Update status of the File record to ABORTED in the database
+	var file models.File
+	if err := h.db.Where("path = ? AND owner_id = ?", key, ownerID).First(&file).Error; err == nil {
+		file.Status = "ABORTED"
+		_ = h.db.Save(&file)
+	}
+
 	return c.JSON(fiber.Map{})
 }
+

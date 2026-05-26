@@ -10,7 +10,7 @@ import {
     Plus, Loader2, Calendar, RotateCcw,
     Database, Cpu, Video, FileVideo,
     Check, MoreVertical, FileX, FileX2
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import {
     Card,
     CardContent,

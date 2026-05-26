@@ -93,8 +93,8 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 		var jobs []models.Job
 		for _, item := range input.Items {
 			var inputFile models.File
-			if err := tx.Where("path = ? AND owner_id = ?", item.InputPath, input.OwnerID).First(&inputFile).Error; err != nil {
-				return fmt.Errorf("find input file %q: %w", item.InputPath, err)
+			if err := tx.Where("path = ? AND owner_id = ? AND status = ?", item.InputPath, input.OwnerID, "UPLOADED").First(&inputFile).Error; err != nil {
+				return fmt.Errorf("find input file %q (must be UPLOADED): %w", item.InputPath, err)
 			}
 
 			outputFile := models.File{

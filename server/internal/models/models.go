@@ -46,14 +46,17 @@ type UserOauthAccount struct {
 
 type File struct {
 	Base
-	Name           string    `gorm:"not null" json:"name"`
-	Path           string    `gorm:"not null" json:"path"`
-	Size           int64     `json:"size"`
-	MimeType       string    `json:"mime_type"`
-	OwnerID        uuid.UUID `gorm:"not null" json:"owner_id"`
-	Owner          User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
-	InputToJobs    []Job     `gorm:"foreignKey:InputFileID" json:"input_to_jobs,omitempty"`
-	OutputFromJobs []Job     `gorm:"foreignKey:OutputFileID" json:"output_from_jobs,omitempty"`
+	Name            string     `gorm:"not null" json:"name"`
+	Path            string     `gorm:"not null" json:"path"`
+	Size            int64      `json:"size"`
+	MimeType        string     `json:"mime_type"`
+	Status          string     `gorm:"type:varchar(20);default:'UPLOADING'" json:"status"`
+	UploadID        string     `gorm:"type:varchar(255)" json:"upload_id,omitempty"`
+	UploadExpiresAt *time.Time `json:"upload_expires_at,omitempty"`
+	OwnerID         uuid.UUID  `gorm:"not null" json:"owner_id"`
+	Owner           User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	InputToJobs     []Job      `gorm:"foreignKey:InputFileID" json:"input_to_jobs,omitempty"`
+	OutputFromJobs  []Job      `gorm:"foreignKey:OutputFileID" json:"output_from_jobs,omitempty"`
 }
 
 type Job struct {

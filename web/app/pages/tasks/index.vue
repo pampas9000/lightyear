@@ -10,7 +10,7 @@ import {
     Database, Cpu, Video, FileVideo,
     Check, MoreVertical, FileX, Filter, Search,
     ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import {
     Card,
     CardContent,
@@ -135,7 +135,8 @@ const formatTimeAgo = (date: string) => {
         </div>
 
         <!-- Filters & Search -->
-        <div class="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div
+            class="flex flex-col sm:flex-row gap-4 justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div class="flex justify-center items-center w-full sm:w-96 pl-2">
                 <Search class="w-4 h-4 text-slate-400" />
                 <Input v-model="searchQuery" type="text" placeholder="Search tasks by ID or format..."
@@ -143,7 +144,8 @@ const formatTimeAgo = (date: string) => {
             </div>
             <div class="flex gap-2 w-full sm:w-auto pr-2 items-center">
                 <Select v-model="statusFilter">
-                    <SelectTrigger class="w-[140px] h-10 bg-transparent border-none shadow-none text-xs font-semibold text-slate-500 focus:ring-0">
+                    <SelectTrigger
+                        class="w-[140px] h-10 bg-transparent border-none shadow-none text-xs font-semibold text-slate-500 focus:ring-0">
                         <Filter class="w-4 h-4 mr-2" />
                         <SelectValue placeholder="Status" />
                     </SelectTrigger>
@@ -183,7 +185,8 @@ const formatTimeAgo = (date: string) => {
                             <!-- File Icon -->
                             <div
                                 class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
-                                <Video v-if="task.status === 'PROCESSING'" class="w-5 h-5 text-blue-500" stroke-width="2" />
+                                <Video v-if="task.status === 'PROCESSING'" class="w-5 h-5 text-blue-500"
+                                    stroke-width="2" />
                                 <FileVideo v-else-if="task.status === 'COMPLETED'" class="w-5 h-5 text-slate-500"
                                     stroke-width="2" />
                                 <AlertCircle v-else class="w-5 h-5 text-red-500" stroke-width="2" />
@@ -195,7 +198,9 @@ const formatTimeAgo = (date: string) => {
                                     <span class="text-sm font-bold text-slate-900 dark:text-white truncate">Task-{{
                                         task.id.substring(0, 8) }}</span>
                                     <span class="text-xs font-medium text-slate-400 hidden sm:inline-block">{{ new
-                                        Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+                                        Date(task.created_at).toLocaleTimeString([], {
+                                            hour: '2-digit', minute:
+                                        '2-digit' }) }}</span>
                                 </div>
                                 <div class="flex items-center gap-3 mt-1">
                                     <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">H.265 / 4K
@@ -209,8 +214,10 @@ const formatTimeAgo = (date: string) => {
                                 </div>
                                 <!-- Progress Bar for Processing -->
                                 <div v-if="task.status === 'PROCESSING'" class="mt-2.5 flex items-center gap-3 pr-4">
-                                    <div class="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                        <div class="h-full bg-blue-600 rounded-full animate-progress" style="width: 64%">
+                                    <div
+                                        class="flex-1 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                        <div class="h-full bg-blue-600 rounded-full animate-progress"
+                                            style="width: 64%">
                                         </div>
                                     </div>
                                     <span class="text-xs font-bold text-blue-600 italic shrink-0">64%</span>
@@ -222,11 +229,14 @@ const formatTimeAgo = (date: string) => {
                                 <Badge variant="secondary"
                                     class="rounded-full font-bold uppercase tracking-widest text-[10px] px-3 py-1 border transition-all hidden sm:flex"
                                     :class="getStatusStyle(task.status)">
-                                    <Check v-if="task.status === 'COMPLETED'" class="w-3.5 h-3.5 mr-1" stroke-width="3" />
+                                    <Check v-if="task.status === 'COMPLETED'" class="w-3.5 h-3.5 mr-1"
+                                        stroke-width="3" />
                                     <div v-else-if="task.status === 'PROCESSING'"
                                         class="w-2 h-2 rounded-full bg-blue-500 mr-2 animate-pulse"></div>
-                                    <Clock v-else-if="task.status === 'PENDING'" class="w-3.5 h-3.5 mr-1" stroke-width="3" />
-                                    <AlertCircle v-else-if="task.status === 'FAILED'" class="w-3.5 h-3.5 mr-1" stroke-width="3" />
+                                    <Clock v-else-if="task.status === 'PENDING'" class="w-3.5 h-3.5 mr-1"
+                                        stroke-width="3" />
+                                    <AlertCircle v-else-if="task.status === 'FAILED'" class="w-3.5 h-3.5 mr-1"
+                                        stroke-width="3" />
                                     {{ task.status }}
                                 </Badge>
                                 <Button variant="ghost" size="icon" class="h-8 w-8 text-slate-400 hover:text-slate-900">
@@ -235,21 +245,16 @@ const formatTimeAgo = (date: string) => {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Pagination Footer -->
-                    <div class="px-6 py-4 border-t border-slate-50 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+                    <div
+                        class="px-6 py-4 border-t border-slate-50 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
                         <div class="text-xs font-medium text-slate-500">
-                            Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to {{ Math.min(currentPage * itemsPerPage, totalTasks) }} of {{ totalTasks }} tasks
+                            Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to {{ Math.min(currentPage *
+                            itemsPerPage, totalTasks) }} of {{ totalTasks }} tasks
                         </div>
-                        <Pagination 
-                            v-slot="{ page }" 
-                            :total="totalTasks" 
-                            :sibling-count="1" 
-                            show-edges 
-                            :default-page="1" 
-                            :items-per-page="itemsPerPage"
-                            v-model:page="currentPage"
-                        >
+                        <Pagination v-slot="{ page }" :total="totalTasks" :sibling-count="1" show-edges
+                            :default-page="1" :items-per-page="itemsPerPage" v-model:page="currentPage">
                             <PaginationList v-slot="{ items }" class="flex items-center gap-1">
                                 <PaginationFirst class="w-8 h-8 rounded-lg">
                                     <template #default>
@@ -262,12 +267,15 @@ const formatTimeAgo = (date: string) => {
                                     </template>
                                 </PaginationPrev>
                                 <template v-for="(item, index) in items">
-                                    <PaginationListItem v-if="item.type === 'page'" :key="index" :value="item.value" as-child>
-                                        <Button class="w-8 h-8 p-0 rounded-lg text-sm font-bold transition-all" :variant="item.value === currentPage ? 'default' : 'ghost'">
+                                    <PaginationListItem v-if="item.type === 'page'" :key="index" :value="item.value"
+                                        as-child>
+                                        <Button class="w-8 h-8 p-0 rounded-lg text-sm font-bold transition-all"
+                                            :variant="item.value === currentPage ? 'default' : 'ghost'">
                                             {{ item.value }}
                                         </Button>
                                     </PaginationListItem>
-                                    <PaginationEllipsis v-else :key="item.type" :index="index" class="w-8 h-8 flex items-center justify-center text-slate-400" />
+                                    <PaginationEllipsis v-else :key="item.type" :index="index"
+                                        class="w-8 h-8 flex items-center justify-center text-slate-400" />
                                 </template>
                                 <PaginationNext class="w-8 h-8 rounded-lg">
                                     <template #default>

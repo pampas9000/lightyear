@@ -51,6 +51,7 @@
     "uploading": "Uploading {count} files...",
     "start_processing": "Start Processing",
     "processing": "Processing Upload...",
+    "creating_task": "Creating Task...",
     "task_created": "Task Created"
   },
   "status": {

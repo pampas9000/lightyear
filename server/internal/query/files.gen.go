@@ -35,6 +35,9 @@ func newFile(db *gorm.DB, opts ...gen.DOOption) file {
 	_file.Path = field.NewString(tableName, "path")
 	_file.Size = field.NewInt64(tableName, "size")
 	_file.MimeType = field.NewString(tableName, "mime_type")
+	_file.Status = field.NewString(tableName, "status")
+	_file.UploadID = field.NewString(tableName, "upload_id")
+	_file.UploadExpiresAt = field.NewTime(tableName, "upload_expires_at")
 	_file.OwnerID = field.NewField(tableName, "owner_id")
 	_file.InputToJobs = fileHasManyInputToJobs{
 		db: db.Session(&gorm.Session{}),
@@ -227,16 +230,19 @@ func newFile(db *gorm.DB, opts ...gen.DOOption) file {
 type file struct {
 	fileDo
 
-	ALL         field.Asterisk
-	ID          field.Field
-	CreatedAt   field.Time
-	UpdatedAt   field.Time
-	Name        field.String
-	Path        field.String
-	Size        field.Int64
-	MimeType    field.String
-	OwnerID     field.Field
-	InputToJobs fileHasManyInputToJobs
+	ALL             field.Asterisk
+	ID              field.Field
+	CreatedAt       field.Time
+	UpdatedAt       field.Time
+	Name            field.String
+	Path            field.String
+	Size            field.Int64
+	MimeType        field.String
+	Status          field.String
+	UploadID        field.String
+	UploadExpiresAt field.Time
+	OwnerID         field.Field
+	InputToJobs     fileHasManyInputToJobs
 
 	OutputFromJobs fileHasManyOutputFromJobs
 
@@ -264,6 +270,9 @@ func (f *file) updateTableName(table string) *file {
 	f.Path = field.NewString(table, "path")
 	f.Size = field.NewInt64(table, "size")
 	f.MimeType = field.NewString(table, "mime_type")
+	f.Status = field.NewString(table, "status")
+	f.UploadID = field.NewString(table, "upload_id")
+	f.UploadExpiresAt = field.NewTime(table, "upload_expires_at")
 	f.OwnerID = field.NewField(table, "owner_id")
 
 	f.fillFieldMap()
@@ -281,7 +290,7 @@ func (f *file) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (f *file) fillFieldMap() {
-	f.fieldMap = make(map[string]field.Expr, 11)
+	f.fieldMap = make(map[string]field.Expr, 14)
 	f.fieldMap["id"] = f.ID
 	f.fieldMap["created_at"] = f.CreatedAt
 	f.fieldMap["updated_at"] = f.UpdatedAt
@@ -289,6 +298,9 @@ func (f *file) fillFieldMap() {
 	f.fieldMap["path"] = f.Path
 	f.fieldMap["size"] = f.Size
 	f.fieldMap["mime_type"] = f.MimeType
+	f.fieldMap["status"] = f.Status
+	f.fieldMap["upload_id"] = f.UploadID
+	f.fieldMap["upload_expires_at"] = f.UploadExpiresAt
 	f.fieldMap["owner_id"] = f.OwnerID
 
 }

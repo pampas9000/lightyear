@@ -134,3 +134,12 @@ func (s *S3Service) ListParts(ctx context.Context, bucket, key, uploadId string)
 	}
 	return parts, nil
 }
+
+// HeadObject retrieves metadata for an object in S3.
+func (s *S3Service) HeadObject(ctx context.Context, bucket, key string) (*s3.HeadObjectOutput, error) {
+	return s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+}
+

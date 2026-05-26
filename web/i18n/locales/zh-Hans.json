@@ -51,6 +51,7 @@
     "uploading": "正在上传 {count} 个文件...",
     "start_processing": "开始处理",
     "processing": "正在处理上传...",
+    "creating_task": "正在创建任务...",
     "task_created": "任务已创建"
   },
   "status": {

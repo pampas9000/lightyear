@@ -40,7 +40,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Globe, ChevronDown, Check } from 'lucide-vue-next'
+import { Globe, ChevronDown, Check } from '@lucide/vue'
 import {
     DropdownMenu,
     DropdownMenuTrigger,
@@ -66,7 +66,7 @@ type AllowedLocale = (typeof allowedLocales)[number]
 
 const handleLocaleChange = (value: any) => {
     if (typeof value !== 'string' && typeof value !== 'number') return
-    
+
     const code = String(value)
     if (!(allowedLocales as readonly string[]).includes(code)) {
         console.error('Language not supported:', code)
