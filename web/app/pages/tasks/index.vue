@@ -81,7 +81,7 @@ const fetchTasks = async () => {
 
 watch(isAuthenticated, (val) => {
     if (val) fetchTasks()
-}, { immediate: true })
+})
 
 watch([currentPage, statusFilter], () => {
     if (isAuthenticated.value) {

@@ -75,7 +75,7 @@ const fetchDashboardData = async () => {
 
 watch(isAuthenticated, (val) => {
     if (val) fetchDashboardData()
-}, { immediate: true })
+})
 
 onMounted(() => {
     fetchDashboardData()
