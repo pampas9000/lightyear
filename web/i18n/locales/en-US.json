@@ -1,68 +1,70 @@
 {
-  "common": {
-    "loading": "Loading...",
-    "cancel": "Cancel",
-    "submit": "Submit",
-    "delete": "Delete",
-    "edit": "Edit",
-    "save": "Save",
-    "actions": "Actions",
-    "status": "Status",
-    "created_at": "Created At",
-    "items": "Items",
-    "documentation": "Documentation",
-    "login": "Sign In"
-  },
-  "nav": {
-    "console": "Console",
-    "new_task": "New Task",
-    "history": "History",
-    "settings": "Settings",
-    "logout": "Logout",
-    "select_language": "Select Language"
-  },
-  "dashboard": {
-    "title": "Transcoding Tasks",
-    "subtitle": "Monitor and manage your active and queued media processing tasks.",
-    "stats": {
-      "active": "Active Jobs",
-      "queued": "Queued",
-      "completed": "Completed",
-      "failed": "Failed"
+    "common": {
+        "loading": "Loading...",
+        "cancel": "Cancel",
+        "submit": "Submit",
+        "delete": "Delete",
+        "edit": "Edit",
+        "save": "Save",
+        "actions": "Actions",
+        "status": "Status",
+        "created_at": "Created At",
+        "items": "Items",
+        "documentation": "Documentation",
+        "login": "Sign In",
+        "light_mode": "Light Mode",
+        "dark_mode": "Dark Mode"
     },
-    "recent_tasks": "Recent Tasks",
-    "view_all": "View All",
-    "no_tasks": "No active tasks",
-    "no_tasks_desc": "You haven't created any transcoding tasks yet. Get started by uploading some media.",
-    "create_first": "Create your first task",
-    "loading_tasks": "Loading your tasks..."
-  },
-  "new_task": {
-    "title": "Create New Task",
-    "subtitle": "Upload media files and configure bulk transcoding parameters.",
-    "params": "Transcoding Parameters",
-    "target_format": "Target Format",
-    "quality": "Quality",
-    "media_files": "Media Files",
-    "add_files": "Add Files",
-    "no_files": "No files selected",
-    "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
-    "drop_files": "Drop files here to upload",
-    "uploading": "Uploading {count} files...",
-    "upload_failed": "Upload failed",
-    "upload_failed_desc": "{count} file(s) failed to upload.",
-    "task_creation_failed": "Task creation failed",
-    "start_processing": "Start Processing",
-    "processing": "Processing Upload...",
-    "creating_task": "Creating Task...",
-    "task_created": "Task Created",
-    "retry_creation": "Retry Creating Task"
-  },
-  "status": {
-    "PENDING": "Pending",
-    "PROCESSING": "Processing",
-    "COMPLETED": "Completed",
-    "FAILED": "Failed",
-    "CANCELLED": "Cancelled"
-  }
+    "nav": {
+        "new_task": "New Task",
+        "overview": "Overview",
+        "tasks": "Tasks",
+        "settings": "Settings",
+        "logout": "Logout",
+        "select_language": "Select Language"
+    },
+    "dashboard": {
+        "title": "Transcoding Tasks",
+        "subtitle": "Monitor and manage your active and queued media processing tasks.",
+        "stats": {
+            "active": "Active Jobs",
+            "queued": "Queued",
+            "completed": "Completed",
+            "failed": "Failed"
+        },
+        "recent_tasks": "Recent Tasks",
+        "view_all": "View All",
+        "no_tasks": "No active tasks",
+        "no_tasks_desc": "You haven't created any transcoding tasks yet. Get started by uploading some media.",
+        "create_first": "Create your first task",
+        "loading_tasks": "Loading your tasks..."
+    },
+    "new_task": {
+        "title": "Create New Task",
+        "subtitle": "Upload media files and configure bulk transcoding parameters.",
+        "params": "Transcoding Parameters",
+        "target_format": "Target Format",
+        "quality": "Quality",
+        "media_files": "Media Files",
+        "add_files": "Add Files",
+        "no_files": "No files selected",
+        "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
+        "drop_files": "Drop files here to upload",
+        "uploading": "Uploading {count} files...",
+        "upload_failed": "Upload failed",
+        "upload_failed_desc": "{count} file(s) failed to upload.",
+        "task_creation_failed": "Task creation failed",
+        "start_processing": "Start Processing",
+        "processing": "Processing Upload...",
+        "creating_task": "Creating Task...",
+        "task_created": "Task Created",
+        "retry_creation": "Retry Creating Task"
+    },
+    "status": {
+        "PENDING": "Pending",
+        "PROCESSING": "Processing",
+        "COMPLETED": "Completed",
+        "FAILED": "Failed",
+        "CANCELLED": "Cancelled"
+    }
 }

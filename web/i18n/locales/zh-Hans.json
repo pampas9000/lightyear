@@ -1,68 +1,70 @@
 {
-  "common": {
-    "loading": "加载中...",
-    "cancel": "取消",
-    "submit": "提交",
-    "delete": "删除",
-    "edit": "编辑",
-    "save": "保存",
-    "actions": "操作",
-    "status": "状态",
-    "created_at": "创建时间",
-    "items": "项目",
-    "documentation": "项目文档",
-    "login": "登录"
-  },
-  "nav": {
-    "console": "控制台",
-    "new_task": "新建任务",
-    "history": "历史记录",
-    "settings": "设置",
-    "logout": "退出登录",
-    "select_language": "选择语言"
-  },
-  "dashboard": {
-    "title": "转码任务",
-    "subtitle": "监控并管理您的活跃及队列中的媒体处理任务。",
-    "stats": {
-      "active": "正在处理",
-      "queued": "队列中",
-      "completed": "已完成",
-      "failed": "已失败"
+    "common": {
+        "loading": "加载中...",
+        "cancel": "取消",
+        "submit": "提交",
+        "delete": "删除",
+        "edit": "编辑",
+        "save": "保存",
+        "actions": "操作",
+        "status": "状态",
+        "created_at": "创建时间",
+        "items": "项目",
+        "documentation": "项目文档",
+        "login": "登录",
+        "light_mode": "浅色模式",
+        "dark_mode": "深色模式"
     },
-    "recent_tasks": "最近任务",
-    "view_all": "查看全部",
-    "no_tasks": "暂无活跃任务",
-    "no_tasks_desc": "您还没有创建任何转码任务。点击下方按钮开始上传媒体文件。",
-    "create_first": "创建第一个任务",
-    "loading_tasks": "正在加载任务..."
-  },
-  "new_task": {
-    "title": "新建转码任务",
-    "subtitle": "上传媒体文件并配置批量转码参数。",
-    "params": "转码参数设置",
-    "target_format": "目标格式",
-    "quality": "质量",
-    "media_files": "媒体文件",
-    "add_files": "添加文件",
-    "no_files": "未选择文件",
-    "no_files_desc": "拖放文件到此处，或点击“添加文件”进行浏览。",
-    "drop_files": "释放文件以在此处上传",
-    "uploading": "正在上传 {count} 个文件...",
-    "upload_failed": "上传失败",
-    "upload_failed_desc": "有 {count} 个文件上传失败。",
-    "task_creation_failed": "任务创建失败",
-    "start_processing": "开始处理",
-    "processing": "正在处理上传...",
-    "creating_task": "正在创建任务...",
-    "task_created": "任务已创建",
-    "retry_creation": "重试创建任务"
-  },
-  "status": {
-    "PENDING": "等待中",
-    "PROCESSING": "处理中",
-    "COMPLETED": "已完成",
-    "FAILED": "已失败",
-    "CANCELLED": "已取消"
-  }
+    "nav": {
+        "new_task": "新建任务",
+        "overview": "概览",
+        "tasks": "任务",
+        "settings": "设置",
+        "logout": "退出登录",
+        "select_language": "选择语言"
+    },
+    "dashboard": {
+        "title": "转码任务",
+        "subtitle": "监控并管理您的活跃及队列中的媒体处理任务。",
+        "stats": {
+            "active": "正在处理",
+            "queued": "队列中",
+            "completed": "已完成",
+            "failed": "已失败"
+        },
+        "recent_tasks": "最近任务",
+        "view_all": "查看全部",
+        "no_tasks": "暂无活跃任务",
+        "no_tasks_desc": "您还没有创建任何转码任务。点击下方按钮开始上传媒体文件。",
+        "create_first": "创建第一个任务",
+        "loading_tasks": "正在加载任务..."
+    },
+    "new_task": {
+        "title": "新建转码任务",
+        "subtitle": "上传媒体文件并配置批量转码参数。",
+        "params": "转码参数设置",
+        "target_format": "目标格式",
+        "quality": "质量",
+        "media_files": "媒体文件",
+        "add_files": "添加文件",
+        "no_files": "未选择文件",
+        "no_files_desc": "拖放文件到此处，或点击“添加文件”进行浏览。",
+        "drop_files": "释放文件以在此处上传",
+        "uploading": "正在上传 {count} 个文件...",
+        "upload_failed": "上传失败",
+        "upload_failed_desc": "有 {count} 个文件上传失败。",
+        "task_creation_failed": "任务创建失败",
+        "start_processing": "开始处理",
+        "processing": "正在处理上传...",
+        "creating_task": "正在创建任务...",
+        "task_created": "任务已创建",
+        "retry_creation": "重试创建任务"
+    },
+    "status": {
+        "PENDING": "等待中",
+        "PROCESSING": "处理中",
+        "COMPLETED": "已完成",
+        "FAILED": "已失败",
+        "CANCELLED": "已取消"
+    }
 }

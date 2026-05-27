@@ -74,23 +74,23 @@ const handleOAuth = async (provider: 'google' | 'github') => {
 <template>
     <Dialog :open="showAuthModal" @update:open="close">
         <DialogContent
-            class="sm:max-w-[400px] p-0 overflow-hidden border-none shadow-2xl rounded-[24px] bg-white dark:bg-slate-900">
-            <div class="relative w-full p-8">
-                <div class="mb-8 text-center">
+            class="sm:max-w-[360px] p-0 overflow-hidden border border-hairline shadow-md rounded-xl bg-surface-1">
+            <div class="relative w-full p-6 space-y-6">
+                <div class="text-center space-y-2">
                     <div
-                        class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white mb-4 shadow-sm border border-slate-100 dark:border-slate-800 group-hover:scale-110 transition-transform duration-500">
-                        <LockKeyhole class="w-5 h-5 stroke-[2.5]" />
+                        class="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-ink shadow-sm border border-hairline group-hover:scale-105 transition-transform duration-300">
+                        <LockKeyhole class="w-4 h-4 stroke-[1.5]" />
                     </div>
-                    <DialogHeader>
+                    <DialogHeader class="space-y-1">
                         <DialogTitle
-                            class="text-2xl font-black tracking-tight text-slate-900 dark:text-white text-center uppercase">
-                            {{ mode === 'login' ? 'Welcome back' : 'Create Account' }}
+                            class="text-lg font-semibold tracking-tight text-ink text-center">
+                            {{ mode === 'login' ? 'Sign In' : 'Create Account' }}
                         </DialogTitle>
                         <DialogDescription
-                            class="mt-2 text-xs font-medium text-slate-400 dark:text-slate-500 text-center max-w-[240px] mx-auto leading-relaxed">
+                            class="text-xs text-ink-subtle text-center max-w-[220px] mx-auto leading-normal">
                             {{ mode === 'login'
-                                ? 'Access your professional media processing pipeline'
-                                : 'Join our high-performance transcoding network'
+                                ? 'Access your professional transcoding dashboard'
+                                : 'Join our high-performance transcoding platform'
                             }}
                         </DialogDescription>
                     </DialogHeader>
@@ -98,53 +98,52 @@ const handleOAuth = async (provider: 'google' | 'github') => {
 
                 <form @submit.prevent="handleSubmit" class="space-y-4">
                     <div v-if="errorMsg"
-                        class="rounded-xl bg-red-50 dark:bg-red-950/30 p-3 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30 flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
-                        <AlertCircle class="w-3.5 h-3.5 shrink-0 stroke-[3]" />
-                        {{ errorMsg }}
+                        class="rounded-lg bg-red-500/10 p-2.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-500/20 flex items-center gap-2 animate-in fade-in duration-200">
+                        <AlertCircle class="w-4 h-4 shrink-0 stroke-[1.5]" />
+                        <span>{{ errorMsg }}</span>
                     </div>
 
                     <div class="space-y-1.5">
                         <Label
-                            class="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Username</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">Username</Label>
                         <Input v-model="username" type="text" required
-                            class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-transparent focus:border-blue-500/50 focus:bg-white dark:focus:bg-slate-800 px-4 text-sm font-bold transition-all duration-300"
+                            class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="johndoe" />
                     </div>
 
                     <div v-if="mode === 'register'" class="space-y-1.5">
                         <Label
-                            class="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Email</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">Email</Label>
                         <Input v-model="email" type="email" required
-                            class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-transparent focus:border-blue-500/50 focus:bg-white dark:focus:bg-slate-800 px-4 text-sm font-bold transition-all duration-300"
+                            class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="john@example.com" />
                     </div>
 
                     <div class="space-y-1.5">
                         <Label
-                            class="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest ml-1">Password</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">Password</Label>
                         <Input v-model="password" type="password" required
-                            class="h-11 rounded-xl bg-slate-50 dark:bg-slate-800/50 border-transparent focus:border-blue-500/50 focus:bg-white dark:focus:bg-slate-800 px-4 text-sm font-bold transition-all duration-300"
+                            class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="••••••••" />
                     </div>
 
                     <Button type="submit" :disabled="loading"
-                        class="w-full h-12 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl shadow-blue-600/10 mt-2 bg-blue-600 hover:bg-blue-700 hover:translate-y-[-1px] active:translate-y-[1px] transition-all duration-300">
-                        <Loader2 v-if="loading" class="mr-2 h-4 w-4 animate-spin stroke-[3]" />
-                        {{ mode === 'login' ? 'Authenticate' : 'Register' }}
+                        class="w-full h-10 rounded-lg text-xs font-semibold mt-2 bg-primary hover:bg-primary-hover text-primary-foreground shadow-sm transition-all duration-200 cursor-pointer">
+                        <Loader2 v-if="loading" class="mr-2 h-3.5 w-3.5 animate-spin" />
+                        {{ mode === 'login' ? 'Sign In' : 'Sign Up' }}
                     </Button>
                 </form>
 
-                <div class="mt-6 flex items-center gap-4">
-                    <Separator class="flex-1 opacity-50" />
+                <div class="flex items-center gap-3">
+                    <Separator class="flex-1 bg-hairline" />
                     <span
-                        class="text-[8px] text-slate-300 dark:text-slate-600 uppercase tracking-widest font-black">Social
-                        Connect</span>
-                    <Separator class="flex-1 opacity-50" />
+                        class="text-[10px] text-ink-subtle font-medium">or continue with</span>
+                    <Separator class="flex-1 bg-hairline" />
                 </div>
 
-                <div class="mt-6 grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-2 gap-3">
                     <Button @click="handleOAuth('google')" type="button" variant="outline"
-                        class="h-11 rounded-xl gap-2 font-bold text-[10px] uppercase tracking-widest border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all duration-300">
+                        class="h-10 rounded-lg gap-2 font-semibold text-xs border border-hairline bg-surface-1 hover:bg-surface-2 text-ink shadow-sm transition-all duration-200 cursor-pointer">
                         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
                             <path
                                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -162,7 +161,7 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                         Google
                     </Button>
                     <Button @click="handleOAuth('github')" type="button" variant="outline"
-                        class="h-11 rounded-xl gap-2 font-bold text-[10px] uppercase tracking-widest border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all duration-300">
+                        class="h-10 rounded-lg gap-2 font-semibold text-xs border border-hairline bg-surface-1 hover:bg-surface-2 text-ink shadow-sm transition-all duration-200 cursor-pointer">
                         <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
                             <path
                                 d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 12 2Z" />
@@ -171,13 +170,13 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                     </Button>
                 </div>
 
-                <div class="mt-8 text-center">
+                <div class="text-center pt-2">
                     <button @click="toggleMode"
-                        class="group text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-blue-600 transition-all duration-300">
-                        {{ mode === 'login' ? "New around here?" : "Already a member?" }}
+                        class="group text-xs font-medium text-ink-subtle hover:text-ink transition-all duration-200 cursor-pointer">
+                        {{ mode === 'login' ? "New to Transcode Pro?" : "Already have an account?" }}
                         <span
-                            class="text-blue-600 dark:text-blue-400 ml-1 group-hover:ml-1.5 transition-all underline decoration-2 underline-offset-4 decoration-blue-500/20">
-                            {{ mode === 'login' ? 'Create Account' : 'Authenticate' }}
+                            class="text-primary dark:text-primary-hover ml-1 group-hover:underline transition-all">
+                            {{ mode === 'login' ? 'Create one' : 'Sign in' }}
                         </span>
                     </button>
                 </div>

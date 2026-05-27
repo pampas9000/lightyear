@@ -1,67 +1,70 @@
 {
-  "common": {
-    "loading": "載入中...",
-    "cancel": "取消",
-    "submit": "提交",
-    "delete": "刪除",
-    "edit": "編輯",
-    "save": "保存",
-    "actions": "操作",
-    "status": "狀態",
-    "created_at": "創建時間",
-    "items": "項目",
-    "documentation": "文檔",
-    "login": "登錄"
-  },
-  "nav": {
-    "console": "控制台",
-    "new_task": "新建任務",
-    "history": "歷史記錄",
-    "settings": "設置",
-    "logout": "退出登錄",
-    "select_language": "選擇語言"
-  },
-  "dashboard": {
-    "title": "轉碼任務",
-    "subtitle": "監控和管理您的活動和隊列中的媒體處理任務。",
-    "stats": {
-      "active": "活動任務",
-      "queued": "隊列中",
-      "completed": "已完成",
-      "failed": "失敗"
+    "common": {
+        "loading": "載入中...",
+        "cancel": "取消",
+        "submit": "提交",
+        "delete": "刪除",
+        "edit": "編輯",
+        "save": "保存",
+        "actions": "操作",
+        "status": "狀態",
+        "created_at": "創建時間",
+        "items": "項目",
+        "documentation": "文檔",
+        "login": "登入",
+        "light_mode": "淺色模式",
+        "dark_mode": "深色模式"
     },
-    "recent_tasks": "最近任務",
-    "view_all": "查看全部",
-    "no_tasks": "無活動任務",
-    "no_tasks_desc": "您還沒有創建任何轉碼任務。上傳媒體文件開始吧。",
-    "create_first": "創建您的第一個任務",
-    "loading_tasks": "正在載入您的任務..."
-  },
-  "new_task": {
-    "title": "創建新任務",
-    "subtitle": "上傳媒體文件並配置批量轉碼參數。",
-    "params": "轉碼參數",
-    "target_format": "目標格式",
-    "quality": "質量",
-    "media_files": "媒體文件",
-    "add_files": "添加文件",
-    "no_files": "未選擇文件",
-    "no_files_desc": "拖放文件到這裡，或點擊 \"添加文件\" 瀏覽。",
-    "drop_files": "釋放檔案以在此處上傳",
-    "uploading": "正在上傳 {count} 個文件...",
-    "upload_failed": "上傳失敗",
-    "upload_failed_desc": "有 {count} 個文件上傳失敗。",
-    "task_creation_failed": "任務創建失敗",
-    "start_processing": "開始處理",
-    "processing": "正在處理上傳...",
-    "task_created": "任務已創建",
-    "retry_creation": "重試創建任務"
-  },
-  "status": {
-    "PENDING": "等待中",
-    "PROCESSING": "處理中",
-    "COMPLETED": "已完成",
-    "FAILED": "失敗",
-    "CANCELLED": "已取消"
-  }
+    "nav": {
+        "new_task": "新建任務",
+        "overview": "概覽",
+        "tasks": "任務",
+        "settings": "設置",
+        "logout": "退出登錄",
+        "select_language": "選擇語言"
+    },
+    "dashboard": {
+        "title": "轉碼任務",
+        "subtitle": "監控和管理您的活動和隊列中的媒體處理任務。",
+        "stats": {
+            "active": "活動任務",
+            "queued": "隊列中",
+            "completed": "已完成",
+            "failed": "失敗"
+        },
+        "recent_tasks": "最近任務",
+        "view_all": "查看全部",
+        "no_tasks": "無活動任務",
+        "no_tasks_desc": "您還沒有創建任何轉碼任務。上傳媒體文件開始吧。",
+        "create_first": "創建您的第一個任務",
+        "loading_tasks": "正在載入您的任務..."
+    },
+    "new_task": {
+        "title": "創建新任務",
+        "subtitle": "上傳媒體文件並配置批量轉碼參數。",
+        "params": "轉碼參數",
+        "target_format": "目標格式",
+        "quality": "質量",
+        "media_files": "媒體文件",
+        "add_files": "添加文件",
+        "no_files": "未選擇文件",
+        "no_files_desc": "拖放文件到這裡，或點擊 \"添加文件\" 瀏覽。",
+        "drop_files": "釋放檔案以在此處上傳",
+        "uploading": "正在上傳 {count} 個文件...",
+        "upload_failed": "上傳失敗",
+        "upload_failed_desc": "有 {count} 個文件上傳失敗。",
+        "task_creation_failed": "任務創建失敗",
+        "start_processing": "開始處理",
+        "processing": "正在處理上傳...",
+        "creating_task": "正在創建任務...",
+        "task_created": "任務已創建",
+        "retry_creation": "重試創建任務"
+    },
+    "status": {
+        "PENDING": "等待中",
+        "PROCESSING": "處理中",
+        "COMPLETED": "已完成",
+        "FAILED": "失敗",
+        "CANCELLED": "已取消"
+    }
 }

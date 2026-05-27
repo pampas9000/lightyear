@@ -1,66 +1,70 @@
 {
-  "common": {
-    "loading": "Loading...",
-    "cancel": "Cancel",
-    "submit": "Submit",
-    "delete": "Delete",
-    "edit": "Edit",
-    "save": "Save",
-    "actions": "Actions",
-    "status": "Status",
-    "created_at": "Created At",
-    "items": "Items",
-    "documentation": "Documentation",
-    "login": "Sign In"
-  },
-  "nav": {
-    "console": "Console",
-    "new_task": "New Task",
-    "history": "History",
-    "settings": "Settings",
-    "logout": "Logout"
-  },
-  "dashboard": {
-    "title": "Transcoding Tasks",
-    "subtitle": "Monitor and manage your active and queued media processing tasks.",
-    "stats": {
-      "active": "Active Jobs",
-      "queued": "Queued",
-      "completed": "Completed",
-      "failed": "Failed"
+    "common": {
+        "loading": "Laden...",
+        "cancel": "Abbrechen",
+        "submit": "Absenden",
+        "delete": "Löschen",
+        "edit": "Bearbeiten",
+        "save": "Speichern",
+        "actions": "Aktionen",
+        "status": "Status",
+        "created_at": "Erstellt am",
+        "items": "Elemente",
+        "documentation": "Dokumentation",
+        "login": "Anmelden",
+        "light_mode": "Heller Modus",
+        "dark_mode": "Dunkler Modus"
     },
-    "recent_tasks": "Recent Tasks",
-    "view_all": "View All",
-    "no_tasks": "No active tasks",
-    "no_tasks_desc": "You haven't created any transcoding tasks yet. Get started by uploading some media.",
-    "create_first": "Create your first task",
-    "loading_tasks": "Loading your tasks..."
-  },
-  "new_task": {
-    "title": "Create New Task",
-    "subtitle": "Upload media files and configure bulk transcoding parameters.",
-    "params": "Transcoding Parameters",
-    "target_format": "Target Format",
-    "quality": "Quality",
-    "media_files": "Media Files",
-    "add_files": "Add Files",
-    "no_files": "No files selected",
-    "no_files_desc": "Drag and drop files here, or click \"Add Files\" to browse.",
-    "drop_files": "Dateien hier ablegen zum Hochladen",
-    "uploading": "Uploading {count} files...",
-    "upload_failed": "Upload fehlgeschlagen",
-    "upload_failed_desc": "Hochladen von {count} Datei(en) fehlgeschlagen.",
-    "task_creation_failed": "Erstellung der Aufgabe fehlgeschlagen",
-    "start_processing": "Start Processing",
-    "processing": "Processing Upload...",
-    "task_created": "Task Created",
-    "retry_creation": "Aufgabe erneut erstellen"
-  },
-  "status": {
-    "PENDING": "Pending",
-    "PROCESSING": "Processing",
-    "COMPLETED": "Completed",
-    "FAILED": "Failed",
-    "CANCELLED": "Cancelled"
-  }
+    "nav": {
+        "new_task": "Neue Aufgabe",
+        "overview": "Übersicht",
+        "tasks": "Aufgaben",
+        "settings": "Einstellungen",
+        "logout": "Abmelden",
+        "select_language": "Sprache auswählen"
+    },
+    "dashboard": {
+        "title": "Transkodierungsaufgaben",
+        "subtitle": "Überwachen und verwalten Sie Ihre aktiven und in der Warteschlange befindlichen Medienverarbeitungsaufgaben.",
+        "stats": {
+            "active": "Aktive Jobs",
+            "queued": "In Warteschlange",
+            "completed": "Abgeschlossen",
+            "failed": "Fehlgeschlagen"
+        },
+        "recent_tasks": "Kürzliche Aufgaben",
+        "view_all": "Alle anzeigen",
+        "no_tasks": "Keine aktiven Aufgaben",
+        "no_tasks_desc": "Sie haben noch keine Transkodierungsaufgaben erstellt. Fangen Sie an, indem Sie einige Medien hochladen.",
+        "create_first": "Erstellen Sie Ihre erste Aufgabe",
+        "loading_tasks": "Lade Ihre Aufgaben..."
+    },
+    "new_task": {
+        "title": "Neue Aufgabe erstellen",
+        "subtitle": "Mediendateien hochladen und Parameter für die Massentranskodierung konfigurieren.",
+        "params": "Transkodierungsparameter",
+        "target_format": "Zielformat",
+        "quality": "Qualität",
+        "media_files": "Mediendateien",
+        "add_files": "Dateien hinzufügen",
+        "no_files": "Keine Dateien ausgewählt",
+        "no_files_desc": "Ziehen Sie Dateien hierhin oder klicken Sie auf \"Dateien hinzufügen\", um zu suchen.",
+        "drop_files": "Dateien hier ablegen zum Hochladen",
+        "uploading": "Lade {count} Datei(en) hoch...",
+        "upload_failed": "Upload fehlgeschlagen",
+        "upload_failed_desc": "Hochladen von {count} Datei(en) fehlgeschlagen.",
+        "task_creation_failed": "Erstellung der Aufgabe fehlgeschlagen",
+        "start_processing": "Verarbeitung starten",
+        "processing": "Upload wird verarbeitet...",
+        "creating_task": "Aufgabe wird erstellt...",
+        "task_created": "Aufgabe erstellt",
+        "retry_creation": "Aufgabe erneut erstellen"
+    },
+    "status": {
+        "PENDING": "Ausstehend",
+        "PROCESSING": "In Verarbeitung",
+        "COMPLETED": "Abgeschlossen",
+        "FAILED": "Fehlgeschlagen",
+        "CANCELLED": "Abgebrochen"
+    }
 }
