@@ -117,11 +117,12 @@ export const parseApiError = (err: unknown): ApiError => {
 };
 
 export const useApi = () => {
+    const { logout, showAuthModal } = useAuth();
+
     const apiFetch = $fetch.create({
         baseURL: "/api",
         async onResponseError({ response }) {
             if (response.status === 401) {
-                const { logout, showAuthModal } = useAuth();
                 logout();
                 showAuthModal.value = true;
             }
