@@ -125,6 +125,16 @@ func openDatabase(ctx context.Context, cfg config.DatabaseConfig) (*gorm.DB, err
 		}
 	}
 
+	// Configure database connection pool to keep connections warm
+	sqlDB, err := db.DB()
+	if err == nil {
+		sqlDB.SetMaxIdleConns(10)           // Keep up to 10 idle connections warm
+		sqlDB.SetMaxOpenConns(50)           // Allow up to 50 concurrent open connections
+		sqlDB.SetConnMaxLifetime(time.Hour) // Close connections after 1 hour to recycle resources
+	} else {
+		slog.Warn("failed to configure connection pool", "error", err)
+	}
+
 	slog.Info("postgres connected")
 	return db, nil
 }
