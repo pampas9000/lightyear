@@ -1,6 +1,10 @@
 use anyhow::Result;
 use redis::AsyncCommands;
-use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, Set};
+use sea_orm::{
+    ActiveEnum, ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait,
+    QueryFilter, Set,
+};
+use sea_orm::sea_query::Expr;
 use std::path::Path;
 use compute_types::{Format, Params};
 
@@ -17,15 +21,56 @@ async fn handle_job_processing(
     s3_client: &aws_sdk_s3::Client,
     default_bucket: &str,
     job_id_str: &str,
+    is_recovery: bool,
 ) -> Result<bool, anyhow::Error> {
     let job_id = uuid::Uuid::parse_str(job_id_str)
         .map_err(|e| anyhow::anyhow!("Invalid UUID format: {}", e))?;
 
-    // 1. Fetch Job from PG
+    // 1. Atomically claim the job by transitioning status to PROCESSING
+    let now: chrono::DateTime<chrono::FixedOffset> = chrono::Utc::now().into();
+    let mut filter = entities::job::Column::Status.eq(JobStatus::Pending);
+
+    if is_recovery {
+        let stale_threshold = now - chrono::Duration::minutes(5);
+        filter = filter.or(
+            entities::job::Column::Status.eq(JobStatus::Processing)
+                .and(entities::job::Column::UpdatedAt.lt(stale_threshold)),
+        );
+    }
+
+    let update_res = entities::job::Entity::update_many()
+        .col_expr(entities::job::Column::Status, Expr::value(JobStatus::Processing.to_value()))
+        .col_expr(entities::job::Column::UpdatedAt, Expr::value(now))
+        .filter(entities::job::Column::Id.eq(job_id))
+        .filter(filter)
+        .exec(db)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to atomically update job status to Processing: {}", e))?;
+
+    if update_res.rows_affected == 0 {
+        // Atomic update failed, which means the job is already completed, failed, or currently processing by another worker.
+        // Let's fetch the current job status to print a helpful log message and decide whether to skip.
+        let job = entities::job::Entity::find_by_id(job_id)
+            .one(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to fetch job from DB: {}", e))?;
+
+        if let Some(job) = job {
+            println!(
+                "Job {} is already in {:?} status. Skipping processing.",
+                job_id, job.status
+            );
+        } else {
+            println!("Job {} not found in DB. Skipping.", job_id);
+        }
+        return Ok(false);
+    }
+
+    // 2. Fetch the job details
     let job = entities::job::Entity::find_by_id(job_id)
         .one(db)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to fetch job from DB: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to fetch job details from DB: {}", e))?;
 
     let Some(job) = job else {
         return Ok(false); // Job not found in DB
@@ -35,15 +80,6 @@ async fn handle_job_processing(
         "Processing job: {} [{} -> {}] Format: {} Params: {:?}",
         job.id, job.input_path, job.output_path, job.target_format, job.params
     );
-
-    // 2. Update status to processing
-    let mut active_job: entities::job::ActiveModel = job.clone().into();
-    active_job.status = Set(JobStatus::Processing);
-    active_job.updated_at = Set(chrono::Utc::now().into());
-    let active_job = active_job
-        .update(db)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to update job status to Processing: {}", e))?;
 
     // 3. Process the S3 download, transcode, and upload sandbox flow
     let process_result: Result<(), anyhow::Error> = async {
@@ -99,7 +135,7 @@ async fn handle_job_processing(
     }.await;
 
     // 4. Update status based on the result
-    let mut active_job: entities::job::ActiveModel = active_job.into();
+    let mut active_job: entities::job::ActiveModel = job.clone().into();
     match process_result {
         Ok(()) => {
             println!("Transcoding succeeded for job: {}", job_id_str);
@@ -110,7 +146,7 @@ async fn handle_job_processing(
         Err(err) => {
             let error_text = err.to_string();
             eprintln!("Transcoding failed for job {}: {}", job_id_str, error_text);
-            active_job.status = Set(JobStatus::Failed);
+            active_job.status = Set(JobStatus::Pending); // Set back to Pending for transient failures, retryable!
             active_job.progress = Set(0);
             active_job.error_message = Set(Some(error_text));
         }
@@ -119,7 +155,7 @@ async fn handle_job_processing(
     active_job
         .update(db)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to save final job status (Completed/Failed) to DB: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to save final job status (Completed/Pending) to DB: {}", e))?;
 
     Ok(true)
 }
@@ -184,26 +220,34 @@ async fn main() -> Result<()> {
         match result {
             Ok(reply) => {
                 let mut processed_any = false;
+                let is_recovery = read_id == "0";
                 for stream in reply.keys {
                     for entry in stream.ids {
                         processed_any = true;
                         let job_id_str: String = entry.get("job_id").unwrap_or_default();
                         if job_id_str.is_empty() {
                             println!("Received empty job_id field in stream entry: {}", entry.id);
-                            let _: redis::RedisResult<()> = kv_connection
-                                .xack(stream_key, group_name, &[&entry.id])
-                                .await;
+                            match kv_connection.xack::<_, _, _, i32>(stream_key, group_name, &[&entry.id]).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    eprintln!("Failed to XACK empty job stream entry {}: {}", entry.id, e);
+                                }
+                            }
                             continue;
                         }
 
-                        println!("Received job ID from stream (read_id: {}): {}", read_id, job_id_str);
+                        println!("Received job ID from stream (read_id: {}, entry_id: {}): {}", read_id, entry.id, job_id_str);
 
-                        match handle_job_processing(&db, &s3_client, &settings.s3_bucket, &job_id_str).await {
+                        match handle_job_processing(&db, &s3_client, &settings.s3_bucket, &job_id_str, is_recovery).await {
                             Ok(_) => {
-                                let _: redis::RedisResult<()> = kv_connection
-                                    .xack(stream_key, group_name, &[&entry.id])
-                                    .await;
-                                failed_attempts.remove(&entry.id);
+                                match kv_connection.xack::<_, _, _, i32>(stream_key, group_name, &[&entry.id]).await {
+                                    Ok(_) => {
+                                        failed_attempts.remove(&entry.id);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to XACK stream entry {} for job {}: {}", entry.id, job_id_str, e);
+                                    }
+                                }
                             }
                             Err(e) => {
                                 eprintln!("Error processing job {} (retaining in stream): {}", job_id_str, e);
@@ -228,10 +272,14 @@ async fn main() -> Result<()> {
                                         }
                                     }
 
-                                    let _: redis::RedisResult<()> = kv_connection
-                                        .xack(stream_key, group_name, &[&entry.id])
-                                        .await;
-                                    failed_attempts.remove(&entry.id);
+                                    match kv_connection.xack::<_, _, _, i32>(stream_key, group_name, &[&entry.id]).await {
+                                        Ok(_) => {
+                                            failed_attempts.remove(&entry.id);
+                                        }
+                                        Err(xack_err) => {
+                                            eprintln!("Failed to XACK failed stream entry {} for job {}: {}", entry.id, job_id_str, xack_err);
+                                        }
+                                    }
                                 }
                             }
                         }

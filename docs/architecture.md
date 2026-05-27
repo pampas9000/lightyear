@@ -267,6 +267,35 @@ Worker 的职责包括：
 - 服务端特定能力不污染通用库
 - Worker 只负责编排，不把所有实现塞进一个入口文件
 
+### 任务处理幂等性与并发控制
+
+为了防止多个 Worker 节点并发处理同一个 Job，以及应对 Redis 消息重复投递、XACK 失败、Worker 崩溃重启等场景，系统在数据库层实现了**原子抢占（Atomic Claim）**和**租约超时机制（Lease Timeout）**：
+
+1. **原子抢占 (Atomic Claim) 与状态转移**：
+   - 正常路径下（消费新消息），只允许从 `PENDING` 转移到 `PROCESSING`。通过执行原子的带条件更新来实现：
+     ```sql
+     UPDATE jobs SET status = 'PROCESSING', updated_at = now()
+     WHERE id = $1 AND status = 'PENDING';
+     ```
+   - 若更新受影响的行数为 0，说明该 Job 正在被处理、已被处理完毕或已被废弃。当前 Worker 会直接跳过，并对 Redis Stream 执行 `XACK` 确认。
+
+2. **恢复机制 (Recovery Path) 与租约超时 (Lease Timeout)**：
+   - 当 Worker 检查自身的 Pending Entries List (PEL，即以 `read_id == "0"` 读取未确认消息) 时，属于故障恢复阶段。
+   - 恢复路径下，除了 `PENDING` 之外，还允许抢占处于 `PROCESSING` 状态但已经**租约超时（Stale）**的任务（默认租约超时为 5 分钟）：
+     ```sql
+     UPDATE jobs SET status = 'PROCESSING', updated_at = now()
+     WHERE id = $1 AND (
+       status = 'PENDING'
+       OR (status = 'PROCESSING' AND updated_at < now() - 5 minutes)
+     );
+     ```
+   - 租约超时设计确保了崩溃 Worker 遗留的任务能被超时接管，而其他节点正常运行中的慢任务不会被意外抢占。
+
+3. **重试机制与状态演进**：
+   - 遇到瞬态错误（S3 超时、网络波动等）时，Worker 内部会先将 Job 状态更新回 `PENDING`（并附带最新错误信息），以便后续的重试能够继续被 Claim。
+   - 当重试次数达到最大上限（例如 3 次）时，主循环才将 Job 标记为最终状态 `FAILED`，并最终执行 `XACK` 移出队列。
+
+
 ## 模块边界
 
 为了保持可维护性，仓库中的边界需要明确。
