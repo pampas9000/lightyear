@@ -242,11 +242,20 @@ func runJobDispatcher(ctx context.Context, db *gorm.DB, kv *redis.Client, consum
 					}
 				}
 
+				var inputFormat string
+				if job.InputFileID != nil {
+					var inputFile models.File
+					if err := tx.First(&inputFile, "id = ?", *job.InputFileID).Error; err == nil {
+						inputFormat = mimeToFormat(inputFile.MimeType)
+					}
+				}
+
 				payload := &taskqueue.ComputePayload{
 					SchemaVersion: "1.0",
 					JobID:         jobID.String(),
 					AttemptID:     attemptID.String(),
 					InputPath:     job.InputPath,
+					InputFormat:   inputFormat,
 					OutputPath:    job.OutputPath,
 					TargetFormat:  job.TargetFormat,
 					Params:        job.Params,
@@ -512,11 +521,20 @@ func runStaleJobRecovery(ctx context.Context, db *gorm.DB, kv *redis.Client) {
 					return err
 				}
 
+				var inputFormat string
+				if freshJob.InputFileID != nil {
+					var inputFile models.File
+					if err := tx.First(&inputFile, "id = ?", *freshJob.InputFileID).Error; err == nil {
+						inputFormat = mimeToFormat(inputFile.MimeType)
+					}
+				}
+
 				payload := &taskqueue.ComputePayload{
 					SchemaVersion: "1.0",
 					JobID:         freshJob.ID.String(),
 					AttemptID:     newAttemptID.String(),
 					InputPath:     freshJob.InputPath,
+					InputFormat:   inputFormat,
 					OutputPath:    freshJob.OutputPath,
 					TargetFormat:  freshJob.TargetFormat,
 					Params:        freshJob.Params,
@@ -530,5 +548,34 @@ func runStaleJobRecovery(ctx context.Context, db *gorm.DB, kv *redis.Client) {
 				slog.Info("successfully recovered stale job with new attempt_id", "job_id", job.ID)
 			}
 		}
+	}
+}
+
+func mimeToFormat(mime string) string {
+	switch mime {
+	case "image/jpeg", "image/jpg":
+		return "jpeg"
+	case "image/png":
+		return "png"
+	case "image/webp":
+		return "webp"
+	case "image/gif":
+		return "gif"
+	case "image/avif":
+		return "avif"
+	case "image/jxl":
+		return "jxl"
+	case "image/heic", "image/heif":
+		return "heic"
+	case "video/mp4":
+		return "mp4"
+	case "video/quicktime":
+		return "mov"
+	case "video/x-matroska":
+		return "mkv"
+	case "video/x-flv":
+		return "flv"
+	default:
+		return ""
 	}
 }

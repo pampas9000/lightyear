@@ -20,6 +20,7 @@ type ComputePayload struct {
 	JobID         string           `json:"job_id"`
 	AttemptID     string           `json:"attempt_id"`
 	InputPath     string           `json:"input_path"`
+	InputFormat   string           `json:"input_format,omitempty"`
 	OutputPath    string           `json:"output_path"`
 	TargetFormat  string           `json:"target_format"`
 	Params        transcode.Params `json:"params"`

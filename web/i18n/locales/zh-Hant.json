@@ -58,7 +58,22 @@
         "processing": "正在處理上傳...",
         "creating_task": "正在創建任務...",
         "task_created": "任務已創建",
-        "retry_creation": "重試創建任務"
+        "retry_creation": "重試創建任務",
+        "jxl": {
+            "encoding_mode": "編碼模式",
+            "lossless": "無損重建",
+            "lossy": "有損壓縮",
+            "lossless_title": "數學像素級無損壓縮",
+            "lossless_desc": "對於 JPEG 輸入，系統自動啟用零畫質損失的無損重建技術，可在 100% 保留原始字節細節的基礎上縮減約 20% 的體積。對於 PNG 等無損輸入，則自動採用像素級 Modular 無損編碼。",
+            "quality_standard": "質量標準",
+            "visual_distance": "視覺保真度 (d)",
+            "target_quality": "目標質量 (q)",
+            "distance_desc": "0.1 代表視覺完全無損。數值越大，文件越小，但畫面會伴隨更多降質（最大 15.0）。",
+            "quality_desc": "範圍為 0-99。推薦範圍為 80-95。",
+            "preserve_jpeg": "保留 JPEG 原始畫質",
+            "preserve_jpeg_desc": "避免對已有 JPEG 輸入進行二次有損重壓，自動應用無損重建保護畫質。",
+            "recommended": "推薦"
+        }
     },
     "status": {
         "PENDING": "等待中",

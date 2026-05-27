@@ -58,7 +58,22 @@
         "processing": "正在处理上传...",
         "creating_task": "正在创建任务...",
         "task_created": "任务已创建",
-        "retry_creation": "重试创建任务"
+        "retry_creation": "重试创建任务",
+        "jxl": {
+            "encoding_mode": "编码模式",
+            "lossless": "无损重建",
+            "lossy": "有损压缩",
+            "lossless_title": "数学像素级无损压缩",
+            "lossless_desc": "对于 JPEG 输入，系统自动启用零画质损失的无损重建技术，可在 100% 保留原始字节细节的基础上缩减约 20% 的体积。对于 PNG 等无损输入，则自动采用像素级 Modular 无损编码。",
+            "quality_standard": "质量标准",
+            "visual_distance": "视觉保真度 (d)",
+            "target_quality": "目标质量 (q)",
+            "distance_desc": "0.1 代表视觉完全无损。数值越大，文件越小，但画面会伴随更多降质（最大 15.0）。",
+            "quality_desc": "范围为 0-99。推荐范围为 80-95。",
+            "preserve_jpeg": "保留 JPEG 原始画质",
+            "preserve_jpeg_desc": "避免对已有 JPEG 输入进行二次有损重压，自动应用无损重建保护画质。",
+            "recommended": "推荐"
+        }
     },
     "status": {
         "PENDING": "等待中",

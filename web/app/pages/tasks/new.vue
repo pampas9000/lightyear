@@ -90,9 +90,9 @@ const templates: Record<string, Record<string, Record<string, any>>> = {
         speed: { compression_level: 1 }
     },
     'libjxl:jxl': {
-        size: { distance: 1.5, effort: 7, progressive: true },
-        balanced: { distance: 1.0, effort: 5, progressive: true },
-        speed: { distance: 1.0, effort: 3, progressive: false }
+        size: { lossless: false, distance: 1.5, effort: 7, progressive: true, jpeg_reconstruction: true, sub_mode: 'distance' },
+        balanced: { lossless: false, distance: 1.0, effort: 5, progressive: true, jpeg_reconstruction: true, sub_mode: 'distance' },
+        speed: { lossless: false, distance: 1.0, effort: 3, progressive: false, jpeg_reconstruction: true, sub_mode: 'distance' }
     }
 }
 
@@ -124,20 +124,50 @@ const resetParamsToProfile = () => {
     }
     // Initialize helper modes
     if (selectedEngine.value === 'libjxl:jxl') {
-        if (engineParams.value.quality !== undefined) {
-            engineParams.value.mode = 'quality'
-        } else {
-            engineParams.value.mode = 'distance'
+        if (engineParams.value.lossless === undefined) {
+            engineParams.value.lossless = false
+        }
+        if (engineParams.value.jpeg_reconstruction === undefined) {
+            engineParams.value.jpeg_reconstruction = true
+        }
+        if (engineParams.value.sub_mode === undefined) {
+            if (engineParams.value.quality !== undefined) {
+                engineParams.value.sub_mode = 'quality'
+            } else {
+                engineParams.value.sub_mode = 'distance'
+            }
         }
     }
     isApplyingTemplate.value = false
 }
 
-const handleJxlModeChange = (newMode: string | number) => {
+const handleJxlMainModeChange = (losslessVal: boolean) => {
     if (selectedEngine.value !== 'libjxl:jxl') return
-    const modeStr = String(newMode)
-    engineParams.value.mode = modeStr
-    if (modeStr === 'quality') {
+    engineParams.value.lossless = losslessVal
+    if (losslessVal) {
+        delete engineParams.value.distance
+        delete engineParams.value.quality
+    } else {
+        if (engineParams.value.sub_mode === 'quality') {
+            delete engineParams.value.distance
+            if (engineParams.value.quality === undefined) {
+                engineParams.value.quality = 85
+            }
+        } else {
+            engineParams.value.sub_mode = 'distance'
+            delete engineParams.value.quality
+            if (engineParams.value.distance === undefined) {
+                engineParams.value.distance = 1.0
+            }
+        }
+    }
+}
+
+const handleJxlSubModeChange = (newSubMode: string | number) => {
+    if (selectedEngine.value !== 'libjxl:jxl') return
+    const subModeStr = String(newSubMode)
+    engineParams.value.sub_mode = subModeStr
+    if (subModeStr === 'quality') {
         delete engineParams.value.distance
         if (engineParams.value.quality === undefined) {
             engineParams.value.quality = 85
@@ -199,17 +229,25 @@ const preparedEngineParams = computed(() => {
 
     // For libjxl:jxl
     if (selectedEngine.value === 'libjxl:jxl') {
-        delete params.mode
+        delete params.sub_mode
 
-        if (params.quality !== undefined && params.quality !== null && params.quality !== '') {
-            params.quality = Number(params.quality)
-        }
-        if (params.distance !== undefined && params.distance !== null && params.distance !== '') {
-            params.distance = Number(params.distance)
+        if (params.lossless) {
+            delete params.quality
+            delete params.distance
+            delete params.jpeg_reconstruction
+        } else {
+            if (params.quality !== undefined && params.quality !== null && params.quality !== '') {
+                params.quality = Number(params.quality)
+            }
+            if (params.distance !== undefined && params.distance !== null && params.distance !== '') {
+                params.distance = Number(params.distance)
+            }
+            params.jpeg_reconstruction = !!params.jpeg_reconstruction
         }
         if (params.effort !== undefined && params.effort !== null && params.effort !== '') {
             params.effort = Number(params.effort)
         }
+        params.lossless = !!params.lossless
     }
 
     // Global clean up
@@ -718,63 +756,120 @@ const handleDrop = (e: DragEvent) => {
                         <div v-if="selectedEngine === 'libjxl:jxl'" class="space-y-6">
                             <div class="flex flex-col gap-2">
                                 <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
-                                    Encoding Mode
+                                    {{ $t('new_task.jxl.encoding_mode') }}
                                 </Label>
-                                <Tabs :model-value="engineParams.mode || 'distance'"
-                                    @update:model-value="handleJxlModeChange" class="w-full">
+                                <Tabs :model-value="engineParams.lossless ? 'lossless' : 'lossy'"
+                                    @update:model-value="(val) => handleJxlMainModeChange(val === 'lossless')" class="w-full">
                                     <TabsList
                                         class="flex p-1 bg-surface-2/50 border border-hairline rounded-xl w-full max-w-[400px] h-10 gap-1">
-                                        <TabsTrigger value="distance" :disabled="isParamsDisabled"
+                                        <TabsTrigger value="lossless" :disabled="isParamsDisabled"
                                             class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:border-hairline-strong transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                            Visual Distance (d)
+                                            {{ $t('new_task.jxl.lossless') }}
                                         </TabsTrigger>
-                                        <TabsTrigger value="quality" :disabled="isParamsDisabled"
+                                        <TabsTrigger value="lossy" :disabled="isParamsDisabled"
                                             class="flex-1 rounded-lg text-xs font-semibold py-1.5 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-slate-200/50 data-[state=active]:border-hairline-strong transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                            Target Quality (q)
+                                            {{ $t('new_task.jxl.lossy') }}
                                         </TabsTrigger>
                                     </TabsList>
                                 </Tabs>
                             </div>
 
-                            <!-- Distance Control -->
-                            <div v-if="(engineParams.mode || 'distance') === 'distance'" class="space-y-3">
-                                <div class="flex justify-between items-center">
-                                    <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
-                                        Visual Distance
-                                    </Label>
-                                    <span
-                                        class="text-xs font-bold text-primary dark:text-primary-hover bg-primary/10 px-2.5 py-1 rounded-lg">
-                                        {{ engineParams.distance }}
-                                    </span>
+                            <!-- Lossless Info Card -->
+                            <div v-if="engineParams.lossless" class="p-4 bg-emerald-500/5 rounded-xl border border-emerald-500/10 flex flex-col gap-1.5 animate-in fade-in duration-300">
+                                <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs uppercase tracking-wider">
+                                    <Zap class="w-4 h-4 shrink-0 text-emerald-500" />
+                                    {{ $t('new_task.jxl.lossless_title') }}
                                 </div>
-                                 <input type="range" v-model.number="engineParams.distance" min="0" max="15" step="0.1" :disabled="isParamsDisabled"
-                                    class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
-                                           [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                <p class="text-[10px] text-ink-subtle font-medium">
-                                    0.0 is lossless, 1.0 is visually lossless. Higher values mean smaller files and higher degradation (max 15.0).
+                                <p class="text-[10px] text-ink-subtle leading-relaxed font-medium">
+                                    {{ $t('new_task.jxl.lossless_desc') }}
                                 </p>
                             </div>
 
-                            <!-- Quality Control -->
-                            <div v-else class="space-y-3">
-                                <div class="flex justify-between items-center">
+                            <!-- Lossy Parameter Controls -->
+                            <template v-else>
+                                <div class="flex flex-col gap-2 animate-in fade-in duration-300">
                                     <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
-                                        Target Quality
+                                        {{ $t('new_task.jxl.quality_standard') }}
                                     </Label>
-                                    <span
-                                        class="text-xs font-bold text-primary dark:text-primary-hover bg-primary/10 px-2.5 py-1 rounded-lg">
-                                        {{ engineParams.quality }}
-                                    </span>
+                                    <Tabs :model-value="engineParams.sub_mode || 'distance'"
+                                        @update:model-value="handleJxlSubModeChange" class="w-full">
+                                        <TabsList
+                                            class="flex p-0.5 bg-surface-2/30 border border-hairline rounded-lg w-full max-w-[300px] h-8 gap-0.5">
+                                            <TabsTrigger value="distance" :disabled="isParamsDisabled"
+                                                class="flex-1 rounded-md text-[10px] font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                {{ $t('new_task.jxl.visual_distance') }}
+                                            </TabsTrigger>
+                                            <TabsTrigger value="quality" :disabled="isParamsDisabled"
+                                                class="flex-1 rounded-md text-[10px] font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                {{ $t('new_task.jxl.target_quality') }}
+                                            </TabsTrigger>
+                                        </TabsList>
+                                    </Tabs>
                                 </div>
-                                <input type="range" v-model.number="engineParams.quality" min="0" max="100" :disabled="isParamsDisabled"
-                                    class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
-                                           [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
-                                           [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                <p class="text-[10px] text-ink-subtle font-medium">
-                                    0-100 scale, where 100 is mathematically lossless. Recommended range: 80-95.
-                                </p>
-                            </div>
+
+                                <!-- Distance Control -->
+                                <div v-if="(engineParams.sub_mode || 'distance') === 'distance'" class="space-y-3 animate-in fade-in duration-300">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+                                            {{ $t('new_task.jxl.visual_distance') }}
+                                        </Label>
+                                        <span
+                                            class="text-xs font-bold text-primary dark:text-primary-hover bg-primary/10 px-2.5 py-1 rounded-lg">
+                                            {{ engineParams.distance }}
+                                        </span>
+                                    </div>
+                                     <input type="range" v-model.number="engineParams.distance" min="0.1" max="15" step="0.1" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                               [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
+                                               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
+                                    <p class="text-[10px] text-ink-subtle font-medium">
+                                        {{ $t('new_task.jxl.distance_desc') }}
+                                    </p>
+                                </div>
+
+                                <!-- Quality Control -->
+                                <div v-else class="space-y-3 animate-in fade-in duration-300">
+                                    <div class="flex justify-between items-center">
+                                        <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
+                                            {{ $t('new_task.jxl.target_quality') }}
+                                        </Label>
+                                        <span
+                                            class="text-xs font-bold text-primary dark:text-primary-hover bg-primary/10 px-2.5 py-1 rounded-lg">
+                                            {{ engineParams.quality }}
+                                        </span>
+                                    </div>
+                                    <input type="range" v-model.number="engineParams.quality" min="0" max="99" :disabled="isParamsDisabled"
+                                        class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
+                                               [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
+                                               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
+                                    <p class="text-[10px] text-ink-subtle font-medium">
+                                        {{ $t('new_task.jxl.quality_desc') }}
+                                    </p>
+                                </div>
+
+                                <!-- Preserve JPEG Originals Toggle -->
+                                <div class="flex items-center justify-between p-3 bg-surface-2/50 rounded-xl border border-hairline transition-all duration-300 mt-4 animate-in fade-in duration-300">
+                                    <div class="space-y-0.5">
+                                        <Label class="text-xs font-semibold text-ink flex items-center gap-1.5">
+                                            {{ $t('new_task.jxl.preserve_jpeg') }}
+                                            <span class="bg-primary/10 text-primary text-[9px] font-bold px-1.5 py-0.5 rounded-full">{{ $t('new_task.jxl.recommended') }}</span>
+                                        </Label>
+                                        <p class="text-[10px] text-ink-subtle">
+                                            {{ $t('new_task.jxl.preserve_jpeg_desc') }}
+                                        </p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer select-none">
+                                        <input type="checkbox" v-model="engineParams.jpeg_reconstruction" :disabled="isParamsDisabled" class="sr-only peer">
+                                        <div class="w-10 h-5 bg-slate-200 bg-surface-2 rounded-full peer 
+                                                    peer-checked:bg-primary
+                                                    peer-disabled:opacity-50 peer-disabled:cursor-not-allowed
+                                                    after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm
+                                                    peer-checked:after:translate-x-5 peer-checked:after:bg-white
+                                                    border border-slate-300/10 dark:border-hairline-strong
+                                                    transition-all duration-200"></div>
+                                    </label>
+                                </div>
+                            </template>
                         </div>
 
                         <!-- Advanced Parameters Grid (expert mode only) -->

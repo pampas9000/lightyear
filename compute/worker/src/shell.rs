@@ -55,16 +55,46 @@ pub fn build_avifenc_args(input: &Path, output: &Path, params: &LibavifParams) -
 }
 
 /// Builds the argument list for the `cjxl` CLI command.
-pub fn build_cjxl_args(input: &Path, output: &Path, params: &LibjxlParams) -> Vec<OsString> {
+pub fn build_cjxl_args(
+    input: &Path,
+    output: &Path,
+    params: &LibjxlParams,
+    input_format: Option<Format>,
+) -> Vec<OsString> {
     let mut args = Vec::new();
-    if let Some(d) = params.distance {
+
+    // Check if the input is a JPEG file based on input_format or fallback extension
+    let is_jpeg = input_format == Some(Format::Jpeg) || {
+        input.extension()
+            .map(|ext| ext.to_string_lossy().to_lowercase())
+            .map(|ext| ext == "jpg" || ext == "jpeg")
+            .unwrap_or(false)
+    };
+
+    // Determine if we should perform lossless reconstruction for JPEG
+    let should_do_jpeg_reconstruction = is_jpeg && (
+        params.lossless.unwrap_or(false) || params.jpeg_reconstruction.unwrap_or(false)
+    );
+
+    if should_do_jpeg_reconstruction {
+        // For JPEG lossless reconstruction, do NOT pass --distance or --quality.
+        // cjxl automatically performs lossless Brunsli transcoding when input is JPEG and distance/quality are omitted.
+    } else if params.lossless.unwrap_or(false) {
+        // For non-JPEG inputs in lossless mode, enforce --distance 0 (pixel-level modular lossless)
         args.push(OsString::from("--distance"));
-        args.push(OsString::from(d.to_string()));
+        args.push(OsString::from("0"));
+    } else {
+        // Standard lossy mode
+        if let Some(d) = params.distance {
+            args.push(OsString::from("--distance"));
+            args.push(OsString::from(d.to_string()));
+        }
+        if let Some(q) = params.quality {
+            args.push(OsString::from("--quality"));
+            args.push(OsString::from(q.to_string()));
+        }
     }
-    if let Some(q) = params.quality {
-        args.push(OsString::from("--quality"));
-        args.push(OsString::from(q.to_string()));
-    }
+
     if let Some(e) = params.effort {
         args.push(OsString::from("--effort"));
         args.push(OsString::from(e.to_string()));
@@ -83,6 +113,7 @@ pub async fn run_transcode(
     output_path: &Path,
     target_format: Format,
     params_val: &Option<Params>,
+    input_format: Option<Format>,
 ) -> Result<()> {
     match target_format {
         Format::Avif => {
@@ -124,7 +155,7 @@ pub async fn run_transcode(
                 LibjxlParams::default()
             };
 
-            let args = build_cjxl_args(input_path, output_path, &jxl_params);
+            let args = build_cjxl_args(input_path, output_path, &jxl_params, input_format);
 
             // Execute cjxl CLI
             let mut cmd = tokio::process::Command::new("cjxl");
@@ -244,9 +275,10 @@ mod tests {
             quality: None,
             effort: Some(7),
             progressive: Some(true),
+            ..Default::default()
         };
 
-        let args = build_cjxl_args(input, output, &params);
+        let args = build_cjxl_args(input, output, &params, None);
 
         assert!(args.contains(&OsString::from("--distance")));
         assert!(args.contains(&OsString::from("1")));
@@ -257,5 +289,85 @@ mod tests {
 
         assert_eq!(args.last().unwrap(), "output.jxl");
         assert_eq!(&args[args.len() - 2], "input.png");
+    }
+
+    #[test]
+    fn test_build_cjxl_args_jpeg_lossless() {
+        let input = Path::new("input.jpg");
+        let output = Path::new("output.jxl");
+        let params = LibjxlParams {
+            lossless: Some(true),
+            effort: Some(7),
+            ..Default::default()
+        };
+
+        let args = build_cjxl_args(input, output, &params, None);
+
+        // JPEG lossless reconstruction should omit --distance and --quality entirely
+        assert!(!args.contains(&OsString::from("--distance")));
+        assert!(!args.contains(&OsString::from("--quality")));
+        assert!(args.contains(&OsString::from("--effort")));
+
+        assert_eq!(args.last().unwrap(), "output.jxl");
+        assert_eq!(&args[args.len() - 2], "input.jpg");
+    }
+
+    #[test]
+    fn test_build_cjxl_args_png_lossless() {
+        let input = Path::new("input.png");
+        let output = Path::new("output.jxl");
+        let params = LibjxlParams {
+            lossless: Some(true),
+            effort: Some(7),
+            ..Default::default()
+        };
+
+        let args = build_cjxl_args(input, output, &params, None);
+
+        // PNG lossless should enforce --distance 0
+        assert!(args.contains(&OsString::from("--distance")));
+        assert!(args.contains(&OsString::from("0")));
+        assert!(!args.contains(&OsString::from("--quality")));
+
+        assert_eq!(args.last().unwrap(), "output.jxl");
+        assert_eq!(&args[args.len() - 2], "input.png");
+    }
+
+    #[test]
+    fn test_build_cjxl_args_jpeg_reconstruction_in_lossy_mode() {
+        let input = Path::new("input.jpeg");
+        let output = Path::new("output.jxl");
+        let params = LibjxlParams {
+            lossless: Some(false),
+            jpeg_reconstruction: Some(true),
+            distance: Some(1.5),
+            effort: Some(7),
+            ..Default::default()
+        };
+
+        let args = build_cjxl_args(input, output, &params, None);
+
+        // Since jpeg_reconstruction is true and input is JPEG, it should omit --distance and --quality
+        assert!(!args.contains(&OsString::from("--distance")));
+        assert!(!args.contains(&OsString::from("--quality")));
+        assert!(args.contains(&OsString::from("--effort")));
+    }
+
+    #[test]
+    fn test_build_cjxl_args_jpeg_mime_without_extension() {
+        let input = Path::new("input.tmp");
+        let output = Path::new("output.jxl");
+        let params = LibjxlParams {
+            lossless: Some(true),
+            effort: Some(7),
+            ..Default::default()
+        };
+
+        let args = build_cjxl_args(input, output, &params, Some(Format::Jpeg));
+
+        // JPEG lossless reconstruction should be triggered based on Format even without extension
+        assert!(!args.contains(&OsString::from("--distance")));
+        assert!(!args.contains(&OsString::from("--quality")));
+        assert!(args.contains(&OsString::from("--effort")));
     }
 }

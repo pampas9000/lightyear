@@ -89,6 +89,12 @@ type LibavifAdvancedParams struct {
 
 // LibjxlParams represents the configuration options for the JPEG XL encoder (cjxl).
 type LibjxlParams struct {
+	// Lossless enables mathematical pixel losslessness or JPEG reconstruction.
+	Lossless *bool `json:"lossless,omitempty"`
+
+	// JpegReconstruction bypasses lossy encoding for JPEG inputs and preserves original coefficients.
+	JpegReconstruction *bool `json:"jpeg_reconstruction,omitempty"`
+
 	// Distance sets the maximum visual error (0.0-15.0). Maps to -d or --distance.
 	// 0.0 is mathematically lossless. 1.0 is visually lossless (default for non-JPEG inputs). Lower values mean higher quality.
 	// Note: Distance and Quality are mutually exclusive.

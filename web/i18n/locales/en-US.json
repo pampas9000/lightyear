@@ -58,7 +58,22 @@
         "processing": "Processing Upload...",
         "creating_task": "Creating Task...",
         "task_created": "Task Created",
-        "retry_creation": "Retry Creating Task"
+        "retry_creation": "Retry Creating Task",
+        "jxl": {
+            "encoding_mode": "Encoding Mode",
+            "lossless": "Lossless",
+            "lossy": "Lossy",
+            "lossless_title": "Mathematical Pixel-Perfect Compression",
+            "lossless_desc": "For JPEG inputs, this automatically enables zero-loss reconstruction, shrinking files by ~20% with absolute bit-level reversibility. For non-JPEG inputs (e.g., PNG), it enforces pixel-level modular lossless encoding.",
+            "quality_standard": "Quality Standard",
+            "visual_distance": "Visual Distance",
+            "target_quality": "Target Quality",
+            "distance_desc": "0.1 is visually perfect/nearly lossless. Higher values mean smaller files and higher degradation (max 15.0).",
+            "quality_desc": "0-99 scale. Recommended range: 80-95.",
+            "preserve_jpeg": "Preserve JPEG originals",
+            "preserve_jpeg_desc": "Avoid double-compression loss for JPEG inputs by automatically applying lossless reconstruction.",
+            "recommended": "Recommended"
+        }
     },
     "status": {
         "PENDING": "Pending",

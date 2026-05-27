@@ -6,6 +6,12 @@ use validator::Validate;
 #[validate(schema(function = "validate_libjxl_params"))]
 pub struct LibjxlParams {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub lossless: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jpeg_reconstruction: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(range(min = 0.0, max = 15.0))]
     pub distance: Option<f64>,
 

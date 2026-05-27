@@ -58,7 +58,22 @@
         "processing": "アップロードを処理中...",
         "creating_task": "タスクを作成中...",
         "task_created": "タスクが作成されました",
-        "retry_creation": "タスク作成を再試行"
+        "retry_creation": "タスク作成を再試行",
+        "jxl": {
+            "encoding_mode": "エンコードモード",
+            "lossless": "無損失 (無損重建)",
+            "lossy": "有損失 (有損壓縮)",
+            "lossless_title": "ピクセル完全な無損失圧縮",
+            "lossless_desc": "JPEG入力の場合、画質を一切損なわずに自動的に約20%のファイル容量を削減します。PNG等の無損失入力にはピクセルレベルのModular無損失エンコードを適用します。",
+            "quality_standard": "品質基準",
+            "visual_distance": "視覚的距離 (d)",
+            "target_quality": "目標品質 (q)",
+            "distance_desc": "0.1は視覚的に完全無損失です。値が大きいほどファイルサイズは小さくなりますが、画質が低下します（最大 15.0）。",
+            "quality_desc": "0〜99のスケール。推奨範囲：80〜95。",
+            "preserve_jpeg": "JPEG原画を維持",
+            "preserve_jpeg_desc": "JPEG入力に対し自動的に無損失再圧縮を適用し、二重圧縮による画質劣化を防ぎます。",
+            "recommended": "推奨"
+        }
     },
     "status": {
         "PENDING": "保留中",

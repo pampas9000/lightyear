@@ -49,9 +49,15 @@ pub async fn handle_compute(
         .map_err(|e| anyhow::anyhow!("download input from S3 failed: {}", e))?;
 
     // B. Perform Local Transcoding
-    shell::run_transcode(&local_input_path, &local_output_path, target_format, &parsed_params)
-        .await
-        .map_err(|e| anyhow::anyhow!("local transcode execution failed: {}", e))?;
+    shell::run_transcode(
+        &local_input_path,
+        &local_output_path,
+        target_format,
+        &parsed_params,
+        payload.input_format,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("local transcode execution failed: {}", e))?;
 
     // Get output metadata details
     let metadata_size = tokio::fs::metadata(&local_output_path).await?.len();
