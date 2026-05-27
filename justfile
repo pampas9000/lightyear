@@ -43,7 +43,10 @@ dev-web:
     cd web && bun run dev
 
 dev-server:
-    go run ./server/cmd/main.go
+    go run ./server/cmd/api/main.go
+
+dev-orchestrator:
+    go run ./server/cmd/worker/main.go
 
 dev-worker:
     cargo run -p compute-worker

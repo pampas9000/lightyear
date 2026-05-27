@@ -39,7 +39,8 @@ const stats = ref<TaskStats>({
     PENDING: 0,
     PROCESSING: 0,
     COMPLETED: 0,
-    FAILED: 0
+    FAILED: 0,
+    PARTIALLY_FAILED: 0
 })
 
 const tasks = ref<Task[] | null>(null)
@@ -84,6 +85,7 @@ const getStatusStyle = (status: TaskStatus) => {
     switch (status) {
         case TaskStatus.COMPLETED: return 'bg-slate-50 text-slate-600 border-slate-100 dark:bg-slate-800 dark:text-slate-400'
         case TaskStatus.FAILED: return 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/20 dark:text-red-400'
+        case TaskStatus.PARTIALLY_FAILED: return 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-950/20 dark:text-orange-400'
         case TaskStatus.PROCESSING: return 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:text-blue-400'
         default: return 'bg-slate-50 text-slate-500 border-slate-100'
     }
@@ -134,7 +136,7 @@ const formatTimeAgo = (date: string) => {
                 <CardContent>
                     <div class="flex items-baseline gap-3">
                         <span class="text-4xl font-bold text-slate-900 dark:text-white">{{ stats.COMPLETED +
-                            stats.PROCESSING + stats.PENDING + stats.FAILED }}</span>
+                            stats.PROCESSING + stats.PENDING + stats.FAILED + (stats.PARTIALLY_FAILED || 0) }}</span>
                         <Badge variant="secondary"
                             class="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border-none font-bold text-[10px] py-0 px-2">
                             +12%</Badge>

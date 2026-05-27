@@ -3,6 +3,7 @@ export const enum TaskStatus {
     PROCESSING = "PROCESSING",
     COMPLETED = "COMPLETED",
     FAILED = "FAILED",
+    PARTIALLY_FAILED = "PARTIALLY_FAILED",
 }
 
 export interface Base {
@@ -41,6 +42,7 @@ export interface TaskStats {
     PROCESSING: number;
     COMPLETED: number;
     FAILED: number;
+    PARTIALLY_FAILED?: number;
 }
 
 export interface ListTasksData {

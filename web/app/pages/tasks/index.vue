@@ -97,6 +97,7 @@ const getStatusStyle = (status: TaskStatus | string) => {
     switch (status) {
         case 'COMPLETED': return 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20'
         case 'FAILED': return 'bg-red-50 text-red-600 border-red-100 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20'
+        case 'PARTIALLY_FAILED': return 'bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20'
         case 'PROCESSING': return 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20'
         case 'PENDING': return 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20'
         default: return 'bg-slate-50 text-slate-500 border-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
@@ -156,6 +157,7 @@ const formatTimeAgo = (date: string) => {
                             <SelectItem value="PROCESSING" class="text-xs font-medium">Processing</SelectItem>
                             <SelectItem value="COMPLETED" class="text-xs font-medium">Completed</SelectItem>
                             <SelectItem value="FAILED" class="text-xs font-medium">Failed</SelectItem>
+                            <SelectItem value="PARTIALLY_FAILED" class="text-xs font-medium">Partially Failed</SelectItem>
                         </SelectGroup>
                     </SelectContent>
                 </Select>

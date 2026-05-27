@@ -71,10 +71,11 @@ const (
 type TaskStatus string
 
 const (
-	TaskPending    TaskStatus = "PENDING"
-	TaskProcessing TaskStatus = "PROCESSING"
-	TaskCompleted  TaskStatus = "COMPLETED"
-	TaskFailed     TaskStatus = "FAILED"
+	TaskPending       TaskStatus = "PENDING"
+	TaskProcessing    TaskStatus = "PROCESSING"
+	TaskCompleted     TaskStatus = "COMPLETED"
+	TaskFailed        TaskStatus = "FAILED"
+	TaskPartiallyFailed TaskStatus = "PARTIALLY_FAILED"
 )
 
 type Job struct {
@@ -96,6 +97,7 @@ type Job struct {
 	InputFile    *File     `gorm:"foreignKey:InputFileID" json:"input_file,omitempty"`
 	OutputFileID *uuid.UUID `json:"output_file_id,omitempty"`
 	OutputFile   *File     `gorm:"foreignKey:OutputFileID" json:"output_file,omitempty"`
+	AttemptID    *uuid.UUID `gorm:"type:uuid" json:"attempt_id,omitempty"`
 }
 
 type Task struct {

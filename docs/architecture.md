@@ -192,11 +192,11 @@ Nuxt 4 默认采用 `app/` 目录作为应用源码根，因此前端运行时�
 
 1. 用户在 `web` 发起请求（包括 OAuth 登录或普通注册）。
 2. `web` 的 Nitro Server 将请求代理到 Go 后端的 Fiber API。
-3. Go 后端通过 GORM 写入任务元数据到 PostgreSQL。**Session 信息存储在 Redis 中**。
-4. `compute/worker` (通过异步机制或队列) 获取任务并开始执行。
-5. `worker` 更新 PostgreSQL 中的进度与状态。
-6. `web` 通过代理 API 轮询 Go 后端获得实时进度。
-8. 用户获得产物下载地址或结果预览。
+3. Go 后端 API 通过 GORM 写入任务元数据到 PostgreSQL（GORM models），并将 `job_id` 写入 Redis Stream `transcoder:jobs:stream`。
+4. **Go Orchestrator** 守护进程从 `transcoder:jobs:stream` 读取任务，在数据库事务中将 Job 状态更新为 `PROCESSING` 并生成一个全新的 `attempt_id`。随后，它将包含 `job_id`、`attempt_id`、输入/输出 S3 路径和转码参数的 JSON 负载发送到 `transcoder:compute:stream`，然后确认（`XACK`）旧消息。
+5. **Rust Compute Worker** 集群消费 `transcoder:compute:stream`。由于 Rust worker 是纯粹的计算器，它并不连接数据库，而是直接下载 S3 输入文件，调用 `compute-engine` 或本地命令行工具执行转码，上传结果文件至 S3，将执行成功或失败的详细结果（包含 `job_id`、`attempt_id`）写入 `transcoder:results:stream`，并在处理完成后确认旧消息。
+6. **Go Orchestrator** 消费 `transcoder:results:stream`，在数据库事务中通过校验 `attempt_id` 确保消息的有效性与幂等性，更新 `Job`/`File` 状态并聚合重算父 `Task` 状态，确认结果消息。
+7. `web` 通过代理 API 轮询 Go 后端获得实时进度，用户获得产物下载地址或结果预览。
 
 这条链路的特点：
 
@@ -269,31 +269,29 @@ Worker 的职责包括：
 
 ### 任务处理幂等性与并发控制
 
-为了防止多个 Worker 节点并发处理同一个 Job，以及应对 Redis 消息重复投递、XACK 失败、Worker 崩溃重启等场景，系统在数据库层实现了**原子抢占（Atomic Claim）**和**租约超时机制（Lease Timeout）**：
+为了防止多个 Worker 节点并发处理同一个 Job，以及应对 Redis 消息重复投递、XACK 失败、Worker 崩溃重启等场景，系统在应用层与 Redis Streams 层实现了**尝试标识（Attempt ID）**、**租约超时自动接管（Stale Recovery）**以及**唯一消费者名与自动认领（XAUTOCLAIM）**机制：
 
-1. **原子抢占 (Atomic Claim) 与状态转移**：
-   - 正常路径下（消费新消息），只允许从 `PENDING` 转移到 `PROCESSING`。通过执行原子的带条件更新来实现：
+1. **原子抢占 (Atomic Claim) 与尝试标识 (Attempt ID)**：
+   - Go API 插入 Job 时的初始状态为 `PENDING`。
+   - 当 Go Orchestrator 准备调度任务时，在数据库事务中执行原子条件更新：
      ```sql
-     UPDATE jobs SET status = 'PROCESSING', updated_at = now()
-     WHERE id = $1 AND status = 'PENDING';
+     UPDATE jobs SET status = 'PROCESSING', attempt_id = $1, updated_at = now()
+     WHERE id = $2 AND status = 'PENDING';
      ```
-   - 若更新受影响的行数为 0，说明该 Job 正在被处理、已被处理完毕或已被废弃。当前 Worker 会直接跳过，并对 Redis Stream 执行 `XACK` 确认。
+   - 每次抢占都会生成一个唯一的 UUID 作为 `attempt_id`。如果受影响行数为 0，说明已被处理，直接跳过并 ACK。
+   - Rust Worker 接受的计算负载以及写入的转码结果都会携带该 `attempt_id`。
 
-2. **恢复机制 (Recovery Path) 与租约超时 (Lease Timeout)**：
-   - 当 Worker 检查自身的 Pending Entries List (PEL，即以 `read_id == "0"` 读取未确认消息) 时，属于故障恢复阶段。
-   - 恢复路径下，除了 `PENDING` 之外，还允许抢占处于 `PROCESSING` 状态但已经**租约超时（Stale）**的任务（默认租约超时为 5 分钟）：
-     ```sql
-     UPDATE jobs SET status = 'PROCESSING', updated_at = now()
-     WHERE id = $1 AND (
-       status = 'PENDING'
-       OR (status = 'PROCESSING' AND updated_at < now() - 5 minutes)
-     );
-     ```
-   - 租约超时设计确保了崩溃 Worker 遗留的任务能被超时接管，而其他节点正常运行中的慢任务不会被意外抢占。
+2. **结果接收的幂等性校验**：
+   - 当 Go Orchestrator 从 `transcoder:results:stream` 收到计算结果时，首先在数据库事务中比对结果中的 `attempt_id` 与 DB 中当前最新的 `attempt_id` 是否一致。
+   - 若不匹配（例如旧的尝试执行缓慢，在重试启动后才返回结果），Orchestrator 直接丢弃该结果并 ACK，避免历史脏数据覆盖最新状态，保证最终一致性。
 
-3. **重试机制与状态演进**：
-   - 遇到瞬态错误（S3 超时、网络波动等）时，Worker 内部会先将 Job 状态更新回 `PENDING`（并附带最新错误信息），以便后续的重试能够继续被 Claim。
-   - 当重试次数达到最大上限（例如 3 次）时，主循环才将 Job 标记为最终状态 `FAILED`，并最终执行 `XACK` 移出队列。
+3. **租约超时检测与恢复机制 (Stale Recovery)**：
+   - Go Orchestrator 后台运行一个常驻的 Stale Checker，定期扫描数据库中处于 `PROCESSING` 状态且 `updated_at` 超过 5 分钟未更新的 Jobs。
+   - 如果发现超时 Job，开启事务并生成一个**全新的 `attempt_id`**，将 `updated_at` 置为当前时间，重新向 `transcoder:compute:stream` 投递计算请求。
+
+4. **动态扩容下的唯一 Consumer Name 与 PEL 自动认领 (XAUTOCLAIM)**：
+   - Go Orchestrator 和 Rust Worker 每次启动时，均以 `hostname + pid + random` 规则生成唯一的消费者标识，支持节点随时动态扩缩容。
+   - 在消费循环中，消费者优先调用 `XAUTOCLAIM` 命令拉取积压在 PEL（Pending Entries List）中且空闲超过 10 秒的流消息，自动接管已崩溃节点未完成的任务，确保系统不会出现死锁。
 
 
 ## 模块边界

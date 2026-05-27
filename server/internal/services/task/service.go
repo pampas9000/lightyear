@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 
@@ -202,7 +203,9 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 	}
 
 	for _, jid := range createdJobIDs {
-		_ = task.EnqueueJob(ctx, s.kv, jid)
+		if err := task.EnqueueJob(ctx, s.kv, jid); err != nil {
+			slog.Error("failed to enqueue job during task creation, will be recovered by sweeper", "job_id", jid, "error", err)
+		}
 	}
 
 	return s.GetTask(ctx, createdTaskID)
@@ -274,10 +277,11 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (map[string]i
 	}
 
 	stats := map[string]int{
-		"PENDING":    0,
-		"PROCESSING": 0,
-		"COMPLETED":  0,
-		"FAILED":     0,
+		"PENDING":        0,
+		"PROCESSING":     0,
+		"COMPLETED":      0,
+		"FAILED":           0,
+		"PARTIALLY_FAILED": 0,
 	}
 
 	for _, r := range results {

@@ -10,11 +10,10 @@ compute-engine.workspace = true
 compute-server-adapter.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
-sea-orm.workspace = true
 redis.workspace = true
 chrono.workspace = true
 uuid.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 config.workspace = true
 validator.workspace = true
 dotenvy = "0.15.7"
@@ -23,6 +22,7 @@ aws-config = { workspace = true, features = ["rustls", "behavior-version-latest"
 aws-sdk-s3 = { workspace = true, features = ["rustls"] }
 tempfile.workspace = true
 rustls.workspace = true
+image.workspace = true
 
 
 
