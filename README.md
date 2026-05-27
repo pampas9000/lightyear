@@ -230,5 +230,8 @@ Documentation locations are reserved as follows:
 - Put exported host-specific surfaces under `compute/bindings`
 - Keep generated artifacts and build outputs out of version control
 - Update the nearest README or `docs/` entry whenever you introduce a new subsystem or change a boundary
+- This README defines the final monorepo shape. New code should follow these boundaries and naming rules unless there is a strong reason to revise the architecture.
 
-This README defines the final monorepo shape. New code should follow these boundaries and naming rules unless there is a strong reason to revise the architecture.
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](file:///Users/kazuha/dev/lightyear/LICENSE) file for details.
