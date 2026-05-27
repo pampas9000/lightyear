@@ -1,9 +1,8 @@
 <template>
-    <div
-        class="bg-canvas text-ink min-h-screen flex antialiased font-sans transition-colors duration-200">
+    <div class="bg-canvas text-ink min-h-screen flex antialiased font-sans transition-colors duration-200">
         <!-- Sidebar -->
         <aside
-            class="w-60 border-r border-hairline bg-surface-1 flex flex-col py-6 px-4 hidden md:flex shrink-0 sticky top-0 h-screen transition-colors duration-200">
+            class="w-60 border-r border-hairline bg-surface-1 flex-col py-6 px-4 hidden md:flex shrink-0 sticky top-0 h-screen transition-colors duration-200">
             <!-- Brand -->
             <div class="mb-6 px-2">
                 <NuxtLink to="/" class="flex items-center gap-2.5">
@@ -17,7 +16,7 @@
                     </div>
                 </NuxtLink>
             </div>
- 
+
             <NuxtLink to="/tasks/new" class="block mb-4">
                 <Button
                     class="w-full h-9 bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg shadow-sm border-none transition-all duration-200 gap-2 font-medium text-sm cursor-pointer">
@@ -25,7 +24,7 @@
                     {{ $t('nav.new_task') }}
                 </Button>
             </NuxtLink>
- 
+
             <nav class="flex-1 space-y-1">
                 <NuxtLink v-for="item in navItems" :key="item.to" :to="item.to">
                     <Button variant="ghost"
@@ -40,19 +39,19 @@
                     </Button>
                 </NuxtLink>
             </nav>
- 
+
             <div class="mt-4 px-1 space-y-1">
                 <LanguageSwitcher />
                 <ThemeSwitcher />
             </div>
- 
+
             <div class="mt-auto border-t border-hairline pt-4 space-y-1">
                 <Button variant="ghost"
                     class="w-full justify-start gap-2.5 px-3.5 h-9 text-sm font-medium text-ink-subtle hover:bg-surface-2 hover:text-ink rounded-lg transition-all cursor-pointer">
                     <Settings class="w-4 h-4" stroke-width="1.5" />
                     {{ $t('common.documentation') }}
                 </Button>
- 
+
                 <div v-if="isAuthenticated"
                     class="flex items-center gap-2.5 px-3 py-2 mt-1 rounded-lg hover:bg-surface-2 transition-all group cursor-pointer border border-transparent hover:border-hairline">
                     <div
@@ -76,7 +75,7 @@
                 </div>
             </div>
         </aside>
- 
+
         <!-- Main Content -->
         <main class="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
             <div class="flex-1 w-full max-w-7xl mx-auto px-6 lg:px-10 py-10">
