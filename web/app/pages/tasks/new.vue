@@ -566,7 +566,7 @@ const handleDrop = (e: DragEvent) => {
 </script>
 
 <template>
-    <div class="max-w-3xl mx-auto w-full space-y-6">
+    <div class="max-w-3xl mx-auto w-full px-4 sm:px-6 lg:px-8 space-y-8 py-8 pb-24">
         <!-- Header -->
         <div class="flex flex-col gap-1">
             <h1 class="text-xl font-semibold tracking-tight text-ink font-sans">

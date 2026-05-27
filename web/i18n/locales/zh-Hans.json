@@ -66,5 +66,23 @@
         "COMPLETED": "已完成",
         "FAILED": "已失败",
         "CANCELLED": "已取消"
+    },
+    "task_detail": {
+        "back_to_tasks": "返回任务列表",
+        "task_id": "任务 ID",
+        "details_title": "任务详情",
+        "target_format": "目标格式",
+        "total_files": "文件总数",
+        "total_savings": "空间节省",
+        "duration": "处理耗时",
+        "engine": "转码引擎",
+        "params": "引擎参数配置",
+        "original_file": "原始文件",
+        "transcoded_file": "转码文件",
+        "size_reduced": "节省大小",
+        "progress": "处理进度",
+        "error_msg": "错误信息",
+        "download": "下载",
+        "downloading": "下载中..."
     }
 }

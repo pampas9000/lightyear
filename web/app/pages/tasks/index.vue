@@ -7,7 +7,7 @@ import type { ApiResponse } from '~/lib/types/api'
 import {
     Activity, Clock, CheckCircle2, AlertCircle,
     Plus, Loader2, Calendar, RotateCcw,
-    Database, Cpu, Video, FileVideo,
+    Database, Cpu, Video, FileVideo, FileImage,
     Check, MoreVertical, FileX, Filter, Search,
     ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight
 } from '@lucide/vue'
@@ -113,20 +113,72 @@ const formatTimeAgo = (date: string) => {
     if (hours < 24) return `${hours}h ago`
     return new Date(date).toLocaleDateString()
 }
+
+const getTaskSummaryLabel = (task: Task) => {
+    if (!task.jobs || task.jobs.length === 0) return 'UNKNOWN'
+    const job = task.jobs[0]
+    const engine = job.params?.engine
+    if (engine) {
+        const cleanEngine = engine.split(':')[0]
+        return `${job.target_format} (${cleanEngine})`
+    }
+    return job.target_format
+}
+
+const getTaskProgress = (task: Task) => {
+    if (!task.jobs || task.jobs.length === 0) return 0
+    const sum = task.jobs.reduce((acc, job) => acc + (job.progress || 0), 0)
+    return Math.round(sum / task.jobs.length)
+}
+
+const getTaskCompletedCount = (task: Task) => {
+    return task.jobs?.filter(j => j.status === 'COMPLETED').length || 0
+}
+
+const getTaskFailedCount = (task: Task) => {
+    return task.jobs?.filter(j => j.status === 'FAILED').length || 0
+}
+
+const getMediaFlow = (task: Task) => {
+    if (!task.jobs || task.jobs.length === 0) return { source: 'unknown', target: 'unknown' }
+    
+    const isImageExt = (ext: string) => ['png', 'jpg', 'jpeg', 'webp', 'avif', 'jxl', 'gif', 'apng', 'heic', 'heif'].includes(ext.toLowerCase())
+    const isVideoExt = (ext: string) => ['mp4', 'mkv', 'webm', 'mov', 'avi', 'flv'].includes(ext.toLowerCase())
+    
+    let hasImageInput = false
+    let hasVideoInput = false
+    let hasImageOutput = false
+    let hasVideoOutput = false
+    
+    task.jobs.forEach(job => {
+        const inputExt = job.input_path?.split('.').pop() || ''
+        if (isImageExt(inputExt)) hasImageInput = true
+        if (isVideoExt(inputExt)) hasVideoInput = true
+        
+        const targetFmt = job.target_format?.toLowerCase() || ''
+        if (isImageExt(targetFmt)) hasImageOutput = true
+        if (isVideoExt(targetFmt)) hasVideoOutput = true
+    })
+    
+    const source = (hasImageInput && hasVideoInput) ? 'mixed' : (hasImageInput ? 'image' : (hasVideoInput ? 'video' : 'unknown'))
+    const target = (hasImageOutput && hasVideoOutput) ? 'mixed' : (hasImageOutput ? 'image' : (hasVideoOutput ? 'video' : 'unknown'))
+    
+    return { source, target }
+}
 </script>
 
 <template>
-    <div class="max-w-5xl mx-auto w-full space-y-6 pb-20">
+    <div class="max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 space-y-8 py-8 pb-24">
         <!-- Header -->
         <div class="flex items-center justify-between">
-            <div class="space-y-1">
+            <div class="space-y-1.5">
                 <h1 class="text-xl font-semibold tracking-tight text-ink">{{ $t('dashboard.title') }}</h1>
                 <p class="text-xs font-medium text-ink-subtle">{{ $t('dashboard.subtitle') }}</p>
             </div>
             <div class="flex items-center gap-3">
                 <NuxtLink to="/tasks/new">
                     <Button
-                        class="bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg shadow-sm border-none transition-all duration-200 gap-1.5 font-medium text-xs h-8 px-3 cursor-pointer">
+                        class="bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg shadow-sm border-none transition-all duration-200 gap-1.5 font-medium text-xs h-8.5 px-3 cursor-pointer">
                         <Plus class="w-3.5 h-3.5" stroke-width="2.5" />
                         {{ $t('nav.new_task') }}
                     </Button>
@@ -169,147 +221,154 @@ const formatTimeAgo = (date: string) => {
         </div>
 
         <!-- Tasks List -->
-        <Card
-            class="border-hairline shadow-sm overflow-hidden rounded-xl bg-surface-1 py-0 gap-0">
-            <CardContent class="p-0">
-                <!-- Loading -->
-                <div v-if="loading" class="p-16 flex flex-col items-center justify-center space-y-3">
-                    <Loader2 class="h-6 w-6 text-primary animate-spin" />
-                    <p class="text-[10px] font-medium text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.loading_tasks') }}</p>
-                </div>
+        <div class="border border-hairline shadow-sm overflow-hidden rounded-xl bg-surface-1">
+            <!-- Loading -->
+            <div v-if="loading" class="p-20 flex flex-col items-center justify-center space-y-3">
+                <Loader2 class="h-7 w-7 text-primary animate-spin" />
+                <p class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.loading_tasks') }}</p>
+            </div>
 
-                <!-- Display Task List -->
-                <div v-else-if="tasks && tasks.length > 0" class="flex flex-col h-full">
-                    <div class="divide-y divide-hairline">
-                        <div v-for="task in tasks" :key="task.id"
-                            class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2 transition-all duration-200 group">
-                            <!-- File Icon -->
-                            <div
-                                class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0">
-                                <Video v-if="task.status === 'PROCESSING'" class="w-4 h-4 text-primary"
-                                    stroke-width="1.5" />
-                                <FileVideo v-else-if="task.status === 'COMPLETED'" class="w-4 h-4 text-ink-subtle"
-                                    stroke-width="1.5" />
-                                <AlertCircle v-else class="w-4 h-4 text-red-500" stroke-width="1.5" />
+            <!-- Display Task List -->
+            <div v-else-if="tasks && tasks.length > 0" class="flex flex-col h-full">
+                <div class="divide-y divide-hairline">
+                    <NuxtLink v-for="task in tasks" :key="task.id" :to="'/tasks/' + task.id"
+                        class="px-6 py-5.5 sm:px-8 sm:py-6 flex items-center gap-5 hover:bg-surface-2 transition-all duration-200 group cursor-pointer block">
+                        <!-- Dynamic Flow Icon -->
+                        <div
+                            class="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-sm transition-transform hover:scale-105 duration-200">
+                            <Loader2 v-if="task.status === 'PROCESSING' || task.status === 'PENDING'" class="w-5 h-5 text-primary animate-spin" />
+                            <FileImage v-else-if="getMediaFlow(task).target === 'image'" class="w-5 h-5 text-ink-subtle"
+                                stroke-width="1.5" />
+                            <FileVideo v-else class="w-5 h-5 text-ink-subtle"
+                                stroke-width="1.5" />
+                        </div>
+
+                        <!-- Task Details -->
+                        <div class="flex-1 min-w-0 space-y-1.5">
+                            <div class="flex items-center gap-2.5">
+                                <span class="text-sm font-semibold text-ink group-hover:text-primary transition-colors">Task-{{ task.id.substring(0, 8) }}</span>
+                                <span class="text-[10px] font-semibold text-ink-subtle bg-surface-2 px-2 py-0.5 rounded border border-hairline hidden sm:inline-block font-mono">
+                                    {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                                </span>
                             </div>
-
-                            <!-- Task Details -->
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs font-semibold text-ink truncate">Task-{{
-                                        task.id.substring(0, 8) }}</span>
-                                    <span class="text-[9px] font-medium text-ink-subtle hidden sm:inline-block">{{ new
-                                        Date(task.created_at).toLocaleTimeString([], {
-                                            hour: '2-digit', minute: '2-digit' }) }}</span>
-                                </div>
-                                <div class="flex items-center gap-2 mt-0.5">
-                                    <span class="text-[10px] font-medium text-ink-subtle uppercase tracking-wider">H.265 / 4K</span>
-                                    <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
-                                    <span class="text-[10px] font-medium text-ink-subtle">{{ task.jobs?.length || 0 }}
-                                        files</span>
-                                    <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
-                                    <span class="text-[10px] font-medium text-ink-subtle">Started {{
-                                        formatTimeAgo(task.created_at) }}</span>
-                                </div>
-                                <!-- Progress Bar for Processing -->
-                                <div v-if="task.status === 'PROCESSING'" class="mt-1.5 flex items-center gap-2 max-w-md pr-4">
-                                    <div
-                                        class="flex-1 h-1 bg-surface-2 rounded-full overflow-hidden">
-                                        <div class="h-full bg-primary rounded-full animate-progress"
-                                            style="width: 64%">
-                                        </div>
+                            <div class="flex items-center gap-2.5 text-xs text-ink-subtle font-medium flex-wrap">
+                                <span class="uppercase tracking-wider font-semibold text-primary/80 bg-primary/5 px-2 py-0.5 rounded border border-primary/10 text-[11px]">
+                                    {{ getTaskSummaryLabel(task) }}
+                                </span>
+                                <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
+                                <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-[11px]">
+                                    {{ task.jobs?.length || 0 }} files
+                                </span>
+                                <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
+                                <span>
+                                    {{ task.status === 'COMPLETED' ? 'Completed ' + formatTimeAgo(task.updated_at) : 'Started ' + formatTimeAgo(task.created_at) }}
+                                </span>
+                            </div>
+                            <!-- Progress Bar for Processing -->
+                            <div v-if="task.status === 'PROCESSING'" class="mt-2 flex items-center gap-3 max-w-md pr-4" @click.stop.prevent>
+                                <div
+                                    class="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+                                    <div class="h-full bg-primary rounded-full animate-progress"
+                                        :style="{ width: `${getTaskProgress(task)}%` }">
                                     </div>
-                                    <span class="text-[9px] font-semibold text-primary shrink-0">64%</span>
                                 </div>
+                                <span class="text-[11px] font-semibold text-primary shrink-0">
+                                    {{ getTaskCompletedCount(task) }}/{{ task.jobs?.length || 0 }} done · {{ getTaskProgress(task) }}%
+                                </span>
                             </div>
-
-                            <!-- Status & Actions -->
-                            <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-                                <Badge variant="secondary"
-                                    class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal shadow-sm transition-all hidden sm:flex"
-                                    :class="getStatusStyle(task.status)">
-                                    <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400"
-                                        stroke-width="2" />
-                                    <div v-else-if="task.status === 'PROCESSING'"
-                                        class="w-1.5 h-1.5 rounded-full bg-primary mr-1.5 animate-pulse"></div>
-                                    <Clock v-else-if="task.status === 'PENDING'" class="w-3 h-3 mr-1"
-                                        stroke-width="2" />
-                                    <AlertCircle v-else-if="task.status === 'FAILED'" class="w-3.5 h-3.5 mr-1"
-                                        stroke-width="2" />
-                                    {{ task.status.toLowerCase() }}
-                                </Badge>
-                                <Button variant="ghost" size="icon" class="h-7 w-7 text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-lg cursor-pointer">
-                                    <MoreVertical class="w-3.5 h-3.5" />
-                                </Button>
+                            <!-- Failed Hint if failed or partially failed -->
+                            <div v-if="task.status === 'FAILED' || task.status === 'PARTIALLY_FAILED'" class="mt-1 flex items-center gap-1.5 text-red-500 font-semibold text-xs">
+                                <AlertCircle class="w-3.5 h-3.5 shrink-0" />
+                                <span>{{ getTaskFailedCount(task) }} failed</span>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Pagination Footer -->
-                    <div
-                        class="px-5 py-3 border-t border-hairline flex items-center justify-between bg-surface-1">
-                        <div class="text-[11px] font-medium text-ink-subtle">
-                            Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to {{ Math.min(currentPage *
-                            itemsPerPage, totalTasks) }} of {{ totalTasks }} tasks
+                        <!-- Status & Actions -->
+                        <div class="flex items-center gap-2 sm:gap-4 shrink-0" @click.stop.prevent>
+                            <Badge variant="secondary"
+                                class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal shadow-sm transition-all hidden sm:flex"
+                                :class="getStatusStyle(task.status)">
+                                <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400"
+                                    stroke-width="2" />
+                                <div v-else-if="task.status === 'PROCESSING'"
+                                    class="w-1.5 h-1.5 rounded-full bg-primary mr-1.5 animate-pulse"></div>
+                                <Clock v-else-if="task.status === 'PENDING'" class="w-3 h-3 mr-1"
+                                    stroke-width="2" />
+                                <AlertCircle v-else-if="task.status === 'FAILED'" class="w-3.5 h-3.5 mr-1"
+                                    stroke-width="2" />
+                                {{ task.status.toLowerCase() }}
+                            </Badge>
+                            <Button variant="ghost" size="icon" class="h-8.5 w-8.5 text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-lg cursor-pointer">
+                                <MoreVertical class="w-4 h-4" />
+                            </Button>
                         </div>
-                        <Pagination v-slot="{ page }" :total="totalTasks" :sibling-count="1" show-edges
-                            :default-page="1" :items-per-page="itemsPerPage" v-model:page="currentPage">
-                            <PaginationList v-slot="{ items }" class="flex items-center gap-1">
-                                <PaginationFirst class="w-7 h-7 rounded-lg cursor-pointer">
-                                    <template #default>
-                                        <ChevronsLeft class="w-3.5 h-3.5" />
-                                    </template>
-                                </PaginationFirst>
-                                <PaginationPrev class="w-7 h-7 rounded-lg cursor-pointer">
-                                    <template #default>
-                                        <ChevronLeft class="w-3.5 h-3.5" />
-                                    </template>
-                                </PaginationPrev>
-                                <template v-for="(item, index) in items">
-                                    <PaginationListItem v-if="item.type === 'page'" :key="index" :value="item.value"
-                                        as-child>
-                                        <Button class="w-7 h-7 p-0 rounded-lg text-xs font-semibold transition-all cursor-pointer"
-                                            :variant="item.value === currentPage ? 'default' : 'ghost'">
-                                            {{ item.value }}
-                                        </Button>
-                                    </PaginationListItem>
-                                    <PaginationEllipsis v-else :key="item.type" :index="index"
-                                        class="w-7 h-7 flex items-center justify-center text-ink-subtle" />
-                                </template>
-                                <PaginationNext class="w-7 h-7 rounded-lg cursor-pointer">
-                                    <template #default>
-                                        <ChevronRight class="w-3.5 h-3.5" />
-                                    </template>
-                                </PaginationNext>
-                                <PaginationLast class="w-7 h-7 rounded-lg cursor-pointer">
-                                    <template #default>
-                                        <ChevronsRight class="w-3.5 h-3.5" />
-                                    </template>
-                                </PaginationLast>
-                            </PaginationList>
-                        </Pagination>
-                    </div>
-                </div>
-
-                <!-- Empty State -->
-                <div v-else class="p-16 flex flex-col items-center justify-center text-center">
-                    <div
-                        class="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center mb-4 border border-hairline">
-                        <FileX class="w-6 h-6 text-ink-subtle" />
-                    </div>
-                    <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
-                    <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-6">
-                        {{ $t('dashboard.no_tasks_desc') }}
-                    </p>
-                    <NuxtLink to="/tasks/new">
-                        <Button
-                            class="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-6 h-9 rounded-lg transition-all cursor-pointer">
-                            {{ $t('dashboard.create_first') }}
-                        </Button>
                     </NuxtLink>
                 </div>
-            </CardContent>
-        </Card>
+
+                <!-- Pagination Footer -->
+                <div
+                    class="px-6 py-4 border-t border-hairline flex flex-col sm:flex-row gap-4 items-center justify-between bg-surface-1">
+                    <div class="text-xs font-semibold text-ink-subtle">
+                        Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to {{ Math.min(currentPage *
+                        itemsPerPage, totalTasks) }} of {{ totalTasks }} tasks
+                    </div>
+                    <Pagination v-slot="{ page }" :total="totalTasks" :sibling-count="1" show-edges
+                        :default-page="1" :items-per-page="itemsPerPage" v-model:page="currentPage">
+                        <PaginationList v-slot="{ items }" class="flex items-center gap-1.5">
+                            <PaginationFirst class="w-8 h-8 rounded-lg cursor-pointer">
+                                <template #default>
+                                    <ChevronsLeft class="w-4 h-4" />
+                                </template>
+                            </PaginationFirst>
+                            <PaginationPrev class="w-8 h-8 rounded-lg cursor-pointer">
+                                <template #default>
+                                    <ChevronLeft class="w-4 h-4" />
+                                </template>
+                            </PaginationPrev>
+                            <template v-for="(item, index) in items">
+                                <PaginationItem v-if="item.type === 'page'" :key="index" :value="item.value"
+                                    as-child>
+                                    <Button class="w-8 h-8 p-0 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                        :variant="item.value === currentPage ? 'default' : 'ghost'">
+                                        {{ item.value }}
+                                    </Button>
+                                </PaginationItem>
+                                <PaginationEllipsis v-else :key="item.type" :index="index"
+                                    class="w-8 h-8 flex items-center justify-center text-ink-subtle" />
+                            </template>
+                            <PaginationNext class="w-8 h-8 rounded-lg cursor-pointer">
+                                <template #default>
+                                    <ChevronRight class="w-4 h-4" />
+                                </template>
+                            </PaginationNext>
+                            <PaginationLast class="w-8 h-8 rounded-lg cursor-pointer">
+                                <template #default>
+                                    <ChevronsRight class="w-4 h-4" />
+                                </template>
+                            </PaginationLast>
+                        </PaginationList>
+                    </Pagination>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div v-else class="p-16 flex flex-col items-center justify-center text-center">
+                <div
+                    class="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center mb-4 border border-hairline">
+                    <FileX class="w-6 h-6 text-ink-subtle" />
+                </div>
+                <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
+                <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-6">
+                    {{ $t('dashboard.no_tasks_desc') }}
+                </p>
+                <NuxtLink to="/tasks/new">
+                    <Button
+                        class="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold px-6 h-9 rounded-lg transition-all cursor-pointer">
+                        {{ $t('dashboard.create_first') }}
+                    </Button>
+                </NuxtLink>
+            </div>
+        </div>
     </div>
 </template>
 

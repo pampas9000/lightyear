@@ -208,12 +208,12 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 		}
 	}
 
-	return s.GetTask(ctx, createdTaskID)
+	return s.GetTask(ctx, input.OwnerID, createdTaskID)
 }
 
-func (s *Service) GetTask(ctx context.Context, id uuid.UUID) (*models.Task, error) {
+func (s *Service) GetTask(ctx context.Context, ownerID uuid.UUID, id uuid.UUID) (*models.Task, error) {
 	var t models.Task
-	if err := s.db.WithContext(ctx).Preload("Jobs").First(&t, "id = ?", id).Error; err != nil {
+	if err := s.db.WithContext(ctx).Preload("Jobs.InputFile").Preload("Jobs.OutputFile").Preload("Jobs").First(&t, "id = ? AND owner_id = ?", id, ownerID).Error; err != nil {
 		return nil, err
 	}
 	return &t, nil

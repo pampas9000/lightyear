@@ -159,9 +159,19 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", validationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	result, err := h.service.GetTask(c.Context(), parsedID)
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
 	if err != nil {
-		if err.Error() == "record not found" {
+		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+	}
+
+	result, err := h.service.GetTask(c.Context(), ownerID, parsedID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "record not found" {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Task not found.")
 		}
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch task.", map[string]any{"reason": err.Error()})

@@ -66,5 +66,23 @@
         "COMPLETED": "Completed",
         "FAILED": "Failed",
         "CANCELLED": "Cancelled"
+    },
+    "task_detail": {
+        "back_to_tasks": "Back to Tasks",
+        "task_id": "Task ID",
+        "details_title": "Task Details",
+        "target_format": "Target Format",
+        "total_files": "Total Files",
+        "total_savings": "Total Savings",
+        "duration": "Duration",
+        "engine": "Engine",
+        "params": "Engine Parameters",
+        "original_file": "Original File",
+        "transcoded_file": "Transcoded File",
+        "size_reduced": "Savings",
+        "progress": "Progress",
+        "error_msg": "Error Message",
+        "download": "Download",
+        "downloading": "Downloading..."
     }
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,8 @@ func (h *UploadHandler) Install(router fiber.Router) {
 	s3Group.Get("/:uploadId/:partNumber", h.SignPart)
 	s3Group.Post("/:uploadId/complete", h.CompleteMultipartUpload)
 	s3Group.Delete("/:uploadId", h.AbortMultipartUpload)
+
+	router.Get("/files/:id/download", h.DownloadFile)
 }
 
 type CreateMultipartRequest struct {
@@ -282,5 +285,46 @@ func (h *UploadHandler) AbortMultipartUpload(c fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{})
+}
+
+func (h *UploadHandler) DownloadFile(c fiber.Ctx) error {
+	idStr := c.Params("id")
+	parsedID, err := uuid.Parse(idStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid file ID format.", validationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	var file models.File
+	if err := h.db.Where("id = ? AND owner_id = ?", parsedID, ownerID).First(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "File not found.")
+		}
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch file record.", map[string]any{"reason": err.Error()})
+	}
+
+	// Restrict to UPLOADED files only to prevent downloading partial or failed items
+	if file.Status != "UPLOADED" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "File is not fully uploaded or completed yet.")
+	}
+
+	// Generate a 15-minute presigned download URL
+	url, err := h.storage.GetPresignedURL(c.Context(), h.cfg.S3.Bucket, file.Path, false, 15*time.Minute)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to generate download URL", map[string]any{"reason": err.Error()})
+	}
+
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Download URL generated successfully.", fiber.Map{
+		"url": url,
+	})
 }
 
