@@ -247,16 +247,16 @@ const getMediaFlow = (task: Task) => {
                         <div class="flex-1 min-w-0 space-y-1.5">
                             <div class="flex items-center gap-2.5">
                                 <span class="text-sm font-semibold text-ink group-hover:text-primary transition-colors">Task-{{ task.id.substring(0, 8) }}</span>
-                                <span class="text-[10px] font-semibold text-ink-subtle bg-surface-2 px-2 py-0.5 rounded border border-hairline hidden sm:inline-block font-mono">
+                                <span class="text-xs font-semibold text-ink-subtle bg-surface-2 px-2 py-0.5 rounded border border-hairline hidden sm:inline-block font-mono">
                                     {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                                 </span>
                             </div>
                             <div class="flex items-center gap-2.5 text-xs text-ink-subtle font-medium flex-wrap">
-                                <span class="uppercase tracking-wider font-semibold text-primary/80 bg-primary/5 px-2 py-0.5 rounded border border-primary/10 text-[11px]">
+                                <span class="uppercase tracking-wider font-semibold text-primary/80 bg-primary/5 px-2 py-0.5 rounded border border-primary/10 text-xs">
                                     {{ getTaskSummaryLabel(task) }}
                                 </span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
-                                <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-[11px]">
+                                <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-xs">
                                     {{ task.jobs?.length || 0 }} files
                                 </span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
@@ -272,7 +272,7 @@ const getMediaFlow = (task: Task) => {
                                         :style="{ width: `${getTaskProgress(task)}%` }">
                                     </div>
                                 </div>
-                                <span class="text-[11px] font-semibold text-primary shrink-0">
+                                <span class="text-xs font-semibold text-primary shrink-0">
                                     {{ getTaskCompletedCount(task) }}/{{ task.jobs?.length || 0 }} done · {{ getTaskProgress(task) }}%
                                 </span>
                             </div>
@@ -357,8 +357,8 @@ const getMediaFlow = (task: Task) => {
                     class="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center mb-4 border border-hairline">
                     <FileX class="w-6 h-6 text-ink-subtle" />
                 </div>
-                <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
-                <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-6">
+                <h3 class="text-base font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
+                <p class="text-sm text-ink-subtle max-w-xs mx-auto mb-6">
                     {{ $t('dashboard.no_tasks_desc') }}
                 </p>
                 <NuxtLink to="/tasks/new">

@@ -137,7 +137,7 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                 <div class="flex items-center gap-3">
                     <Separator class="flex-1 bg-hairline" />
                     <span
-                        class="text-[10px] text-ink-subtle font-medium">or continue with</span>
+                        class="text-xs text-ink-subtle font-medium">or continue with</span>
                     <Separator class="flex-1 bg-hairline" />
                 </div>
 

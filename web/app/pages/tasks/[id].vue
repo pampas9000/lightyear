@@ -239,7 +239,7 @@ const downloadJobOutput = async (job: Job) => {
                 {{ $t('task_detail.back_to_tasks') }}
             </NuxtLink>
             
-            <div class="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 px-2.5 py-1 rounded-full border border-emerald-500/10 font-semibold tracking-wide">
+            <div class="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 px-2.5 py-1 rounded-full border border-emerald-500/10 font-semibold tracking-wide">
                 <ShieldCheck class="w-3.5 h-3.5" />
                 Secure Ownership Enforced
             </div>
@@ -257,7 +257,7 @@ const downloadJobOutput = async (job: Job) => {
                 <div class="space-y-1.5">
                     <div class="flex items-center gap-2.5">
                         <h1 class="text-xl font-semibold tracking-tight text-ink">Task-{{ task.id.substring(0, 8) }}</h1>
-                        <Badge variant="secondary" class="rounded-full font-medium text-[11px] px-2.5 py-0.5 border capitalize tracking-normal shadow-sm" :class="getStatusStyle(task.status)">
+                        <Badge variant="secondary" class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal shadow-sm" :class="getStatusStyle(task.status)">
                             {{ task.status.toLowerCase() }}
                         </Badge>
                     </div>
@@ -290,7 +290,7 @@ const downloadJobOutput = async (job: Job) => {
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <span class="text-3xl font-bold tracking-tight text-ink leading-none">{{ task.jobs?.[0]?.target_format || 'Unknown' }}</span>
-                        <span class="text-[10px] font-bold text-ink-subtle uppercase leading-none" v-if="task.jobs?.[0]?.params?.engine">({{ task.jobs[0].params.engine.split(':')[0] }})</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none" v-if="task.jobs?.[0]?.params?.engine">({{ task.jobs[0].params.engine.split(':')[0] }})</span>
                     </div>
                 </div>
 
@@ -302,7 +302,7 @@ const downloadJobOutput = async (job: Job) => {
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <span class="text-3xl font-bold tracking-tight text-ink leading-none">{{ task.jobs?.length || 0 }}</span>
-                        <span class="text-[10px] font-bold text-ink-subtle uppercase leading-none">file(s)</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none">file(s)</span>
                     </div>
                 </div>
 
@@ -315,7 +315,7 @@ const downloadJobOutput = async (job: Job) => {
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <template v-if="getTotalSavings">
                             <span class="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 leading-none">-{{ getTotalSavings.ratio }}%</span>
-                            <span class="text-[10px] font-bold text-ink-subtle uppercase leading-none">saved {{ formatBytes(getTotalSavings.saved) }}</span>
+                            <span class="text-xs font-bold text-ink-subtle uppercase leading-none">saved {{ formatBytes(getTotalSavings.saved) }}</span>
                         </template>
                         <template v-else-if="task.status === 'PROCESSING' || task.status === 'PENDING'">
                             <span class="text-xs font-semibold text-ink-subtle animate-pulse">Calculating...</span>
@@ -334,8 +334,8 @@ const downloadJobOutput = async (job: Job) => {
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <span class="text-3xl font-bold tracking-tight text-ink leading-none" :class="task.status === 'PROCESSING' ? 'text-primary' : ''">{{ getTaskProgress }}%</span>
-                        <span class="text-[10px] font-bold text-ink-subtle uppercase leading-none animate-pulse" v-if="task.status === 'PROCESSING'">processing</span>
-                        <span class="text-[10px] font-bold text-ink-subtle uppercase leading-none" v-else-if="task.status === 'COMPLETED'">completed</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none animate-pulse" v-if="task.status === 'PROCESSING'">processing</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none" v-else-if="task.status === 'COMPLETED'">completed</span>
                     </div>
                 </div>
             </div>
@@ -352,11 +352,11 @@ const downloadJobOutput = async (job: Job) => {
                     <!-- High-contrast aligned grid to guarantee padding and element boundaries -->
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-6 sm:gap-8">
                         <div class="space-y-2">
-                            <div class="text-[10px] font-bold text-ink-subtle uppercase tracking-wider">{{ $t('task_detail.engine') }}</div>
+                            <div class="text-xs font-bold text-ink-subtle uppercase tracking-wider">{{ $t('task_detail.engine') }}</div>
                             <div class="text-xs font-semibold text-ink font-mono bg-surface-2 px-2.5 py-1 rounded border border-hairline w-fit">{{ task.jobs[0].params.engine }}</div>
                         </div>
                         <div v-for="(val, key) in task.jobs[0].params.engine_params" :key="key" class="space-y-2">
-                            <div class="text-[10px] font-bold text-ink-subtle uppercase tracking-wider">{{ formatParamKey(key) }}</div>
+                            <div class="text-xs font-bold text-ink-subtle uppercase tracking-wider">{{ formatParamKey(key) }}</div>
                             <div class="text-xs font-semibold text-ink">{{ formatParamValue(key, val) }}</div>
                         </div>
                     </div>
@@ -370,7 +370,7 @@ const downloadJobOutput = async (job: Job) => {
                         <Sparkles class="w-4 h-4 text-ink-subtle" stroke-width="1.75" />
                         Transcoding Jobs
                     </h3>
-                    <span class="text-[10px] font-bold text-ink-subtle uppercase tracking-wider bg-surface-2 px-2.5 py-1 rounded-full border border-hairline">
+                    <span class="text-xs font-bold text-ink-subtle uppercase tracking-wider bg-surface-2 px-2.5 py-1 rounded-full border border-hairline">
                         {{ task.jobs?.filter(j => j.status === 'COMPLETED').length || 0 }} / {{ task.jobs?.length || 0 }} Completed
                     </span>
                 </div>
@@ -396,27 +396,27 @@ const downloadJobOutput = async (job: Job) => {
 
                                 <!-- Flow Details Underneath with distinct top margin spacing -->
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium flex-wrap">
-                                    <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-[11px]">{{ formatBytes(job.input_file?.size || 0) }}</span>
+                                    <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-xs">{{ formatBytes(job.input_file?.size || 0) }}</span>
                                     <span class="text-primary font-semibold text-sm">→</span>
-                                    <span class="text-primary font-semibold uppercase tracking-wider text-[11px] bg-primary/5 px-2 py-0.5 rounded border border-primary/10">{{ job.target_format }}</span>
+                                    <span class="text-primary font-semibold uppercase tracking-wider text-xs bg-primary/5 px-2 py-0.5 rounded border border-primary/10">{{ job.target_format }}</span>
                                     
                                     <template v-if="job.status === 'COMPLETED' && job.output_file?.size">
                                         <span class="text-primary font-semibold text-sm">→</span>
-                                        <span class="bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded border border-emerald-500/10 text-[11px] font-semibold">
+                                        <span class="bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded border border-emerald-500/10 text-xs font-semibold">
                                             {{ formatBytes(job.output_file.size) }}
                                         </span>
                                         <div class="w-1 h-1 rounded-full bg-hairline-strong shrink-0"></div>
-                                        <span class="text-emerald-600 dark:text-emerald-400 font-semibold text-[11px] hover:opacity-85 transition-opacity">
+                                        <span class="text-emerald-600 dark:text-emerald-400 font-semibold text-xs hover:opacity-85 transition-opacity">
                                             -{{ getSavingsRatio(job.input_file?.size, job.output_file.size) }}%
                                         </span>
                                     </template>
                                     <template v-else-if="job.status === 'PROCESSING' || job.status === 'PENDING'">
                                         <span class="text-primary font-semibold text-sm">→</span>
-                                        <span class="text-primary font-semibold animate-pulse text-[11px]">processing...</span>
+                                        <span class="text-primary font-semibold animate-pulse text-xs">processing...</span>
                                     </template>
                                     <template v-else>
                                         <span class="text-primary font-semibold text-sm">→</span>
-                                        <span class="text-destructive font-semibold text-[11px] bg-destructive/5 px-2 py-0.5 rounded border border-destructive/10">failed</span>
+                                        <span class="text-destructive font-semibold text-xs bg-destructive/5 px-2 py-0.5 rounded border border-destructive/10">failed</span>
                                     </template>
                                 </div>
                             </div>
@@ -425,7 +425,7 @@ const downloadJobOutput = async (job: Job) => {
                         <!-- Right: Badges & CTA Download -->
                         <div class="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t border-hairline sm:border-none pt-4 sm:pt-0">
                             <!-- Status Badges -->
-                            <Badge variant="secondary" class="rounded-full font-medium text-[11px] px-3 py-1 border capitalize tracking-normal shadow-sm transition-all" :class="getJobStatusStyle(job.status)">
+                            <Badge variant="secondary" class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal shadow-sm transition-all" :class="getJobStatusStyle(job.status)">
                                 {{ job.status.toLowerCase() }}
                             </Badge>
 

@@ -18,19 +18,19 @@
 
         <DropdownMenuContent align="start" :side-offset="8"
             class="w-48 p-1 bg-surface-1 border border-hairline shadow-sm rounded-lg">
-            <div class="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
+            <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-ink-subtle">
                 {{ $t('nav.select_language') }}
             </div>
             <DropdownMenuSeparator class="mx-1 my-1 bg-hairline" />
             <DropdownMenuRadioGroup :model-value="currentLocale" @update:model-value="handleLocaleChange">
                 <DropdownMenuRadioItem v-for="locale in locales" :key="locale.code" :value="locale.code"
-                    class="group flex items-center justify-between py-2 pl-8 pr-3 rounded-md cursor-pointer transition-all duration-200 text-xs font-medium text-ink focus:bg-surface-2 data-[state=checked]:text-primary dark:data-[state=checked]:text-primary-hover">
+                    class="group flex items-center justify-between py-2 pl-8 pr-3 rounded-md cursor-pointer transition-all duration-200 text-sm font-medium text-ink focus:bg-surface-2 data-[state=checked]:text-primary dark:data-[state=checked]:text-primary-hover">
                     <template #indicator-icon>
                         <Check class="size-3.5 stroke-3 text-primary" />
                     </template>
                     <span>{{ locale.name }}</span>
                     <span
-                        class="text-[9px] font-mono font-medium opacity-40 group-hover:opacity-60 transition-opacity">{{
+                        class="text-xs font-mono font-medium opacity-40 group-hover:opacity-60 transition-opacity">{{
                             locale.code?.split('-')[0]?.toUpperCase() }}</span>
                 </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>

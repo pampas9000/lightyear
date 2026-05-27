@@ -626,12 +626,12 @@ const handleDrop = (e: DragEvent) => {
                             <Settings class="w-4 h-4 text-primary" />
                             {{ $t('new_task.params') }}
                         </CardTitle>
-                        <p class="text-[10px] text-ink-subtle font-medium">
+                        <p class="text-xs text-ink-subtle font-medium">
                             Configure image optimization and transcoding parameters
                         </p>
                     </div>
                     <button @click="expertMode = !expertMode" :disabled="isParamsDisabled"
-                        class="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        class="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         :class="expertMode ? 'bg-primary/10 text-primary dark:text-primary-hover border-primary/20 dark:border-primary/30' : 'bg-surface-2 text-ink-subtle border-hairline hover:bg-surface-3'">
                         <Sliders class="w-3 h-3" />
                         Expert Mode
@@ -747,7 +747,7 @@ const handleDrop = (e: DragEvent) => {
                                 class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                        [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                            <p class="text-[10px] text-ink-subtle font-medium">
+                            <p class="text-xs text-ink-subtle font-medium">
                                 Higher quality values result in better details but larger file sizes.
                             </p>
                         </div>
@@ -780,7 +780,7 @@ const handleDrop = (e: DragEvent) => {
                                     <Zap class="w-4 h-4 shrink-0 text-emerald-500" />
                                     {{ $t('new_task.jxl.lossless_title') }}
                                 </div>
-                                <p class="text-[10px] text-ink-subtle leading-relaxed font-medium">
+                                <p class="text-xs text-ink-subtle leading-relaxed font-medium">
                                     {{ $t('new_task.jxl.lossless_desc') }}
                                 </p>
                             </div>
@@ -796,11 +796,11 @@ const handleDrop = (e: DragEvent) => {
                                         <TabsList
                                             class="flex p-0.5 bg-surface-2/30 border border-hairline rounded-lg w-full max-w-[300px] h-8 gap-0.5">
                                             <TabsTrigger value="distance" :disabled="isParamsDisabled"
-                                                class="flex-1 rounded-md text-[10px] font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                class="flex-1 rounded-md text-xs font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                                 {{ $t('new_task.jxl.visual_distance') }}
                                             </TabsTrigger>
                                             <TabsTrigger value="quality" :disabled="isParamsDisabled"
-                                                class="flex-1 rounded-md text-[10px] font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                                class="flex-1 rounded-md text-xs font-semibold py-1 text-ink-subtle data-[state=active]:bg-white data-[state=active]:bg-surface-1 data-[state=active]:text-primary data-[state=active]:dark:text-primary-hover data-[state=active]:shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                                 {{ $t('new_task.jxl.target_quality') }}
                                             </TabsTrigger>
                                         </TabsList>
@@ -822,7 +822,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-[10px] text-ink-subtle font-medium">
+                                    <p class="text-xs text-ink-subtle font-medium">
                                         {{ $t('new_task.jxl.distance_desc') }}
                                     </p>
                                 </div>
@@ -842,7 +842,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-[10px] text-ink-subtle font-medium">
+                                    <p class="text-xs text-ink-subtle font-medium">
                                         {{ $t('new_task.jxl.quality_desc') }}
                                     </p>
                                 </div>
@@ -852,9 +852,9 @@ const handleDrop = (e: DragEvent) => {
                                     <div class="space-y-0.5">
                                         <Label class="text-xs font-semibold text-ink flex items-center gap-1.5">
                                             {{ $t('new_task.jxl.preserve_jpeg') }}
-                                            <span class="bg-primary/10 text-primary text-[9px] font-bold px-1.5 py-0.5 rounded-full">{{ $t('new_task.jxl.recommended') }}</span>
+                                            <span class="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.5 rounded-full">{{ $t('new_task.jxl.recommended') }}</span>
                                         </Label>
-                                        <p class="text-[10px] text-ink-subtle">
+                                        <p class="text-xs text-ink-subtle">
                                             {{ $t('new_task.jxl.preserve_jpeg_desc') }}
                                         </p>
                                     </div>
@@ -888,13 +888,13 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-[10px] text-ink-subtle">0 is slowest (highest compression), 10 is fastest (larger size).</p>
+                                    <p class="text-xs text-ink-subtle">0 is slowest (highest compression), 10 is fastest (larger size).</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
                                         <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Sharp YUV</Label>
-                                        <p class="text-[10px] text-ink-subtle">Improve edge details and color matching</p>
+                                        <p class="text-xs text-ink-subtle">Improve edge details and color matching</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.sharp_yuv" :disabled="isParamsDisabled" class="sr-only peer">
@@ -921,14 +921,14 @@ const handleDrop = (e: DragEvent) => {
                                             <SelectItem value="444">4:4:4 (Lossless color / Sharp details)</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <p class="text-[10px] text-ink-subtle">Output chroma subsampling format. 4:2:0 is recommended for compatibility.</p>
+                                    <p class="text-xs text-ink-subtle">Output chroma subsampling format. 4:2:0 is recommended for compatibility.</p>
                                 </div>
                                 <div class="space-y-3">
                                     <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Jobs (Thread Count)</Label>
                                     <Input type="number" v-model.number="engineParams.jobs" :min="1" :disabled="isParamsDisabled"
                                         placeholder="Auto (All threads)"
                                         class="h-10 rounded-lg bg-white bg-surface-2 border-hairline focus-visible:ring-1 focus-visible:ring-primary/20 focus-visible:border-primary text-ink text-xs disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-[10px] text-ink-subtle">Specify maximum encoding threads. Default uses all available cores.</p>
+                                    <p class="text-xs text-ink-subtle">Specify maximum encoding threads. Default uses all available cores.</p>
                                 </div>
                                 <div
                                     class="space-y-3 md:col-span-2 p-4 bg-surface-1 rounded-xl border border-hairline">
@@ -936,7 +936,7 @@ const handleDrop = (e: DragEvent) => {
                                         <div class="space-y-0.5">
                                             <Label
                                                 class="text-sm font-semibold text-slate-700 text-ink-muted">Custom Alpha Quality</Label>
-                                            <p class="text-[10px] text-ink-subtle">Enable customized quality setting specifically for the transparency channel</p>
+                                            <p class="text-xs text-ink-subtle">Enable customized quality setting specifically for the transparency channel</p>
                                         </div>
                                         <label class="relative inline-flex items-center cursor-pointer select-none">
                                             <input type="checkbox" v-model="engineParams.use_custom_alpha_quality" :disabled="isParamsDisabled"
@@ -979,7 +979,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">Sharpness of the transform blocks (0-7, default 0). Higher values reduce blur on line-art.</p>
+                                    <p class="text-xs text-ink-subtle">Sharpness of the transform blocks (0-7, default 0). Higher values reduce blur on line-art.</p>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
@@ -991,7 +991,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">Sharpness specifically for color channels (0-7). Higher values help with color bleeding.</p>
+                                    <p class="text-xs text-ink-subtle">Sharpness specifically for color channels (0-7). Higher values help with color bleeding.</p>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
@@ -1003,7 +1003,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">Sharpness specifically for the alpha transparency channel (0-7).</p>
+                                    <p class="text-xs text-ink-subtle">Sharpness specifically for the alpha transparency channel (0-7).</p>
                                 </div>
                             </template>
 
@@ -1037,13 +1037,13 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">0 is fastest, 6 is slowest/best quality compression.</p>
+                                    <p class="text-xs text-ink-subtle">0 is fastest, 6 is slowest/best quality compression.</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
                                         <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Lossless Mode</Label>
-                                        <p class="text-[10px] text-ink-subtle">Enforce mathematical pixel losslessness</p>
+                                        <p class="text-xs text-ink-subtle">Enforce mathematical pixel losslessness</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.lossless" :disabled="isParamsDisabled" class="sr-only peer">
@@ -1071,7 +1071,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">0 is uncompressed (largest file), 9 is max compression.</p>
+                                    <p class="text-xs text-ink-subtle">0 is uncompressed (largest file), 9 is max compression.</p>
                                 </div>
                             </template>
 
@@ -1088,14 +1088,14 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-[10px] text-ink-subtle">1 is fastest, 10 is slowest/most optimized.</p>
+                                    <p class="text-xs text-ink-subtle">1 is fastest, 10 is slowest/most optimized.</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
                                         <Label
                                             class="text-sm font-semibold text-slate-700 text-ink-muted">Progressive</Label>
-                                        <p class="text-[10px] text-ink-subtle">Support progressive rendering</p>
+                                        <p class="text-xs text-ink-subtle">Support progressive rendering</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.progressive" :disabled="isParamsDisabled" class="sr-only peer">
@@ -1169,7 +1169,7 @@ const handleDrop = (e: DragEvent) => {
                                     <p v-if="file.status === 'error' && file.error" class="text-xs font-medium text-red-500 mt-1 truncate" :title="file.error">
                                         {{ file.error }}
                                     </p>
-                                    <p v-else class="text-[10px] font-medium text-ink-subtle mt-0.5">
+                                    <p v-else class="text-xs font-medium text-ink-subtle mt-0.5">
                                         {{ (file.size / 1024 / 1024).toFixed(2) }} MB
                                     </p>
                                 </div>
@@ -1178,7 +1178,7 @@ const handleDrop = (e: DragEvent) => {
                             <div class="flex items-center space-x-4">
                                 <div v-if="isUploading || file.status === 'success'"
                                     class="w-24 flex flex-col items-end gap-1 shrink-0">
-                                    <span class="text-[9px] font-semibold text-primary">{{ file.progress }}%</span>
+                                    <span class="text-xs font-semibold text-primary">{{ file.progress }}%</span>
                                     <div
                                         class="h-1 w-full rounded-full bg-surface-2 overflow-hidden">
                                         <div class="h-full bg-primary transition-all duration-500 ease-out"
@@ -1209,10 +1209,10 @@ const handleDrop = (e: DragEvent) => {
                             class="h-10 w-10 rounded-lg bg-surface-2 flex items-center justify-center mb-4 text-ink-subtle shadow-xs border border-hairline">
                             <UploadCloud class="w-5 h-5 opacity-70" />
                         </div>
-                        <p class="text-xs font-semibold text-ink mb-1">
+                        <p class="text-sm font-semibold text-ink mb-1">
                             {{ $t('new_task.no_files') }}
                         </p>
-                        <p class="text-[10px] text-ink-subtle font-medium max-w-xs">
+                        <p class="text-sm text-ink-subtle font-medium max-w-xs">
                             {{ $t('new_task.no_files_desc') }}
                         </p>
                     </div>

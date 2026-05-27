@@ -110,12 +110,12 @@ const formatTimeAgo = (date: string) => {
                 <h1 class="text-xl font-semibold tracking-tight text-ink">{{ $t('nav.overview') }}</h1>
                 <div class="flex items-center gap-2">
                     <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <p class="text-xs font-medium text-ink-subtle">All services operational.</p>
+                    <p class="text-sm font-medium text-ink-subtle">All services operational.</p>
                 </div>
             </div>
             <div class="flex items-center gap-3">
                 <Button variant="outline"
-                    class="h-8 px-3 text-xs font-semibold gap-1.5 border-hairline bg-surface-1 hover:bg-surface-2 text-ink shadow-sm cursor-pointer">
+                    class="h-8 px-3 text-sm font-semibold gap-1.5 border-hairline bg-surface-1 hover:bg-surface-2 text-ink shadow-sm cursor-pointer">
                     <Calendar class="w-3.5 h-3.5 text-ink-subtle" />
                     Last 7 Days
                 </Button>
@@ -137,7 +137,7 @@ const formatTimeAgo = (date: string) => {
                         <span class="text-3xl font-semibold tracking-tight text-ink">{{ stats.COMPLETED +
                             stats.PROCESSING + stats.PENDING + stats.FAILED + (stats.PARTIALLY_FAILED || 0) }}</span>
                         <Badge variant="secondary"
-                            class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-semibold text-[10px] py-0.5 px-1.5 rounded">
+                            class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-semibold text-xs py-0.5 px-1.5 rounded">
                             +12%</Badge>
                     </div>
                     <!-- Placeholder Chart -->
@@ -160,13 +160,13 @@ const formatTimeAgo = (date: string) => {
                 <CardContent class="p-0">
                     <div class="flex items-baseline gap-1.5">
                         <span class="text-3xl font-semibold tracking-tight text-ink">4.2</span>
-                        <span class="text-[11px] font-semibold text-ink-subtle uppercase">TB / 10 TB</span>
+                        <span class="text-xs font-semibold text-ink-subtle uppercase">TB / 10 TB</span>
                     </div>
                     <div class="mt-4 space-y-1.5">
                         <div class="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
                             <div class="h-full bg-primary rounded-full" style="width: 42%"></div>
                         </div>
-                        <div class="flex justify-between text-[9px] font-semibold text-ink-subtle uppercase">
+                        <div class="flex justify-between text-[10px] font-semibold text-ink-subtle uppercase">
                             <span>42% Used</span>
                             <span>5.8 TB Free</span>
                         </div>
@@ -185,7 +185,7 @@ const formatTimeAgo = (date: string) => {
                 <CardContent class="p-0">
                     <div class="flex items-baseline gap-1.5">
                         <span class="text-3xl font-semibold tracking-tight text-ink">12</span>
-                        <span class="text-[11px] font-semibold text-ink-subtle uppercase">Active</span>
+                        <span class="text-xs font-semibold text-ink-subtle uppercase">Active</span>
                     </div>
                     <div class="mt-4 flex gap-1">
                         <div v-for="i in 12" :key="i"
@@ -209,7 +209,7 @@ const formatTimeAgo = (date: string) => {
                 <!-- Loading -->
                 <div v-if="loading" class="p-16 flex flex-col items-center justify-center space-y-3">
                     <Loader2 class="h-6 w-6 text-primary animate-spin" />
-                    <p class="text-[10px] font-medium text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.loading_tasks') }}</p>
+                    <p class="text-xs font-medium text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.loading_tasks') }}</p>
                 </div>
 
                 <!-- Display Task List -->
@@ -228,15 +228,15 @@ const formatTimeAgo = (date: string) => {
                         <!-- Task Details -->
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center gap-2">
-                                <span class="text-xs font-semibold text-ink truncate">Task-{{
+                                <span class="text-sm font-semibold text-ink truncate">Task-{{
                                     task.id.substring(0, 8) }}</span>
-                                <span class="text-[9px] font-medium text-ink-subtle">{{ new
+                                <span class="text-[10px] font-medium text-ink-subtle">{{ new
                                     Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
                             </div>
                             <div class="flex items-center gap-2 mt-0.5">
-                                <span class="text-[10px] font-medium text-ink-subtle uppercase tracking-wider">H.265 / 4K</span>
+                                <span class="text-xs font-medium text-ink-subtle uppercase tracking-wider">H.265 / 4K</span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
-                                <span class="text-[10px] font-medium text-ink-subtle">Started {{
+                                <span class="text-xs font-medium text-ink-subtle">Started {{
                                     formatTimeAgo(task.created_at) }}</span>
                             </div>
                             <!-- Progress Bar for Processing -->
@@ -245,7 +245,7 @@ const formatTimeAgo = (date: string) => {
                                     <div class="h-full bg-primary rounded-full animate-progress" style="width: 64%">
                                     </div>
                                 </div>
-                                <span class="text-[9px] font-semibold text-primary">64%</span>
+                                <span class="text-[10px] font-semibold text-primary">64%</span>
                             </div>
                         </div>
 
@@ -272,8 +272,8 @@ const formatTimeAgo = (date: string) => {
                         class="w-12 h-12 rounded-xl bg-surface-2 flex items-center justify-center mb-4 border border-hairline">
                         <FileX class="w-6 h-6 text-ink-subtle" />
                     </div>
-                    <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
-                    <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-6">
+                    <h3 class="text-base font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
+                    <p class="text-sm text-ink-subtle max-w-xs mx-auto mb-6">
                         {{ $t('dashboard.no_tasks_desc') }}
                     </p>
                     <NuxtLink to="/tasks/new">
