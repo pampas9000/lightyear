@@ -17,8 +17,8 @@ type Config struct {
 	JWTSecret   string `koanf:"JWT_SECRET"`
 	FrontendURL string `koanf:"FRONTEND_URL"`
 	DB          DatabaseConfig
-	Redis      RedisConfig
-	S3         S3Config
+	Redis       RedisConfig
+	S3          S3Config
 	GoogleOAuth GoogleOAuthConfig
 	GithubOAuth GithubOAuthConfig
 }
@@ -83,7 +83,8 @@ func Load() Config {
 		if port != "" {
 			addr = normalizeListenAddr(port)
 		} else {
-			addr = ":8080"
+			// Listening on both IPv6 and IPv4
+			addr = "[::]:8080"
 		}
 	}
 
