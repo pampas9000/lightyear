@@ -27,9 +27,7 @@ type Router struct {
 // NewRouter wires feature handlers with the dependencies they need.
 func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *storage.S3Service) *Router {
 	store := session.NewStore(session.Config{
-		Storage: fiber_redis.New(fiber_redis.Config{
-			URL: cfg.Redis.URL,
-		}),
+		Storage:        fiber_redis.NewFromConnection(kv),
 		CookieHTTPOnly: true,
 		CookieSecure:   cfg.IsProduction(),
 	})
