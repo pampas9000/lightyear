@@ -12,11 +12,18 @@
 import { Toaster } from '@/components/ui/sonner'
 import 'vue-sonner/style.css'
 import { useAuth } from '~/composables/useAuth'
-import { onMounted } from 'vue'
+import type { ApiResponse } from '~/lib/types/api'
+import type { User } from '~/composables/useAuth'
 
-const { fetchUser } = useAuth()
+const { user } = useAuth()
 
-onMounted(() => {
-    fetchUser()
+// Fetch user session state during SSR / initial hydration by forwarding the client's cookies.
+const headers = useRequestHeaders(['cookie'])
+const { data } = await useAsyncData('auth_user_init', () => {
+    return $fetch<ApiResponse<User>>('/api/me', { headers }).catch(() => null)
 })
+
+if (data.value && data.value.success) {
+    user.value = data.value.data
+}
 </script>
