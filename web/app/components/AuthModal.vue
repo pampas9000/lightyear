@@ -42,7 +42,7 @@ const handleSubmit = async () => {
         password.value = ''
         email.value = ''
     } else {
-        errorMsg.value = result.message || 'Authentication failed'
+        errorMsg.value = result.message || $t('auth.auth_failed')
     }
 }
 
@@ -84,13 +84,13 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                     <DialogHeader class="space-y-1">
                         <DialogTitle
                             class="text-lg font-semibold tracking-tight text-ink text-center">
-                            {{ mode === 'login' ? 'Sign In' : 'Create Account' }}
+                            {{ mode === 'login' ? $t('auth.sign_in') : $t('auth.create_account') }}
                         </DialogTitle>
                         <DialogDescription
                             class="text-xs text-ink-subtle text-center max-w-[220px] mx-auto leading-normal">
                             {{ mode === 'login'
-                                ? 'Access your professional transcoding dashboard'
-                                : 'Join our high-performance transcoding platform'
+                                ? $t('auth.sign_in_desc')
+                                : $t('auth.create_account_desc')
                             }}
                         </DialogDescription>
                     </DialogHeader>
@@ -105,7 +105,7 @@ const handleOAuth = async (provider: 'google' | 'github') => {
 
                     <div class="space-y-1.5">
                         <Label
-                            class="text-xs font-semibold text-ink-subtle ml-0.5">Username</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">{{ $t('auth.username') }}</Label>
                         <Input v-model="username" type="text" required
                             class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="johndoe" />
@@ -113,7 +113,7 @@ const handleOAuth = async (provider: 'google' | 'github') => {
 
                     <div v-if="mode === 'register'" class="space-y-1.5">
                         <Label
-                            class="text-xs font-semibold text-ink-subtle ml-0.5">Email</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">{{ $t('auth.email') }}</Label>
                         <Input v-model="email" type="email" required
                             class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="john@example.com" />
@@ -121,7 +121,7 @@ const handleOAuth = async (provider: 'google' | 'github') => {
 
                     <div class="space-y-1.5">
                         <Label
-                            class="text-xs font-semibold text-ink-subtle ml-0.5">Password</Label>
+                            class="text-xs font-semibold text-ink-subtle ml-0.5">{{ $t('auth.password') }}</Label>
                         <Input v-model="password" type="password" required
                             class="h-10 rounded-lg bg-surface-2 border border-hairline text-ink focus:border-primary px-3 text-xs font-medium transition-all duration-200"
                             placeholder="••••••••" />
@@ -130,14 +130,14 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                     <Button type="submit" :disabled="loading"
                         class="w-full h-10 rounded-lg text-xs font-semibold mt-2 bg-primary hover:bg-primary-hover text-primary-foreground shadow-sm transition-all duration-200 cursor-pointer">
                         <Loader2 v-if="loading" class="mr-2 h-3.5 w-3.5 animate-spin" />
-                        {{ mode === 'login' ? 'Sign In' : 'Sign Up' }}
+                        {{ mode === 'login' ? $t('auth.sign_in') : $t('auth.sign_up') }}
                     </Button>
                 </form>
 
                 <div class="flex items-center gap-3">
                     <Separator class="flex-1 bg-hairline" />
                     <span
-                        class="text-xs text-ink-subtle font-medium">or continue with</span>
+                        class="text-xs text-ink-subtle font-medium">{{ $t('auth.or_continue_with') }}</span>
                     <Separator class="flex-1 bg-hairline" />
                 </div>
 
@@ -173,10 +173,10 @@ const handleOAuth = async (provider: 'google' | 'github') => {
                 <div class="text-center pt-2">
                     <button @click="toggleMode"
                         class="group text-xs font-medium text-ink-subtle hover:text-ink transition-all duration-200 cursor-pointer">
-                        {{ mode === 'login' ? "New to Transcode Pro?" : "Already have an account?" }}
+                        {{ mode === 'login' ? $t('auth.new_user') : $t('auth.existing_user') }}
                         <span
                             class="text-primary dark:text-primary-hover ml-1 group-hover:underline transition-all">
-                            {{ mode === 'login' ? 'Create one' : 'Sign in' }}
+                            {{ mode === 'login' ? $t('auth.create_one') : $t('auth.sign_in') }}
                         </span>
                     </button>
                 </div>

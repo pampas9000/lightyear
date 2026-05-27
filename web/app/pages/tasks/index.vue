@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/pagination'
 
 useHead({
-    title: "Tasks | Transcoder",
+    title: $t('nav.tasks') + ' | Transcoder',
 })
 
 const { isAuthenticated } = useAuth()
@@ -106,11 +106,11 @@ const getStatusStyle = (status: TaskStatus | string) => {
 
 const formatTimeAgo = (date: string) => {
     const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000)
-    if (seconds < 60) return 'just now'
+    if (seconds < 60) return $t('common.just_now')
     const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
+    if (minutes < 60) return $t('common.minutes_ago', { n: minutes })
     const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
+    if (hours < 24) return $t('common.hours_ago', { n: hours })
     return new Date(date).toLocaleDateString()
 }
 
@@ -191,7 +191,7 @@ const getMediaFlow = (task: Task) => {
             class="flex flex-col sm:flex-row gap-3 justify-between items-center bg-surface-1 p-2 rounded-xl border border-hairline shadow-sm">
             <div class="flex items-center w-full sm:w-80 pl-2 relative">
                 <Search class="w-3.5 h-3.5 text-ink-subtle absolute left-2" />
-                <Input v-model="searchQuery" type="text" placeholder="Search tasks by ID..."
+                <Input v-model="searchQuery" type="text" :placeholder="$t('tasks.search_placeholder')"
                     class="w-full pl-7 h-8 border-none bg-transparent shadow-none focus-visible:ring-0 text-xs font-medium" />
             </div>
             <div class="flex gap-2 w-full sm:w-auto pr-2 items-center justify-end">
@@ -199,23 +199,23 @@ const getMediaFlow = (task: Task) => {
                     <SelectTrigger
                         class="w-[130px] h-8 bg-transparent border-none shadow-none text-xs font-semibold text-ink-subtle hover:text-ink focus:ring-0 cursor-pointer">
                         <Filter class="w-3.5 h-3.5 mr-1.5" />
-                        <SelectValue placeholder="Status" />
+                        <SelectValue :placeholder="$t('tasks.status_placeholder')" />
                     </SelectTrigger>
                     <SelectContent class="bg-surface-1 border-hairline rounded-lg">
                         <SelectGroup>
-                            <SelectItem value="ALL" class="text-xs font-medium">All Statuses</SelectItem>
-                            <SelectItem value="PENDING" class="text-xs font-medium">Pending</SelectItem>
-                            <SelectItem value="PROCESSING" class="text-xs font-medium">Processing</SelectItem>
-                            <SelectItem value="COMPLETED" class="text-xs font-medium">Completed</SelectItem>
-                            <SelectItem value="FAILED" class="text-xs font-medium">Failed</SelectItem>
-                            <SelectItem value="PARTIALLY_FAILED" class="text-xs font-medium">Partially Failed</SelectItem>
+                            <SelectItem value="ALL" class="text-xs font-medium">{{ $t('tasks.all_statuses') }}</SelectItem>
+                            <SelectItem value="PENDING" class="text-xs font-medium">{{ $t('status.PENDING') }}</SelectItem>
+                            <SelectItem value="PROCESSING" class="text-xs font-medium">{{ $t('status.PROCESSING') }}</SelectItem>
+                            <SelectItem value="COMPLETED" class="text-xs font-medium">{{ $t('status.COMPLETED') }}</SelectItem>
+                            <SelectItem value="FAILED" class="text-xs font-medium">{{ $t('status.FAILED') }}</SelectItem>
+                            <SelectItem value="PARTIALLY_FAILED" class="text-xs font-medium">{{ $t('status.PARTIALLY_FAILED') }}</SelectItem>
                         </SelectGroup>
                     </SelectContent>
                 </Select>
                 <div class="w-px h-3 bg-hairline mx-1"></div>
                 <Button variant="ghost" class="h-8 text-xs font-medium text-ink-subtle hover:text-ink hover:bg-surface-2 gap-1.5 cursor-pointer">
                     <Calendar class="w-3.5 h-3.5" />
-                    Date
+                    {{ $t('tasks.date_filter') }}
                 </Button>
             </div>
         </div>
@@ -257,11 +257,11 @@ const getMediaFlow = (task: Task) => {
                                 </span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
                                 <span class="bg-surface-2 px-2 py-0.5 rounded border border-hairline text-xs">
-                                    {{ task.jobs?.length || 0 }} files
+                                    {{ $t('tasks.files_count', { count: task.jobs?.length || 0 }) }}
                                 </span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
                                 <span>
-                                    {{ task.status === 'COMPLETED' ? 'Completed ' + formatTimeAgo(task.updated_at) : 'Started ' + formatTimeAgo(task.created_at) }}
+                                    {{ task.status === 'COMPLETED' ? $t('tasks.completed_time', { time: formatTimeAgo(task.updated_at) }) : $t('tasks.started_time', { time: formatTimeAgo(task.created_at) }) }}
                                 </span>
                             </div>
                             <!-- Progress Bar for Processing -->
@@ -273,13 +273,13 @@ const getMediaFlow = (task: Task) => {
                                     </div>
                                 </div>
                                 <span class="text-xs font-semibold text-primary shrink-0">
-                                    {{ getTaskCompletedCount(task) }}/{{ task.jobs?.length || 0 }} done · {{ getTaskProgress(task) }}%
+                                    {{ $t('tasks.progress_summary', { done: getTaskCompletedCount(task), total: task.jobs?.length || 0, percent: getTaskProgress(task) }) }}
                                 </span>
                             </div>
                             <!-- Failed Hint if failed or partially failed -->
                             <div v-if="task.status === 'FAILED' || task.status === 'PARTIALLY_FAILED'" class="mt-1 flex items-center gap-1.5 text-red-500 font-semibold text-xs">
                                 <AlertCircle class="w-3.5 h-3.5 shrink-0" />
-                                <span>{{ getTaskFailedCount(task) }} failed</span>
+                                <span>{{ $t('tasks.failed_count', { count: getTaskFailedCount(task) }) }}</span>
                             </div>
                         </div>
 
@@ -296,7 +296,7 @@ const getMediaFlow = (task: Task) => {
                                     stroke-width="2" />
                                 <AlertCircle v-else-if="task.status === 'FAILED'" class="w-3.5 h-3.5 mr-1"
                                     stroke-width="2" />
-                                {{ task.status.toLowerCase() }}
+                                {{ $t('status.' + task.status) }}
                             </Badge>
                             <Button variant="ghost" size="icon" class="h-8.5 w-8.5 text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-lg cursor-pointer">
                                 <MoreVertical class="w-4 h-4" />
@@ -309,8 +309,7 @@ const getMediaFlow = (task: Task) => {
                 <div
                     class="px-6 py-4 border-t border-hairline flex flex-col sm:flex-row gap-4 items-center justify-between bg-surface-1">
                     <div class="text-xs font-semibold text-ink-subtle">
-                        Showing {{ (currentPage - 1) * itemsPerPage + 1 }} to {{ Math.min(currentPage *
-                        itemsPerPage, totalTasks) }} of {{ totalTasks }} tasks
+                        {{ $t('tasks.showing', { from: (currentPage - 1) * itemsPerPage + 1, to: Math.min(currentPage * itemsPerPage, totalTasks), total: totalTasks }) }}
                     </div>
                     <Pagination v-slot="{ page }" :total="totalTasks" :sibling-count="1" show-edges
                         :default-page="1" :items-per-page="itemsPerPage" v-model:page="currentPage">

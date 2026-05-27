@@ -627,14 +627,14 @@ const handleDrop = (e: DragEvent) => {
                             {{ $t('new_task.params') }}
                         </CardTitle>
                         <p class="text-xs text-ink-subtle font-medium">
-                            Configure image optimization and transcoding parameters
+                            {{ $t('new_task.params_subtitle') }}
                         </p>
                     </div>
                     <button @click="expertMode = !expertMode" :disabled="isParamsDisabled"
                         class="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         :class="expertMode ? 'bg-primary/10 text-primary dark:text-primary-hover border-primary/20 dark:border-primary/30' : 'bg-surface-2 text-ink-subtle border-hairline hover:bg-surface-3'">
                         <Sliders class="w-3 h-3" />
-                        Expert Mode
+                        {{ $t('new_task.expert_mode') }}
                     </button>
                 </CardHeader>
                 <CardContent class="p-5 space-y-6">
@@ -649,14 +649,14 @@ const handleDrop = (e: DragEvent) => {
                             <Select v-model="targetFormat" :disabled="isFormDisabled">
                                 <SelectTrigger
                                     class="h-10 rounded-lg bg-surface-2 border-hairline text-ink focus:ring-0 focus:border-primary text-xs font-medium transition-colors">
-                                    <SelectValue placeholder="Select format" />
+                                    <SelectValue :placeholder="$t('new_task.format_select_placeholder')" />
                                 </SelectTrigger>
                                 <SelectContent class="bg-surface-3 border-hairline rounded-lg">
-                                    <SelectItem value="avif">AVIF (Recommended)</SelectItem>
-                                    <SelectItem value="webp">WebP</SelectItem>
-                                    <SelectItem value="jpeg">JPEG</SelectItem>
-                                    <SelectItem value="png">PNG</SelectItem>
-                                    <SelectItem value="jxl">JPEG XL</SelectItem>
+                                    <SelectItem value="avif">{{ $t('new_task.format_avif') }}</SelectItem>
+                                    <SelectItem value="webp">{{ $t('new_task.format_webp') }}</SelectItem>
+                                    <SelectItem value="jpeg">{{ $t('new_task.format_jpeg') }}</SelectItem>
+                                    <SelectItem value="png">{{ $t('new_task.format_png') }}</SelectItem>
+                                    <SelectItem value="jxl">{{ $t('new_task.format_jxl') }}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -666,12 +666,12 @@ const handleDrop = (e: DragEvent) => {
                             <Label
                                 class="text-xs font-semibold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5">
                                 <Settings class="w-4 h-4 text-ink-subtle" />
-                                Engine
+                                {{ $t('new_task.engine_label') }}
                             </Label>
                             <Select v-model="selectedEngine" :disabled="isParamsDisabled">
                                 <SelectTrigger
                                     class="h-10 rounded-lg bg-surface-2 border-hairline text-ink focus:ring-0 focus:border-primary text-xs font-medium transition-colors">
-                                    <SelectValue placeholder="Select engine" />
+                                    <SelectValue :placeholder="$t('new_task.engine_select_placeholder')" />
                                 </SelectTrigger>
                                 <SelectContent class="bg-surface-3 border-hairline rounded-lg">
                                     <template v-if="targetFormat === 'avif'">
@@ -698,7 +698,7 @@ const handleDrop = (e: DragEvent) => {
                     <!-- Optimize Profile Presets -->
                     <div class="space-y-3">
                         <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
-                            Optimize Template
+                            {{ $t('new_task.optimize_template') }}
                         </Label>
                         <div
                             class="p-1 bg-surface-2/50 rounded-xl border border-hairline flex gap-1 w-full">
@@ -706,25 +706,25 @@ const handleDrop = (e: DragEvent) => {
                                 class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                 :class="selectedProfile === 'balanced' ? 'bg-surface-1 text-primary dark:text-primary-hover shadow-sm border border-hairline-strong' : 'text-ink-subtle hover:text-ink'">
                                 <Gauge class="w-4 h-4 shrink-0" />
-                                <span>Balanced</span>
+                                <span>{{ $t('new_task.profile_balanced') }}</span>
                             </button>
                             <button @click="selectedProfile = 'size'" :disabled="isParamsDisabled"
                                 class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                 :class="selectedProfile === 'size' ? 'bg-surface-1 text-primary dark:text-primary-hover shadow-sm border border-hairline-strong' : 'text-ink-subtle hover:text-ink'">
                                 <HardDrive class="w-4 h-4 shrink-0" />
-                                <span>Size First</span>
+                                <span>{{ $t('new_task.profile_size') }}</span>
                             </button>
                             <button @click="selectedProfile = 'speed'" :disabled="isParamsDisabled"
                                 class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                                 :class="selectedProfile === 'speed' ? 'bg-surface-1 text-primary dark:text-primary-hover shadow-sm border border-hairline-strong' : 'text-ink-subtle hover:text-ink'">
                                 <Zap class="w-4 h-4 shrink-0" />
-                                <span>Speed First</span>
+                                <span>{{ $t('new_task.profile_speed') }}</span>
                             </button>
                             <button disabled
                                 class="flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-semibold border border-transparent transition-all duration-200"
                                 :class="selectedProfile === 'custom' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200/40 dark:border-amber-900/30' : 'text-ink-subtle opacity-30 cursor-not-allowed'">
                                 <Sliders class="w-4 h-4 shrink-0" />
-                                <span>Custom</span>
+                                <span>{{ $t('new_task.profile_custom') }}</span>
                             </button>
                         </div>
                     </div>
@@ -736,7 +736,7 @@ const handleDrop = (e: DragEvent) => {
                             class="space-y-3">
                             <div class="flex justify-between items-center">
                                 <Label class="text-xs font-semibold uppercase tracking-wider text-ink-subtle">
-                                    Quality
+                                    {{ $t('new_task.quality_label') }}
                                 </Label>
                                 <span
                                     class="text-xs font-bold text-primary dark:text-primary-hover bg-primary/10 px-2.5 py-1 rounded-lg">
@@ -748,7 +748,7 @@ const handleDrop = (e: DragEvent) => {
                                        [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                        [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
                             <p class="text-xs text-ink-subtle font-medium">
-                                Higher quality values result in better details but larger file sizes.
+                                {{ $t('new_task.quality_desc') }}
                             </p>
                         </div>
 
@@ -880,7 +880,7 @@ const handleDrop = (e: DragEvent) => {
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
                                         <Label
-                                            class="text-sm font-semibold text-slate-700 text-ink-muted">Speed</Label>
+                                            class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.speed') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.speed }} / 10</span>
                                     </div>
@@ -888,13 +888,13 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-xs text-ink-subtle">0 is slowest (highest compression), 10 is fastest (larger size).</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.speed_desc') }}</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
-                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Sharp YUV</Label>
-                                        <p class="text-xs text-ink-subtle">Improve edge details and color matching</p>
+                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.sharp_yuv') }}</Label>
+                                        <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.sharp_yuv_desc') }}</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.sharp_yuv" :disabled="isParamsDisabled" class="sr-only peer">
@@ -908,35 +908,35 @@ const handleDrop = (e: DragEvent) => {
                                     </label>
                                 </div>
                                 <div class="space-y-3">
-                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Chroma Subsampling (YUV)</Label>
+                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.chroma_subsampling') }}</Label>
                                     <Select v-model="engineParams.yuv" :disabled="isParamsDisabled">
                                         <SelectTrigger
                                             class="h-10 rounded-lg bg-white bg-surface-2 border-hairline text-ink focus:ring-0 focus:border-primary text-xs font-medium transition-colors">
-                                            <SelectValue placeholder="Select YUV format" />
+                                            <SelectValue :placeholder="$t('new_task.expert.yuv_placeholder')" />
                                         </SelectTrigger>
                                         <SelectContent class="bg-surface-3 border-hairline rounded-lg">
-                                            <SelectItem value="auto">Auto (Default)</SelectItem>
-                                            <SelectItem value="420">4:2:0 (Standard / Compact)</SelectItem>
-                                            <SelectItem value="422">4:2:2 (High color fidelity)</SelectItem>
-                                            <SelectItem value="444">4:4:4 (Lossless color / Sharp details)</SelectItem>
+                                            <SelectItem value="auto">{{ $t('new_task.expert.yuv_auto') }}</SelectItem>
+                                            <SelectItem value="420">{{ $t('new_task.expert.yuv_420') }}</SelectItem>
+                                            <SelectItem value="422">{{ $t('new_task.expert.yuv_422') }}</SelectItem>
+                                            <SelectItem value="444">{{ $t('new_task.expert.yuv_444') }}</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    <p class="text-xs text-ink-subtle">Output chroma subsampling format. 4:2:0 is recommended for compatibility.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.chroma_subsampling_desc') }}</p>
                                 </div>
                                 <div class="space-y-3">
-                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Jobs (Thread Count)</Label>
+                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.jobs') }}</Label>
                                     <Input type="number" v-model.number="engineParams.jobs" :min="1" :disabled="isParamsDisabled"
-                                        placeholder="Auto (All threads)"
+                                        :placeholder="$t('new_task.expert.jobs_placeholder')"
                                         class="h-10 rounded-lg bg-white bg-surface-2 border-hairline focus-visible:ring-1 focus-visible:ring-primary/20 focus-visible:border-primary text-ink text-xs disabled:opacity-50 disabled:cursor-not-allowed" />
-                                    <p class="text-xs text-ink-subtle">Specify maximum encoding threads. Default uses all available cores.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.jobs_desc') }}</p>
                                 </div>
                                 <div
                                     class="space-y-3 md:col-span-2 p-4 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="flex items-center justify-between">
                                         <div class="space-y-0.5">
                                             <Label
-                                                class="text-sm font-semibold text-slate-700 text-ink-muted">Custom Alpha Quality</Label>
-                                            <p class="text-xs text-ink-subtle">Enable customized quality setting specifically for the transparency channel</p>
+                                                class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.alpha_quality_toggle') }}</Label>
+                                            <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.alpha_quality_toggle_desc') }}</p>
                                         </div>
                                         <label class="relative inline-flex items-center cursor-pointer select-none">
                                             <input type="checkbox" v-model="engineParams.use_custom_alpha_quality" :disabled="isParamsDisabled"
@@ -954,7 +954,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="space-y-3 pt-3 border-t border-hairline mt-3 animate-in fade-in duration-200">
                                         <div class="flex justify-between items-center">
                                             <Label
-                                                class="text-sm font-semibold text-slate-700 text-ink-muted">Alpha Quality</Label>
+                                                class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.alpha_quality') }}</Label>
                                             <span class="text-xs font-bold text-ink-subtle">{{
                                                 engineParams.alpha_quality ?? 100 }} / 100</span>
                                         </div>
@@ -966,12 +966,12 @@ const handleDrop = (e: DragEvent) => {
                                     </div>
                                 </div>
                                 <div class="col-span-2 pt-2 border-t border-hairline">
-                                    <h4 class="text-xs font-bold uppercase tracking-wider text-ink-subtle mb-2">AOM Advanced Tuning</h4>
+                                    <h4 class="text-xs font-bold uppercase tracking-wider text-ink-subtle mb-2">{{ $t('new_task.expert.aom_tuning') }}</h4>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
                                         <Label
-                                            class="text-sm font-semibold text-slate-700 text-ink-muted">Sharpness</Label>
+                                            class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.sharpness') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.sharpness ?? 0 }} / 7</span>
                                     </div>
@@ -979,11 +979,11 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">Sharpness of the transform blocks (0-7, default 0). Higher values reduce blur on line-art.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.sharpness_desc') }}</p>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Color Sharpness</Label>
+                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.color_sharpness') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.color_sharpness ?? 0 }} / 7</span>
                                     </div>
@@ -991,11 +991,11 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">Sharpness specifically for color channels (0-7). Higher values help with color bleeding.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.color_sharpness_desc') }}</p>
                                 </div>
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Alpha Sharpness</Label>
+                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.alpha_sharpness') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.alpha_sharpness ?? 0 }} / 7</span>
                                     </div>
@@ -1003,23 +1003,23 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">Sharpness specifically for the alpha transparency channel (0-7).</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.alpha_sharpness_desc') }}</p>
                                 </div>
                             </template>
 
                             <!-- libheif:avif settings -->
                             <template v-if="selectedEngine === 'libheif:avif'">
                                 <div class="space-y-3">
-                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Chroma Downsampling</Label>
+                                    <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.chroma_downsampling') }}</Label>
                                     <Select v-model="engineParams.chroma_downsampling" :disabled="isParamsDisabled">
                                         <SelectTrigger
                                             class="h-10 rounded-lg bg-white bg-surface-2 border-hairline text-ink focus:ring-0 focus:border-primary text-xs font-medium transition-colors">
-                                            <SelectValue placeholder="Select method" />
+                                            <SelectValue :placeholder="$t('new_task.expert.chroma_downsampling_placeholder')" />
                                         </SelectTrigger>
                                         <SelectContent class="bg-surface-3 border-hairline rounded-lg">
-                                            <SelectItem value="nn">Nearest Neighbor (Fastest)</SelectItem>
-                                            <SelectItem value="average">Average (Smooth)</SelectItem>
-                                            <SelectItem value="sharp-yuv">Sharp YUV (Sharp edges)</SelectItem>
+                                            <SelectItem value="nn">{{ $t('new_task.expert.chroma_nn') }}</SelectItem>
+                                            <SelectItem value="average">{{ $t('new_task.expert.chroma_average') }}</SelectItem>
+                                            <SelectItem value="sharp-yuv">{{ $t('new_task.expert.chroma_sharp_yuv') }}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1029,7 +1029,7 @@ const handleDrop = (e: DragEvent) => {
                             <template v-if="selectedEngine === 'libwebp:webp'">
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
-                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Method (Complexity)</Label>
+                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.method') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.method }} / 6</span>
                                     </div>
@@ -1037,13 +1037,13 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">0 is fastest, 6 is slowest/best quality compression.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.method_desc') }}</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
-                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">Lossless Mode</Label>
-                                        <p class="text-xs text-ink-subtle">Enforce mathematical pixel losslessness</p>
+                                        <Label class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.lossless_mode') }}</Label>
+                                        <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.lossless_mode_desc') }}</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.lossless" :disabled="isParamsDisabled" class="sr-only peer">
@@ -1063,7 +1063,7 @@ const handleDrop = (e: DragEvent) => {
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
                                         <Label
-                                            class="text-sm font-semibold text-slate-700 text-ink-muted">Compression Level</Label>
+                                            class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.compression_level') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.compression_level }} / 9</span>
                                     </div>
@@ -1071,7 +1071,7 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">0 is uncompressed (largest file), 9 is max compression.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.compression_level_desc') }}</p>
                                 </div>
                             </template>
 
@@ -1080,7 +1080,7 @@ const handleDrop = (e: DragEvent) => {
                                 <div class="space-y-3">
                                     <div class="flex justify-between items-center">
                                         <Label
-                                            class="text-sm font-semibold text-slate-700 text-ink-muted">Effort</Label>
+                                            class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.effort') }}</Label>
                                         <span class="text-xs font-bold text-ink-subtle">{{
                                             engineParams.effort }} / 10</span>
                                     </div>
@@ -1088,14 +1088,14 @@ const handleDrop = (e: DragEvent) => {
                                         class="w-full h-1 bg-slate-200 bg-surface-2 rounded-lg appearance-none cursor-pointer focus:outline-none accent-transparent disabled:opacity-50 disabled:cursor-not-allowed
                                                [&::-webkit-slider-runnable-track]:bg-slate-200 [&::-webkit-slider-runnable-track]:bg-surface-2 [&::-webkit-slider-runnable-track]:h-1 [&::-webkit-slider-runnable-track]:rounded-lg
                                                [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:dark:bg-ink [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-slate-300 [&::-webkit-slider-thumb]:dark:border-hairline-strong [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-1.5 [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:active:scale-95" />
-                                    <p class="text-xs text-ink-subtle">1 is fastest, 10 is slowest/most optimized.</p>
+                                    <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.effort_desc') }}</p>
                                 </div>
                                 <div
                                     class="flex items-center justify-between p-3 bg-surface-1 rounded-xl border border-hairline">
                                     <div class="space-y-0.5">
                                         <Label
-                                            class="text-sm font-semibold text-slate-700 text-ink-muted">Progressive</Label>
-                                        <p class="text-xs text-ink-subtle">Support progressive rendering</p>
+                                            class="text-sm font-semibold text-slate-700 text-ink-muted">{{ $t('new_task.expert.progressive') }}</Label>
+                                        <p class="text-xs text-ink-subtle">{{ $t('new_task.expert.progressive_desc') }}</p>
                                     </div>
                                     <label class="relative inline-flex items-center cursor-pointer select-none">
                                         <input type="checkbox" v-model="engineParams.progressive" :disabled="isParamsDisabled" class="sr-only peer">

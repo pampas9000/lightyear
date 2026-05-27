@@ -13,7 +13,7 @@
                     </div>
                     <div>
                         <h1 class="text-sm font-semibold tracking-tight text-ink uppercase">Transcode Pro</h1>
-                        <p class="text-xs font-medium text-ink-subtle mt-0.5">Premium Media Hub</p>
+                        <p class="text-xs font-medium text-ink-subtle mt-0.5">{{ $t('sidebar.tagline') }}</p>
                     </div>
                 </NuxtLink>
             </div>
@@ -61,7 +61,7 @@
                     </div>
                     <div class="flex flex-col min-w-0 flex-1">
                         <span class="text-sm font-semibold text-ink truncate">{{ user?.username }}</span>
-                        <span class="text-xs text-ink-subtle font-medium truncate">Pro Plan</span>
+                        <span class="text-xs text-ink-subtle font-medium truncate">{{ $t('sidebar.pro_plan') }}</span>
                     </div>
                     <button @click="logout"
                         class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all cursor-pointer">

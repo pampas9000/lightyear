@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 useHead({
-    title: "Task Details | Transcoder",
+    title: $t('task_detail.details_title') + ' | Transcoder',
 })
 
 const route = useRoute()
@@ -42,7 +42,7 @@ const fetchTask = async () => {
         }
     } catch (err: any) {
         console.error("Failed to fetch task:", err)
-        toast.error("Failed to fetch task details")
+        toast.error($t('task_detail.toast_fetch_failed'))
         if (err.statusCode === 404) {
             router.push('/tasks')
         }
@@ -195,7 +195,7 @@ const formatParamKey = (key: string) => {
 
 const formatParamValue = (key: string, val: any) => {
     if (typeof val === 'boolean') {
-        return val ? 'Enabled' : 'Disabled'
+        return val ? $t('common.enabled') : $t('common.disabled')
     }
     if (key === 'quality' || key === 'alpha_quality') {
         return `${val}%`
@@ -217,9 +217,9 @@ const downloadJobOutput = async (job: Job) => {
             document.body.appendChild(a)
             a.click()
             document.body.removeChild(a)
-            toast.success('Download started successfully')
+            toast.success($t('task_detail.toast_download_success'))
         } else {
-            toast.error('Failed to retrieve secure download link')
+            toast.error($t('task_detail.toast_download_link_failed'))
         }
     } catch (err: any) {
         console.error('Failed to download file:', err)
@@ -241,7 +241,7 @@ const downloadJobOutput = async (job: Job) => {
             
             <div class="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/5 px-2.5 py-1 rounded-full border border-emerald-500/10 font-semibold tracking-wide">
                 <ShieldCheck class="w-3.5 h-3.5" />
-                Secure Ownership Enforced
+                {{ $t('task_detail.secure_ownership') }}
             </div>
         </div>
 
@@ -258,7 +258,7 @@ const downloadJobOutput = async (job: Job) => {
                     <div class="flex items-center gap-2.5">
                         <h1 class="text-xl font-semibold tracking-tight text-ink">Task-{{ task.id.substring(0, 8) }}</h1>
                         <Badge variant="secondary" class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal shadow-sm" :class="getStatusStyle(task.status)">
-                            {{ task.status.toLowerCase() }}
+                            {{ $t('status.' + task.status) }}
                         </Badge>
                     </div>
                     <p class="text-xs font-mono text-ink-subtle">UUID: {{ task.id }}</p>
@@ -268,13 +268,13 @@ const downloadJobOutput = async (job: Job) => {
                 <div class="flex flex-wrap gap-4 text-xs font-semibold text-ink-subtle">
                     <div class="flex items-center gap-1.5">
                         <Calendar class="w-3.5 h-3.5 text-ink-subtle" />
-                        <span>Started {{ getTaskTimeDetails.started }}</span>
+                        <span>{{ $t('task_detail.started_at') }} {{ getTaskTimeDetails.started }}</span>
                     </div>
                     <div class="w-px h-3 bg-hairline-strong hidden sm:block"></div>
                     <div class="flex items-center gap-1.5">
                         <Clock class="w-3.5 h-3.5 text-ink-subtle" />
                         <span>
-                            {{ task.status === 'PROCESSING' || task.status === 'PENDING' ? 'Elapsed' : 'Processed' }}: {{ getTaskTimeDetails.duration }}
+                            {{ task.status === 'PROCESSING' || task.status === 'PENDING' ? $t('task_detail.elapsed') : $t('task_detail.processed') }}: {{ getTaskTimeDetails.duration }}
                         </span>
                     </div>
                 </div>
@@ -302,7 +302,7 @@ const downloadJobOutput = async (job: Job) => {
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <span class="text-3xl font-bold tracking-tight text-ink leading-none">{{ task.jobs?.length || 0 }}</span>
-                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none">file(s)</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none">{{ $t('task_detail.files_unit') }}</span>
                     </div>
                 </div>
 
@@ -315,10 +315,10 @@ const downloadJobOutput = async (job: Job) => {
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <template v-if="getTotalSavings">
                             <span class="text-3xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400 leading-none">-{{ getTotalSavings.ratio }}%</span>
-                            <span class="text-xs font-bold text-ink-subtle uppercase leading-none">saved {{ formatBytes(getTotalSavings.saved) }}</span>
+                            <span class="text-xs font-bold text-ink-subtle uppercase leading-none">{{ $t('task_detail.saved_bytes', { bytes: formatBytes(getTotalSavings.saved) }) }}</span>
                         </template>
                         <template v-else-if="task.status === 'PROCESSING' || task.status === 'PENDING'">
-                            <span class="text-xs font-semibold text-ink-subtle animate-pulse">Calculating...</span>
+                            <span class="text-xs font-semibold text-ink-subtle animate-pulse">{{ $t('task_detail.calculating') }}</span>
                         </template>
                         <template v-else>
                             <span class="text-3xl font-bold tracking-tight text-ink leading-none">—</span>
@@ -334,8 +334,8 @@ const downloadJobOutput = async (job: Job) => {
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-4">
                         <span class="text-3xl font-bold tracking-tight text-ink leading-none" :class="task.status === 'PROCESSING' ? 'text-primary' : ''">{{ getTaskProgress }}%</span>
-                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none animate-pulse" v-if="task.status === 'PROCESSING'">processing</span>
-                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none" v-else-if="task.status === 'COMPLETED'">completed</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none animate-pulse" v-if="task.status === 'PROCESSING'">{{ $t('task_detail.status_processing') }}</span>
+                        <span class="text-xs font-bold text-ink-subtle uppercase leading-none" v-else-if="task.status === 'COMPLETED'">{{ $t('task_detail.status_completed') }}</span>
                     </div>
                 </div>
             </div>
@@ -368,10 +368,10 @@ const downloadJobOutput = async (job: Job) => {
                 <div class="flex items-center justify-between border-b border-hairline px-6 py-4.5 bg-surface-1">
                     <h3 class="font-semibold text-sm text-ink flex items-center gap-2">
                         <Sparkles class="w-4 h-4 text-ink-subtle" stroke-width="1.75" />
-                        Transcoding Jobs
+                        {{ $t('task_detail.transcoding_jobs') }}
                     </h3>
                     <span class="text-xs font-bold text-ink-subtle uppercase tracking-wider bg-surface-2 px-2.5 py-1 rounded-full border border-hairline">
-                        {{ task.jobs?.filter(j => j.status === 'COMPLETED').length || 0 }} / {{ task.jobs?.length || 0 }} Completed
+                        {{ $t('task_detail.jobs_completed', { done: task.jobs?.filter(j => j.status === 'COMPLETED').length || 0, total: task.jobs?.length || 0 }) }}
                     </span>
                 </div>
                 <div class="divide-y divide-hairline">
@@ -412,11 +412,11 @@ const downloadJobOutput = async (job: Job) => {
                                     </template>
                                     <template v-else-if="job.status === 'PROCESSING' || job.status === 'PENDING'">
                                         <span class="text-primary font-semibold text-sm">→</span>
-                                        <span class="text-primary font-semibold animate-pulse text-xs">processing...</span>
+                                        <span class="text-primary font-semibold animate-pulse text-xs">{{ $t('task_detail.job_processing') }}</span>
                                     </template>
                                     <template v-else>
                                         <span class="text-primary font-semibold text-sm">→</span>
-                                        <span class="text-destructive font-semibold text-xs bg-destructive/5 px-2 py-0.5 rounded border border-destructive/10">failed</span>
+                                        <span class="text-destructive font-semibold text-xs bg-destructive/5 px-2 py-0.5 rounded border border-destructive/10">{{ $t('task_detail.job_failed') }}</span>
                                     </template>
                                 </div>
                             </div>
@@ -426,7 +426,7 @@ const downloadJobOutput = async (job: Job) => {
                         <div class="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t border-hairline sm:border-none pt-4 sm:pt-0">
                             <!-- Status Badges -->
                             <Badge variant="secondary" class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal shadow-sm transition-all" :class="getJobStatusStyle(job.status)">
-                                {{ job.status.toLowerCase() }}
+                                {{ $t('status.' + job.status) }}
                             </Badge>
 
                             <!-- Download Outlined Button -->

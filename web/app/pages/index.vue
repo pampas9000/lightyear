@@ -32,7 +32,7 @@ const { user, isAuthenticated } = useAuth()
 const api = useApi()
 
 useHead({
-    title: "Overview | Transcoder",
+    title: $t('nav.overview') + ' | Transcoder',
 })
 
 const stats = ref<TaskStats>({
@@ -93,11 +93,11 @@ const getStatusStyle = (status: TaskStatus) => {
 
 const formatTimeAgo = (date: string) => {
     const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000)
-    if (seconds < 60) return 'just now'
+    if (seconds < 60) return $t('common.just_now')
     const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return `${minutes}m ago`
+    if (minutes < 60) return $t('common.minutes_ago', { n: minutes })
     const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours}h ago`
+    if (hours < 24) return $t('common.hours_ago', { n: hours })
     return new Date(date).toLocaleDateString()
 }
 </script>
@@ -110,14 +110,14 @@ const formatTimeAgo = (date: string) => {
                 <h1 class="text-xl font-semibold tracking-tight text-ink">{{ $t('nav.overview') }}</h1>
                 <div class="flex items-center gap-2">
                     <div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-                    <p class="text-sm font-medium text-ink-subtle">All services operational.</p>
+                    <p class="text-sm font-medium text-ink-subtle">{{ $t('dashboard.all_operational') }}</p>
                 </div>
             </div>
             <div class="flex items-center gap-3">
                 <Button variant="outline"
                     class="h-8 px-3 text-sm font-semibold gap-1.5 border-hairline bg-surface-1 hover:bg-surface-2 text-ink shadow-sm cursor-pointer">
                     <Calendar class="w-3.5 h-3.5 text-ink-subtle" />
-                    Last 7 Days
+                    {{ $t('dashboard.last_7_days') }}
                 </Button>
             </div>
         </div>
@@ -128,7 +128,7 @@ const formatTimeAgo = (date: string) => {
             <Card
                 class="border-hairline shadow-sm bg-surface-1 rounded-xl p-5 flex flex-col gap-0">
                 <CardHeader class="flex flex-row justify-between items-center p-0 mb-3.5">
-                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">Total Tasks
+                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.total_tasks') }}
                     </CardTitle>
                     <RotateCcw class="w-3.5 h-3.5 text-ink-subtle opacity-60" />
                 </CardHeader>
@@ -153,7 +153,7 @@ const formatTimeAgo = (date: string) => {
             <Card
                 class="border-hairline shadow-sm bg-surface-1 rounded-xl p-5 flex flex-col gap-0">
                 <CardHeader class="flex flex-row justify-between items-center p-0 mb-3.5">
-                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">Storage Usage
+                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.storage_usage') }}
                     </CardTitle>
                     <Database class="w-3.5 h-3.5 text-ink-subtle opacity-60" />
                 </CardHeader>
@@ -178,14 +178,14 @@ const formatTimeAgo = (date: string) => {
             <Card
                 class="border-hairline shadow-sm bg-surface-1 rounded-xl p-5 flex flex-col gap-0">
                 <CardHeader class="flex flex-row justify-between items-center p-0 mb-3.5">
-                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">Worker Nodes
+                    <CardTitle class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">{{ $t('dashboard.worker_nodes') }}
                     </CardTitle>
                     <Cpu class="w-3.5 h-3.5 text-ink-subtle opacity-60" />
                 </CardHeader>
                 <CardContent class="p-0">
                     <div class="flex items-baseline gap-1.5">
                         <span class="text-3xl font-semibold tracking-tight text-ink">12</span>
-                        <span class="text-xs font-semibold text-ink-subtle uppercase">Active</span>
+                        <span class="text-xs font-semibold text-ink-subtle uppercase">{{ $t('dashboard.worker_active') }}</span>
                     </div>
                     <div class="mt-4 flex gap-1">
                         <div v-for="i in 12" :key="i"
@@ -257,7 +257,7 @@ const formatTimeAgo = (date: string) => {
                                 <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400" stroke-width="2" />
                                 <div v-else-if="task.status === 'PROCESSING'"
                                     class="w-1.5 h-1.5 rounded-full bg-primary mr-1.5 animate-pulse"></div>
-                                {{ task.status.toLowerCase() }}
+                                {{ $t('status.' + task.status) }}
                             </Badge>
                             <Button variant="ghost" size="icon" class="h-7 w-7 text-ink-subtle hover:text-ink hover:bg-surface-2 rounded-lg cursor-pointer">
                                 <MoreVertical class="w-3.5 h-3.5" />
