@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/task"
@@ -258,10 +259,23 @@ func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID, params ListT
 	return tasks, total, nil
 }
 
+type StatsResponse struct {
+	Pending         int     `json:"PENDING"`
+	Processing      int     `json:"PROCESSING"`
+	Completed       int     `json:"COMPLETED"`
+	Failed          int     `json:"FAILED"`
+	PartiallyFailed int     `json:"PARTIALLY_FAILED"`
+	StorageUsed     int64   `json:"storage_used"`
+	StorageLimit    int64   `json:"storage_limit"`
+	ActiveWorkers   int     `json:"active_workers"`
+	DailyChart      []int   `json:"daily_chart"`
+	GrowthRate      float64 `json:"growth_rate"`
+}
+
 // GetStats gets the stats for the given owner.
 //
-// It returns a map of status to count, and an error if any.
-func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (map[string]int, error) {
+// It returns a StatsResponse, and an error if any.
+func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (*StatsResponse, error) {
 	var results []struct {
 		Status string `gorm:"column:status"`
 		Count  int    `gorm:"column:count"`
@@ -276,16 +290,104 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (map[string]i
 		return nil, err
 	}
 
-	stats := map[string]int{
-		"PENDING":        0,
-		"PROCESSING":     0,
-		"COMPLETED":      0,
-		"FAILED":           0,
-		"PARTIALLY_FAILED": 0,
+	stats := &StatsResponse{
+		Pending:         0,
+		Processing:      0,
+		Completed:       0,
+		Failed:          0,
+		PartiallyFailed: 0,
+		StorageLimit:    10995116277760, // 10 TB in bytes
 	}
 
 	for _, r := range results {
-		stats[r.Status] = r.Count
+		switch r.Status {
+		case "PENDING":
+			stats.Pending = r.Count
+		case "PROCESSING":
+			stats.Processing = r.Count
+		case "COMPLETED":
+			stats.Completed = r.Count
+		case "FAILED":
+			stats.Failed = r.Count
+		case "PARTIALLY_FAILED":
+			stats.PartiallyFailed = r.Count
+		}
+	}
+
+	// 2. Query total storage used by the owner's uploaded files
+	var storageUsed int64
+	err = s.db.WithContext(ctx).Model(&models.File{}).
+		Select("COALESCE(SUM(size), 0)").
+		Where("owner_id = ? AND status = ?", ownerID, "UPLOADED").
+		Row().Scan(&storageUsed)
+	if err != nil {
+		slog.Error("failed to query storage used", "owner_id", ownerID, "error", err)
+	}
+	stats.StorageUsed = storageUsed
+
+	// 3. Query active workers from Redis stream consumer group
+	activeWorkers := 0
+	consumers, err := s.kv.XInfoConsumers(ctx, "transcoder:compute:stream", "transcoder:compute:group").Result()
+	if err == nil {
+		for _, c := range consumers {
+			// If active within 5 minutes (300,000 ms)
+			if c.Idle < 300000 {
+				activeWorkers++
+			}
+		}
+	} else {
+		slog.Debug("failed to query active workers from Redis, group might not exist yet", "error", err)
+	}
+	stats.ActiveWorkers = activeWorkers
+
+	// 4. Query last 7 days daily counts
+	var dailyCounts []struct {
+		Date  time.Time `gorm:"column:date"`
+		Count int       `gorm:"column:count"`
+	}
+	err = s.db.WithContext(ctx).Model(&models.Task{}).
+		Select("date_trunc('day', created_at) as date, count(id) as count").
+		Where("owner_id = ? AND created_at >= now() - interval '7 days'", ownerID).
+		Group("date_trunc('day', created_at)").
+		Order("date_trunc('day', created_at) ASC").
+		Scan(&dailyCounts).Error
+	if err != nil {
+		slog.Error("failed to query daily task volume", "owner_id", ownerID, "error", err)
+	}
+
+	dailyMap := make(map[string]int)
+	for _, dc := range dailyCounts {
+		dateStr := dc.Date.Format("2006-01-02")
+		dailyMap[dateStr] = dc.Count
+	}
+
+	dailyChart := make([]int, 7)
+	now := time.Now()
+	for i := 0; i < 7; i++ {
+		t := now.AddDate(0, 0, -6+i)
+		dateStr := t.Format("2006-01-02")
+		dailyChart[i] = dailyMap[dateStr]
+	}
+	stats.DailyChart = dailyChart
+
+	// 5. Query growth rate (this week vs last week)
+	var countThisWeek int64
+	var countPrevWeek int64
+
+	s.db.WithContext(ctx).Model(&models.Task{}).
+		Where("owner_id = ? AND created_at >= now() - interval '7 days'", ownerID).
+		Count(&countThisWeek)
+
+	s.db.WithContext(ctx).Model(&models.Task{}).
+		Where("owner_id = ? AND created_at >= now() - interval '14 days' AND created_at < now() - interval '7 days'", ownerID).
+		Count(&countPrevWeek)
+
+	if countPrevWeek > 0 {
+		stats.GrowthRate = float64(countThisWeek-countPrevWeek) / float64(countPrevWeek) * 100.0
+	} else if countThisWeek > 0 {
+		stats.GrowthRate = 100.0
+	} else {
+		stats.GrowthRate = 0.0
 	}
 
 	return stats, nil

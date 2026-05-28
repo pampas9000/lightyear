@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuth } from '~/composables/useAuth'
 import { useApi } from '~/composables/useApi'
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import type { Task, TaskStats, ListTasksData } from '~/lib/types/task'
 import { TaskStatus } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
@@ -100,6 +100,54 @@ const formatTimeAgo = (date: string) => {
     if (hours < 24) return $t('common.hours_ago', { n: hours })
     return new Date(date).toLocaleDateString()
 }
+
+// Compute maximum daily task count to draw bars proportionally
+const maxDailyCount = computed(() => {
+    if (!stats.value.daily_chart || stats.value.daily_chart.length === 0) return 1
+    const max = Math.max(...stats.value.daily_chart)
+    return max > 0 ? max : 1
+})
+
+// Format storage byte size dynamically into readable units
+const formatBytes = (bytes: number, decimals = 1) => {
+    if (!bytes || bytes === 0) return { value: '0', unit: 'B' }
+    const k = 1024
+    const dm = decimals < 0 ? 0 : decimals
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return {
+        value: parseFloat((bytes / Math.pow(k, i)).toFixed(dm)).toString(),
+        unit: sizes[i]
+    }
+}
+
+const storageUsedInfo = computed(() => {
+    return formatBytes(stats.value.storage_used || 0)
+})
+
+const storageLimitInfo = computed(() => {
+    return formatBytes(stats.value.storage_limit || 10995116277760)
+})
+
+const storagePercentage = computed(() => {
+    if (!stats.value.storage_limit) return 0
+    return Math.min(100, Math.round(((stats.value.storage_used || 0) / stats.value.storage_limit) * 100))
+})
+
+// Get format parameter from task's first job
+const getTaskTargetFormat = (task: Task) => {
+    if (task.jobs && task.jobs.length > 0) {
+        return task.jobs[0]?.target_format || 'Unknown'
+    }
+    return 'Unknown'
+}
+
+// Get average progress of all jobs belonging to the task
+const getTaskProgress = (task: Task) => {
+    if (!task.jobs || task.jobs.length === 0) return 0
+    const totalProgress = task.jobs.reduce((acc, job) => acc + (job.progress || 0), 0)
+    return Math.round(totalProgress / task.jobs.length)
+}
 </script>
 
 <template>
@@ -137,14 +185,21 @@ const formatTimeAgo = (date: string) => {
                         <span class="text-3xl font-semibold tracking-tight text-ink">{{ stats.COMPLETED +
                             stats.PROCESSING + stats.PENDING + stats.FAILED + (stats.PARTIALLY_FAILED || 0) }}</span>
                         <Badge variant="secondary"
-                            class="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-none font-semibold text-xs py-0.5 px-1.5 rounded">
-                            +12%</Badge>
+                            :class="[
+                                (stats.growth_rate || 0) >= 0 
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
+                                    : 'bg-red-500/10 text-red-600 dark:text-red-400',
+                                'border-none font-semibold text-xs py-0.5 px-1.5 rounded'
+                            ]">
+                            {{ (stats.growth_rate || 0) >= 0 ? '+' : '' }}{{ stats.growth_rate !== undefined ? stats.growth_rate.toFixed(0) : '0' }}%
+                        </Badge>
                     </div>
-                    <!-- Placeholder Chart -->
+                    <!-- Real Daily Activity Chart -->
                     <div class="mt-4 flex items-end gap-1 h-8">
-                        <div v-for="h in [40, 70, 50, 90, 60, 30, 80]" :key="h"
+                        <div v-for="(count, idx) in stats.daily_chart || [0, 0, 0, 0, 0, 0, 0]" :key="idx"
                             class="flex-1 bg-primary/15 rounded-sm transition-all duration-300 hover:bg-primary/40"
-                            :style="{ height: `${h}%` }"></div>
+                            :style="{ height: `${Math.max(8, (count / maxDailyCount) * 100)}%` }"
+                            :title="`${count} tasks`"></div>
                     </div>
                 </CardContent>
             </Card>
@@ -159,16 +214,16 @@ const formatTimeAgo = (date: string) => {
                 </CardHeader>
                 <CardContent class="p-0">
                     <div class="flex items-baseline gap-1.5">
-                        <span class="text-3xl font-semibold tracking-tight text-ink">4.2</span>
-                        <span class="text-xs font-semibold text-ink-subtle uppercase">TB / 10 TB</span>
+                        <span class="text-3xl font-semibold tracking-tight text-ink">{{ storageUsedInfo.value }}</span>
+                        <span class="text-xs font-semibold text-ink-subtle uppercase">{{ storageUsedInfo.unit }} / {{ storageLimitInfo.value }} {{ storageLimitInfo.unit }}</span>
                     </div>
                     <div class="mt-4 space-y-1.5">
                         <div class="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
-                            <div class="h-full bg-primary rounded-full" style="width: 42%"></div>
+                            <div class="h-full bg-primary rounded-full transition-all duration-500" :style="{ width: `${storagePercentage}%` }"></div>
                         </div>
                         <div class="flex justify-between text-[10px] font-semibold text-ink-subtle uppercase">
-                            <span>42% Used</span>
-                            <span>5.8 TB Free</span>
+                            <span>{{ storagePercentage }}% Used</span>
+                            <span>{{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).value }} {{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).unit }} Free</span>
                         </div>
                     </div>
                 </CardContent>
@@ -184,12 +239,14 @@ const formatTimeAgo = (date: string) => {
                 </CardHeader>
                 <CardContent class="p-0">
                     <div class="flex items-baseline gap-1.5">
-                        <span class="text-3xl font-semibold tracking-tight text-ink">12</span>
+                        <span class="text-3xl font-semibold tracking-tight text-ink">{{ stats.active_workers || 0 }}</span>
                         <span class="text-xs font-semibold text-ink-subtle uppercase">{{ $t('dashboard.worker_active') }}</span>
                     </div>
                     <div class="mt-4 flex gap-1">
-                        <div v-for="i in 12" :key="i"
-                            class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm"></div>
+                        <div v-if="(stats.active_workers || 0) === 0"
+                            class="w-1.5 h-1.5 rounded-full bg-amber-500 shadow-sm animate-pulse" title="No active workers"></div>
+                        <div v-else v-for="i in (stats.active_workers || 0)" :key="i"
+                            class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm" title="Active worker"></div>
                     </div>
                 </CardContent>
             </Card>
@@ -214,8 +271,8 @@ const formatTimeAgo = (date: string) => {
 
                 <!-- Display Task List -->
                 <div v-else-if="tasks && tasks.length > 0" class="divide-y divide-hairline">
-                    <div v-for="task in tasks.slice(0, 5)" :key="task.id"
-                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2 transition-all duration-200 group">
+                    <NuxtLink v-for="task in tasks.slice(0, 5)" :key="task.id" :to="'/tasks/' + task.id"
+                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2 transition-all duration-200 group cursor-pointer block">
                         <!-- File Icon -->
                         <div
                             class="w-8 h-8 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0">
@@ -234,7 +291,7 @@ const formatTimeAgo = (date: string) => {
                                     Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
                             </div>
                             <div class="flex items-center gap-2 mt-0.5">
-                                <span class="text-xs font-medium text-ink-subtle uppercase tracking-wider">H.265 / 4K</span>
+                                <span class="text-xs font-medium text-ink-subtle uppercase tracking-wider">{{ getTaskTargetFormat(task) }}</span>
                                 <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
                                 <span class="text-xs font-medium text-ink-subtle">Started {{
                                     formatTimeAgo(task.created_at) }}</span>
@@ -242,15 +299,15 @@ const formatTimeAgo = (date: string) => {
                             <!-- Progress Bar for Processing -->
                             <div v-if="task.status === 'PROCESSING'" class="mt-1.5 flex items-center gap-2 max-w-md">
                                 <div class="flex-1 h-1 bg-surface-2 rounded-full overflow-hidden">
-                                    <div class="h-full bg-primary rounded-full animate-progress" style="width: 64%">
+                                    <div class="h-full bg-primary rounded-full" :style="{ width: `${getTaskProgress(task)}%` }">
                                     </div>
                                 </div>
-                                <span class="text-[10px] font-semibold text-primary">64%</span>
+                                <span class="text-[10px] font-semibold text-primary">{{ getTaskProgress(task) }}%</span>
                             </div>
                         </div>
 
                         <!-- Status & Actions -->
-                        <div class="flex items-center gap-3 shrink-0">
+                        <div class="flex items-center gap-3 shrink-0" @click.stop.prevent>
                             <Badge variant="secondary"
                                 class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal transition-all"
                                 :class="getStatusStyle(task.status)">
@@ -263,7 +320,7 @@ const formatTimeAgo = (date: string) => {
                                 <MoreVertical class="w-3.5 h-3.5" />
                             </Button>
                         </div>
-                    </div>
+                    </NuxtLink>
                 </div>
 
                 <!-- Empty State -->

@@ -114,7 +114,7 @@ const formatTimeAgo = (date: string) => {
 }
 
 const getTaskSummaryLabel = (task: Task) => {
-    if (!task.jobs || task.jobs.length === 0) return 'UNKNOWN'
+    if (!task.jobs || task.jobs.length === 0 || !task.jobs[0]) return 'UNKNOWN'
     const job = task.jobs[0]
     const engine = job.params?.engine
     if (engine) {

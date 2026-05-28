@@ -72,6 +72,11 @@ export interface TaskStats {
     COMPLETED: number;
     FAILED: number;
     PARTIALLY_FAILED?: number;
+    storage_used?: number;
+    storage_limit?: number;
+    active_workers?: number;
+    daily_chart?: number[];
+    growth_rate?: number;
 }
 
 export interface ListTasksData {
