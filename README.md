@@ -1,6 +1,6 @@
-# Transcoder
+# lightyear
 
-Transcoder is a multi-language monorepo for a media transcoding platform featuring a highly reliable Go orchestration server, high-performance pure Rust compute core, and an interactive browser-side WebAssembly playground.
+lightyear is a multi-language monorepo for a media transcoding platform featuring a highly reliable Go orchestration server, high-performance pure Rust compute core, and an interactive browser-side WebAssembly playground.
 
 ### WebAssembly (WASM) Local Transcoding Sandbox
 
