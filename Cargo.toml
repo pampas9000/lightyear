@@ -21,7 +21,7 @@ compute-server-adapter = { path = "compute/crates/server-adapter" }
 
 # Common dependencies
 serde = { version = "1.0", features = ["derive"] }
-image = { version = "0.25" }
+image = { version = "0.25", features = ["avif"] }
 tokio = { version = "1", features = ["full"] }
 cfg-if = "1.0"
 anyhow = "1.0"

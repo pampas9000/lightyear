@@ -55,7 +55,7 @@ build: build-web build-server build-compute
 
 build-all: build build-compute-wasm
 
-build-web:
+build-web: build-compute-wasm
     cd web && bun run build
 
 build-server:
@@ -65,7 +65,7 @@ build-compute:
     cargo build --workspace --release
 
 build-compute-wasm: bootstrap-wasm
-    wasm-pack build compute/bindings/wasm --target web
+	wasm-pack build compute/bindings/wasm --target web --out-dir ../../../web/public/wasm
 
 build-compute-ffi:
     cargo build -p compute-ffi --release

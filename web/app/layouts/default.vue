@@ -126,7 +126,7 @@ import {
     LayoutDashboard,
     ListTodo,
     FolderKanban,
-    PlayCircle,
+    Zap,
     Settings,
     LogOut,
     Video
@@ -151,7 +151,8 @@ import { Separator } from '@/components/ui/separator'
 const { isAuthenticated, user, logout, showAuthModal } = useAuth()
 
 const navItems = [
-    { to: '/', icon: LayoutDashboard, label: 'nav.overview' },
+    { to: '/', icon: Zap, label: 'nav.local_transcode' },
+    { to: '/overview', icon: LayoutDashboard, label: 'nav.overview' },
     { to: '/tasks', icon: ListTodo, label: 'nav.tasks' },
 ]
 </script>

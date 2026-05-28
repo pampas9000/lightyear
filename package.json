@@ -4,9 +4,9 @@
   "scripts": {
     "dev:web": "cd web && bun run dev",
     "dev:server": "go run ./server/cmd/api",
-    "build:web": "cd web && bun run build",
+    "build:web": "bun run build:compute:wasm && cd web && bun run build",
     "build:compute": "cargo build --workspace --release",
-    "build:compute:wasm": "wasm-pack build compute/bindings/wasm --target web",
+    "build:compute:wasm": "wasm-pack build compute/bindings/wasm --target web --out-dir ../../../web/public/wasm",
     "build:compute:ffi": "cargo build -p compute-ffi --release",
     "build:worker": "cargo build -p compute-worker --release",
     "check:web": "cd web && bunx nuxt typecheck",
