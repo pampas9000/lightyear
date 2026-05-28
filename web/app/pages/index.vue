@@ -252,7 +252,7 @@ const formatTimeAgo = (date: string) => {
                         <!-- Status & Actions -->
                         <div class="flex items-center gap-3 shrink-0">
                             <Badge variant="secondary"
-                                class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal shadow-sm transition-all"
+                                class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal transition-all"
                                 :class="getStatusStyle(task.status)">
                                 <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400" stroke-width="2" />
                                 <div v-else-if="task.status === 'PROCESSING'"

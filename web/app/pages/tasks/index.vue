@@ -32,7 +32,6 @@ import {
     PaginationEllipsis,
     PaginationFirst,
     PaginationItem,
-    PaginationListItem,
     PaginationLast,
     PaginationList,
     PaginationNext,
@@ -232,10 +231,10 @@ const getMediaFlow = (task: Task) => {
             <div v-else-if="tasks && tasks.length > 0" class="flex flex-col h-full">
                 <div class="divide-y divide-hairline">
                     <NuxtLink v-for="task in tasks" :key="task.id" :to="'/tasks/' + task.id"
-                        class="px-6 py-5.5 sm:px-8 sm:py-6 flex items-center gap-5 hover:bg-surface-2 transition-all duration-200 group cursor-pointer block">
+                        class="px-6 py-3.5 sm:px-8 sm:py-4 flex items-center gap-5 hover:bg-surface-2 transition-all duration-200 group cursor-pointer block">
                         <!-- Dynamic Flow Icon -->
                         <div
-                            class="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-sm transition-transform hover:scale-105 duration-200">
+                            class="w-10 h-10 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-sm transition-transform hover:scale-105 duration-200">
                             <Loader2 v-if="task.status === 'PROCESSING' || task.status === 'PENDING'" class="w-5 h-5 text-primary animate-spin" />
                             <FileImage v-else-if="getMediaFlow(task).target === 'image'" class="w-5 h-5 text-ink-subtle"
                                 stroke-width="1.5" />
@@ -286,7 +285,7 @@ const getMediaFlow = (task: Task) => {
                         <!-- Status & Actions -->
                         <div class="flex items-center gap-2 sm:gap-4 shrink-0" @click.stop.prevent>
                             <Badge variant="secondary"
-                                class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal shadow-sm transition-all hidden sm:flex"
+                                class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal transition-all hidden sm:flex"
                                 :class="getStatusStyle(task.status)">
                                 <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400"
                                     stroke-width="2" />
@@ -308,42 +307,33 @@ const getMediaFlow = (task: Task) => {
                 <!-- Pagination Footer -->
                 <div
                     class="px-6 py-4 border-t border-hairline flex flex-col sm:flex-row gap-4 items-center justify-between bg-surface-1">
-                    <div class="text-xs font-semibold text-ink-subtle">
+                    <div class="text-xs font-semibold text-ink-subtle whitespace-nowrap">
                         {{ $t('tasks.showing', { from: (currentPage - 1) * itemsPerPage + 1, to: Math.min(currentPage * itemsPerPage, totalTasks), total: totalTasks }) }}
                     </div>
-                    <Pagination v-slot="{ page }" :total="totalTasks" :sibling-count="1" show-edges
+                    <Pagination :total="totalTasks" :sibling-count="1" show-edges
                         :default-page="1" :items-per-page="itemsPerPage" v-model:page="currentPage">
                         <PaginationList v-slot="{ items }" class="flex items-center gap-1.5">
-                            <PaginationFirst class="w-8 h-8 rounded-lg cursor-pointer">
-                                <template #default>
-                                    <ChevronsLeft class="w-4 h-4" />
-                                </template>
+                            <PaginationFirst class="w-8 h-8 p-0 rounded-lg cursor-pointer" size="icon">
+                                <ChevronsLeft class="w-4 h-4" />
                             </PaginationFirst>
-                            <PaginationPrev class="w-8 h-8 rounded-lg cursor-pointer">
-                                <template #default>
-                                    <ChevronLeft class="w-4 h-4" />
-                                </template>
+                            <PaginationPrev class="w-8 h-8 p-0 rounded-lg cursor-pointer" size="icon">
+                                <ChevronLeft class="w-4 h-4" />
                             </PaginationPrev>
                             <template v-for="(item, index) in items">
                                 <PaginationItem v-if="item.type === 'page'" :key="index" :value="item.value"
-                                    as-child>
-                                    <Button class="w-8 h-8 p-0 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                                        :variant="item.value === currentPage ? 'default' : 'ghost'">
-                                        {{ item.value }}
-                                    </Button>
+                                    :isActive="item.value === currentPage"
+                                    class="w-8 h-8 rounded-lg cursor-pointer font-bold text-xs"
+                                    :class="item.value === currentPage ? 'bg-primary text-primary-foreground hover:bg-primary-hover border-none' : ''">
+                                    {{ item.value }}
                                 </PaginationItem>
                                 <PaginationEllipsis v-else :key="item.type" :index="index"
                                     class="w-8 h-8 flex items-center justify-center text-ink-subtle" />
                             </template>
-                            <PaginationNext class="w-8 h-8 rounded-lg cursor-pointer">
-                                <template #default>
-                                    <ChevronRight class="w-4 h-4" />
-                                </template>
+                            <PaginationNext class="w-8 h-8 p-0 rounded-lg cursor-pointer" size="icon">
+                                <ChevronRight class="w-4 h-4" />
                             </PaginationNext>
-                            <PaginationLast class="w-8 h-8 rounded-lg cursor-pointer">
-                                <template #default>
-                                    <ChevronsRight class="w-4 h-4" />
-                                </template>
+                            <PaginationLast class="w-8 h-8 p-0 rounded-lg cursor-pointer" size="icon">
+                                <ChevronsRight class="w-4 h-4" />
                             </PaginationLast>
                         </PaginationList>
                     </Pagination>

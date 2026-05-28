@@ -257,7 +257,7 @@ const downloadJobOutput = async (job: Job) => {
                 <div class="space-y-1.5">
                     <div class="flex items-center gap-2.5">
                         <h1 class="text-xl font-semibold tracking-tight text-ink">Task-{{ task.id.substring(0, 8) }}</h1>
-                        <Badge variant="secondary" class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal shadow-sm" :class="getStatusStyle(task.status)">
+                        <Badge variant="secondary" class="rounded-full font-medium text-xs px-2.5 py-0.5 border capitalize tracking-normal" :class="getStatusStyle(task.status)">
                             {{ $t('status.' + task.status) }}
                         </Badge>
                     </div>
@@ -375,11 +375,11 @@ const downloadJobOutput = async (job: Job) => {
                     </span>
                 </div>
                 <div class="divide-y divide-hairline">
-                    <div v-for="job in task.jobs" :key="job.id" class="px-6 py-5.5 sm:px-8 sm:py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6 hover:bg-surface-2 transition-all duration-200">
+                    <div v-for="job in task.jobs" :key="job.id" class="px-6 py-3.5 sm:px-8 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-6 hover:bg-surface-2 transition-all duration-200">
                         <!-- Left: File Details Flow -->
                         <div class="flex items-center gap-4.5 min-w-0 flex-1">
                             <!-- File Icon -->
-                            <div class="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-sm transition-transform hover:scale-105 duration-200">
+                            <div class="w-10 h-10 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-sm transition-transform hover:scale-105 duration-200">
                                 <Loader2 v-if="job.status === 'PROCESSING' || job.status === 'PENDING'" class="w-5 h-5 text-primary animate-spin" />
                                 <FileImage v-else-if="isImageFile(job.input_file?.name || job.input_path)" class="w-5 h-5 text-ink-subtle" stroke-width="1.5" />
                                 <FileVideo v-else class="w-5 h-5 text-ink-subtle" stroke-width="1.5" />
@@ -425,7 +425,7 @@ const downloadJobOutput = async (job: Job) => {
                         <!-- Right: Badges & CTA Download -->
                         <div class="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t border-hairline sm:border-none pt-4 sm:pt-0">
                             <!-- Status Badges -->
-                            <Badge variant="secondary" class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal shadow-sm transition-all" :class="getJobStatusStyle(job.status)">
+                            <Badge variant="secondary" class="rounded-full font-medium text-xs px-3 py-1 border capitalize tracking-normal transition-all" :class="getJobStatusStyle(job.status)">
                                 {{ $t('status.' + job.status) }}
                             </Badge>
 
