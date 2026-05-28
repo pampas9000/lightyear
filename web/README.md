@@ -76,14 +76,23 @@
 - `compute/bindings/wasm`：为浏览器场景提供可集成的 WebAssembly 模块
 - `compute/bindings/ffi`：为 Flutter、SwiftUI 等原生端提供绑定，不直接由 `web` 使用
 
-一个典型的数据流是：
+系统核心流向：
+- **云端异步任务流**：用户在 `web` 发起转码，调用 `server` API 创建任务存入数据库与 Redis，通过 Go Orchestrator 派发至 Rust Worker，最后 `web` 轮询展示结果。
+- **本地 WASM 转码沙盒**：现已完整接入 `compute/bindings/wasm`。用户可在浏览器内通过纯 Rust 编译的 WASM 核心，在本地安全、快速地完成多种格式 of 转码与图像编辑操作，无需任何服务端计算开销。
 
-- 用户在 `web` 发起转码请求
-- `web` 调用 `server` API 创建任务
-- `server` 将任务交给 `compute/worker`
-- `web` 轮询或订阅任务状态并展示结果
+#### WASM 本地转码沙盒 (WASM Local Transcoding Sandbox)
 
-未来如果需要浏览器端本地转码，则由 `web` 直接加载 `compute/bindings/wasm`。
+![WASM 本地转码沙盒](/Users/kazuha/dev/lightyear/assets/local-wasm-transcoding.avif)
+
+功能亮点：
+1. **异步卸载 (Web Worker)**：采用 HTML5 Web Worker (`compute.worker.ts`) 承载重型图像计算，避免阻塞浏览器 UI 主线程，保证极致流畅的操作响应。
+2. **流式批处理队列**：支持多文件拖拽拖入队列、批量参数调整、按需独立配置以及一键打包下载。
+3. **高保真预览与滑块对比**：集成双栏对比 (Side by Side) 与带阻尼物理效果的拖拽滑块 (Slider) 实时对比优化前后的图像品质。
+4. **精细图像编辑管线**：
+   - **格式转换**：支持 WebP, JPEG, PNG, AVIF 以及 JPEG XL (JXL)。
+   - **高保真缩放**：支持锁定/解锁宽高比，搭载 Lanczos3, Catmull-Rom, Gaussian, Triangle 和 Nearest 滤波器。
+   - **几何与色彩变换**：支持旋转、镜像翻转，以及亮度、对比度、高斯模糊微调，并内置一键灰度处理。
+5. **多维指标面板**：提供毫秒级转码速度耗时、最终体积大小和存储节省比例的实时看板。
 
 ## UI 与样式规范
 
@@ -119,11 +128,12 @@
   - Nitro 透明转发至本地 Go 后端 (`localhost:8080/api/**`)
 - 这样做可以确保所有任务创建逻辑收口在 Go 后端
 
-## 后续建议
+## 已完成特性
 
-- [x] 配置 Nuxt Nitro 代理
-- [ ] 实现任务创建与列表展示
-- [ ] 接入 `compute/bindings/wasm`
+- [x] 配置 Nuxt Nitro 代理与跨域透明转发
+- [x] 基于 Ent ORM + Fiber v3 实现任务创建与动态任务列表展示
+- [x] 完整接入 `compute/bindings/wasm` 并设计了高阶 WASM 图像转码与编辑沙盒
+- [x] 使用 Web Worker 异步卸载转码进程，保障 UI 交互高信噪比与流畅度
 
 ## 维护原则
 

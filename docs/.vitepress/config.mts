@@ -8,10 +8,18 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Examples', link: '/markdown-examples' }
+      { text: 'Architecture', link: '/architecture' },
+      { text: 'Contracts', link: '/contracts' }
     ],
 
     sidebar: [
+      {
+        text: 'Documentation',
+        items: [
+          { text: 'Architecture & System Design', link: '/architecture' },
+          { text: 'API & WASM Contracts', link: '/contracts' }
+        ]
+      },
       {
         text: 'Examples',
         items: [

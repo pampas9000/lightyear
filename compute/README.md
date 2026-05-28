@@ -91,10 +91,11 @@ Runtime execution boundary for asynchronous jobs.
 
 Use this crate to:
 
-- [x] Accept queued jobs via Redis `BRPOP`
-- [x] Fetch and update job status via **SeaORM**
-- [ ] Choose the processing strategy
-- [ ] Call `compute-engine`, `compute-server-adapter`, or shell-based fallbacks
+- [x] Accept queued jobs via Redis Streams (`transcoder:compute:stream`)
+- [x] Download input file from S3 bucket and upload target output to S3
+- [x] Choose the processing strategy based on target formats
+- [x] Call `compute-engine` or shell-based transcode execution in a sandboxed temp directory
+- [x] Report execution details, output sizes, image dimensions, and mime-type back via results stream
 
 ## Naming Convention
 

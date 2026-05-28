@@ -225,46 +225,50 @@ Recommended fields:
 
 ## WASM Boundary Contract
 
-The current browser-facing contract is defined in `compute/bindings/wasm/src/lib.rs`.
+The browser-facing contract is defined in `compute/bindings/wasm/src/lib.rs`.
 
-Current exported function:
+Current exported functions:
 
-- `browser_convert(data, format, quality) -> Result<Vec<u8>, JsValue>`
-
-Current input contract:
-
-- `data`: raw input bytes
-- `format`: string
-- `quality`: integer mapped to `EncodeOptions.quality`
+1. `browser_convert(data, format, quality) -> Result<Vec<u8>, JsValue>`
+   - Converts raw input bytes (`data`) into a specific target `format` with compression `quality` (range `1..=100`).
+2. `browser_get_metadata(data) -> Result<String, JsValue>`
+   - Inspects the image header of raw bytes (`data`) and returns a JSON string metadata schema:
+     ```json
+     {
+       "width": number,
+       "height": number,
+       "format": string,
+       "size": number
+     }
+     ```
+3. `browser_edit_image(data, ops_json, format, quality) -> Result<Vec<u8>, JsValue>`
+   - Applies a list of transformations defined by the `ops_json` array payload (e.g. resizes, rotations, flips, grayscale, contrast/brightness adjustments, blur) and encodes the output.
 
 Current accepted format strings at the WASM boundary:
-
-- `jxl`
+- `jxl` (JPEG XL)
 - `avif`
 - `webp`
 - `heic`
-- `jfif`
-- `jpg`
-- `jpeg`
+- `jfif` / `jpg` / `jpeg` (normalize to `JPEG`)
 - `png`
 
-Current behavior details:
+Supported operations in `browser_edit_image` JSON array (`ops_json`):
+- **Resize**: `{"type": "resize", "width": number, "height": number, "filter": "nearest" | "triangle" | "catmull-rom" | "gaussian" | "lanczos3"}`
+- **Rotate**: `{"type": "rotate", "degree": 90 | 180 | 270}`
+- **Flip**: `{"type": "flip", "direction": "h" | "v"}`
+- **Grayscale**: `{"type": "grayscale"}`
+- **Blur**: `{"type": "blur", "sigma": number}`
+- **Adjust**: `{"type": "adjust", "brightness": number, "contrast": number}`
 
-- `jfif`, `jpg`, and `jpeg` all normalize to `JPEG`
-- unsupported strings return a `JsValue` error immediately
-- accepted strings may still fail later if the compute engine does not yet implement that target format
-
-Current implementation gap:
-
-- `compute-engine` currently succeeds for `webp`, `jpeg`, `png`, and `avif`
-- `jxl` and `heic` are accepted by the WASM adapter but are not yet implemented by the core engine, so they currently fail with an unsupported-format error
+Current implementation status:
+- `compute-engine` fully succeeds for `webp`, `jpeg`, `png`, `avif`, and `jxl` in pure Rust.
+- `heic` is accepted by the WASM adapter but currently returns an unsupported-format error if not compiled with specific feature flags.
 
 WASM compatibility rules:
-
-- keep `browser_convert` stable for `v1`
-- add new exported functions instead of changing existing argument order or result semantics
-- changing string format values is breaking
-- changing return ownership or binary encoding is breaking
+- Keep `browser_convert`, `browser_get_metadata`, and `browser_edit_image` signatures stable for `v1`.
+- Add new exported functions instead of changing existing argument order or result semantics.
+- Changing string format values or editing operation JSON schemas is considered a breaking change.
+- Changing return ownership or binary encoding is breaking.
 
 ## FFI Boundary Contract
 

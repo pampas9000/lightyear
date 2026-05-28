@@ -1,12 +1,27 @@
 # Transcoder
 
-Transcoder is a multi-language monorepo for a media transcoding platform.
+Transcoder is a multi-language monorepo for a media transcoding platform featuring a highly reliable Go orchestration server, high-performance pure Rust compute core, and an interactive browser-side WebAssembly playground.
+
+### WebAssembly (WASM) Local Transcoding Sandbox
+
+The platform features a state-of-the-art **WASM Local Transcoding Sandbox** allowing you to process, edit, and optimize images directly in your browser with **zero server costs** and **100% data privacy**:
+
+![WASM Local Transcoding Sandbox](/Users/kazuha/dev/lightyear/assets/local-wasm-transcoding.avif)
+
+**Key Capabilities:**
+- ⚡ **Non-Blocking Processing**: Heavy media operations are offloaded to dedicated background **Web Workers**, ensuring the UI main thread remains completely responsive and lag-free.
+- 📦 **Batch Queue Mode**: Drag-and-drop multiple files to manage a processing queue, selectively preview optimizations, and download all compressed files in bulk.
+- 🎛️ **Draggable Quality Comparison**: Inspect and compare your changes side-by-side or using an interactive dragging slider with smooth pointer-tracking.
+- 🎨 **Advanced Transform Pipeline**: Pure Rust codecs (`WebP`, `JPEG`, `PNG`, `AVIF`, and `JXL`) combined with high-fidelity rescaling (*Lanczos3*, *Catmull-Rom*), rotation, flipping, brightness/contrast adjustments, blur, and grayscale filters.
+
+---
 
 The repository is organized around three product boundaries:
 
 - `server`: Go API service that accepts requests, creates jobs, and coordinates execution
 - `compute`: Rust compute workspace that owns codecs, bindings, and worker execution
 - `web`: Nuxt frontend for submitting and tracking transcoding jobs
+
 
 ## Repository Layout
 
@@ -121,6 +136,8 @@ The Nuxt app (Thin Client + Proxy) owns:
 - presentation logic and UI state
 
 `web` talks to `server` via a transparent proxy. It does not possess direct database or Redis connections; all backend orchestration is delegated to the Fiber-based Go API.
+
+It also hosts the interactive **WASM Local Transcoding Sandbox** featured at the top of this README, which enables zero-server-overhead, browser-side image processing and transcoding offloaded to background Web Workers.
 
 ## Rust Package Map
 
