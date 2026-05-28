@@ -173,6 +173,14 @@
   --color-ink-tertiary: var(--ink-tertiary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-focus: var(--primary-focus);
+  --color-sidebar: var(--surface-1);
+  --color-sidebar-foreground: var(--ink);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-accent: var(--surface-2);
+  --color-sidebar-accent-foreground: var(--ink);
+  --color-sidebar-border: var(--hairline);
+  --color-sidebar-ring: var(--primary);
 }
 
 @layer base {
