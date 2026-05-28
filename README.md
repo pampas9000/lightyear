@@ -6,7 +6,7 @@ Transcoder is a multi-language monorepo for a media transcoding platform featuri
 
 The platform features a state-of-the-art **WASM Local Transcoding Sandbox** allowing you to process, edit, and optimize images directly in your browser with **zero server costs** and **100% data privacy**:
 
-![WASM Local Transcoding Sandbox](/Users/kazuha/dev/lightyear/assets/local-wasm-transcoding.avif)
+![WASM Local Transcoding Sandbox](assets/local-wasm-transcoding.avif)
 
 **Key Capabilities:**
 - ⚡ **Non-Blocking Processing**: Heavy media operations are offloaded to dedicated background **Web Workers**, ensuring the UI main thread remains completely responsive and lag-free.
