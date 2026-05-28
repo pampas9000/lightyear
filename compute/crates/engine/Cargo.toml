@@ -9,3 +9,10 @@ compute-types.workspace = true
 image.workspace = true
 cfg-if.workspace = true
 anyhow.workspace = true
+zenavif = "0.1.6"
+zenpixels-convert = "0.2.11"
+rgb = "0.8"
+bytemuck = "1.15"
+jxl-oxide = { version = "0.12.5", default-features = false, features = ["image"] }
+zune-jpegxl = { version = "0.5.2", default-features = false, features = ["std"] }
+zune-core = { version = "0.5.1", default-features = false, features = ["std"] }

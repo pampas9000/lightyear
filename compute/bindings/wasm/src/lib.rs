@@ -1,9 +1,19 @@
 use compute_engine::edit::{apply_pipeline, ImageEditOp};
 use compute_types::{EncodeOptions, Format};
 use wasm_bindgen::prelude::*;
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn init_panic_hook() {
+    INIT.call_once(|| {
+        console_error_panic_hook::set_once();
+    });
+}
 
 #[wasm_bindgen]
 pub fn browser_convert(data: &[u8], format: &str, quality: u8) -> Result<Vec<u8>, JsValue> {
+    init_panic_hook();
     let target_format = match format.to_lowercase().as_str() {
         "jxl" => Format::Jxl,
         "avif" => Format::Avif,
@@ -30,7 +40,8 @@ pub fn browser_convert(data: &[u8], format: &str, quality: u8) -> Result<Vec<u8>
 
 #[wasm_bindgen]
 pub fn browser_get_metadata(data: &[u8]) -> Result<String, JsValue> {
-    let img = image::load_from_memory(data)
+    init_panic_hook();
+    let img = compute_engine::load_from_memory(data)
         .map_err(|e| JsValue::from_str(&format!("Failed to load image: {}", e)))?;
 
     let format_detected = match image::guess_format(data) {
@@ -59,6 +70,7 @@ pub fn browser_edit_image(
     format: &str,
     quality: u8,
 ) -> Result<Vec<u8>, JsValue> {
+    init_panic_hook();
     // 1. Parse JSON list of operations
     let ops_val: serde_json::Value = serde_json::from_str(ops_json)
         .map_err(|e| JsValue::from_str(&format!("Invalid operations JSON: {}", e)))?;
@@ -107,7 +119,7 @@ pub fn browser_edit_image(
     }
 
     // 2. Load image from raw bytes
-    let mut img = image::load_from_memory(data)
+    let mut img = compute_engine::load_from_memory(data)
         .map_err(|e| JsValue::from_str(&format!("Failed to load image: {}", e)))?;
 
     // 3. Apply edit pipeline

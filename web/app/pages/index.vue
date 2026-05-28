@@ -342,8 +342,10 @@
                             <span class="text-[11px] uppercase font-bold tracking-wider text-ink-subtle">{{
                                 $t('wasm_sandbox.metric_speed') }}</span>
                             <span class="text-base font-bold text-ink mt-1 font-mono flex items-baseline gap-0.5">
-                                {{ metrics.duration > 100 ? (metrics.duration / 1000).toFixed(2) : metrics.duration.toFixed(1) }}
-                                <span class="text-xs font-medium text-ink-subtle">{{ metrics.duration > 100 ? 's' : 'ms' }}</span>
+                                {{ metrics.duration > 100 ? (metrics.duration / 1000).toFixed(2) :
+                                    metrics.duration.toFixed(1) }}
+                                <span class="text-xs font-medium text-ink-subtle">{{ metrics.duration > 100 ? 's' : 'ms'
+                                }}</span>
                             </span>
                         </div>
                         <div class="flex flex-col items-center border-x border-hairline">
@@ -454,10 +456,11 @@
                                 <SelectValue placeholder="Select format" />
                             </SelectTrigger>
                             <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                <SelectItem value="webp">WebP (Lossless Pure Rust)</SelectItem>
-                                <SelectItem value="jpeg">JPEG (Quality-Aware)</SelectItem>
-                                <SelectItem value="png">PNG (Lossless Standard)</SelectItem>
-                                <SelectItem value="avif">AVIF (Experimental Fast)</SelectItem>
+                                <SelectItem value="webp">WebP</SelectItem>
+                                <SelectItem value="jpeg">JPEG</SelectItem>
+                                <SelectItem value="png">PNG</SelectItem>
+                                <SelectItem value="avif">AVIF</SelectItem>
+                                <SelectItem value="jxl">JPEG XL (JXL)</SelectItem>
                             </SelectContent>
                         </Select>
 
@@ -488,6 +491,13 @@
                             class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
                             <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
                             <span>{{ $t('wasm_sandbox.webp_info') }}</span>
+                        </div>
+
+                        <!-- Jxl notice -->
+                        <div v-else-if="targetFormat === 'jxl'"
+                            class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
+                            <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
+                            <span>{{ $t('wasm_sandbox.jxl_info') }}</span>
                         </div>
                     </div>
 
@@ -684,7 +694,7 @@
                                 $t('wasm_sandbox.output_filename') }}</Label>
                         <Input id="output-filename" v-model="customFilename"
                             class="h-9 font-mono text-xs border-hairline focus:border-primary/50 focus:ring-1 focus:ring-primary/20 bg-canvas"
-                            placeholder="filename" />
+                            :placeholder="$t('wasm_sandbox.output_filename_placeholder')" />
                     </div>
                     <Button
                         class="w-full h-10 bg-primary hover:bg-primary-hover text-primary-foreground font-semibold rounded-lg text-xs cursor-pointer shadow-sm border-none gap-2 justify-center transition-all duration-200"
@@ -699,8 +709,8 @@
         </div>
 
         <!-- Hidden input for file selection (always present in DOM to support dynamic image replacement) -->
-        <input ref="fileInput" type="file" class="hidden" accept="image/png, image/jpeg, image/webp, image/avif"
-            @change="handleFileChange" />
+        <input ref="fileInput" type="file" class="hidden"
+            accept="image/png, image/jpeg, image/webp, image/avif, image/jxl" @change="handleFileChange" />
     </div>
 </template>
 
@@ -1364,6 +1374,7 @@ const getMimeType = (format: string): string => {
         case 'png': return 'image/png'
         case 'webp': return 'image/webp'
         case 'avif': return 'image/avif'
+        case 'jxl': return 'image/jxl'
         case 'jpeg':
         case 'jpg':
         default:
