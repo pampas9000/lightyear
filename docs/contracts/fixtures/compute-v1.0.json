@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "job_id": "0198a000-0000-7000-8000-000000000001",
+  "attempt_id": "0198a000-0000-7000-8000-000000000002",
+  "input_path": "uploads/source.png",
+  "input_format": "png",
+  "output_path": "outputs/attempts/0198a000-0000-7000-8000-000000000002/result.avif",
+  "target_format": "AVIF",
+  "params": {
+    "engine": "libavif:avif",
+    "engine_params": {"quality": 80}
+  },
+  "output_file_id": "0198a000-0000-7000-8000-000000000003",
+  "attempt_scoped_cancel": true
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "job_id": "0198a000-0000-7000-8000-000000000001",
+  "attempt_id": "0198a000-0000-7000-8000-000000000002",
+  "status": "COMPLETED",
+  "progress": 100,
+  "metadata": {"output_size_bytes": 1234, "mime_type": "image/avif", "width": 512, "height": 256},
+  "artifacts": [{
+    "file_id": "0198a000-0000-7000-8000-000000000003",
+    "path": "outputs/attempts/0198a000-0000-7000-8000-000000000002/result.avif",
+    "size": 1234,
+    "mime_type": "image/avif",
+    "width": 512,
+    "height": 256
+  }]
+}
