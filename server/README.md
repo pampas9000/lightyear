@@ -60,6 +60,6 @@ Loaded with koanf from defaults, `server/.env` (falls back to `.env`) and enviro
 
 ## Known gaps
 
-- HTTP routes are unversioned (`/api`); upload endpoints return camelCase objects outside the response envelope; a missing task returns `404` with code `ok`. See the HTTP contract.
+- HTTP routes are unversioned (`/api`); upload endpoints return camelCase objects outside the response envelope. See the HTTP contract.
 - `JWT_SECRET` and the JWT middleware are dead code.
 - The public `/v1` API, API keys, webhooks and MCP are planned in the [roadmap](../docs/roadmap.md).

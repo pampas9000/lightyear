@@ -64,6 +64,7 @@ export const parseApiError = (err: unknown): ApiError => {
         'error.auth.forbidden': 'You do not have permission to perform this action.',
         'error.auth.invalid_credentials': 'The username or password you entered is incorrect.',
         'error.job.not_found': 'The requested job was not found.',
+        'error.task.not_found': 'The requested task was not found.',
         'error.user.already_exists': 'A user with this email or username already exists.',
         'error.queue.enqueue_failed': 'Failed to queue the transcoding task. Please try again.',
         'error.database.unavailable': 'The database is temporarily unavailable. Please try again later.',

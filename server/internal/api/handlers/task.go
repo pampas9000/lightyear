@@ -161,7 +161,7 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 	result, err := h.service.GetTask(c.Context(), ownerID, parsedID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "record not found" {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Task not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		}
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch task.", map[string]any{"reason": err.Error()})
 	}
@@ -214,7 +214,7 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 		case errors.Is(err, task.ErrJobNotRetryable):
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrTaskNotFound):
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeParamInvalid, "Task not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		case errors.Is(err, task.ErrNoJobsToRetry):
 			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "No failed jobs available to retry.")
 		}
@@ -244,7 +244,7 @@ func (h *TaskHandler) CancelTask(c fiber.Ctx) error {
 	cancelledTask, err := h.service.CancelTask(c.Context(), ownerID, taskID)
 	if err != nil {
 		if errors.Is(err, task.ErrTaskNotFound) {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeParamInvalid, "Task not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		}
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to cancel task.", map[string]any{"reason": err.Error()})
 	}

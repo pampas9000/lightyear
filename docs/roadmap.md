@@ -141,7 +141,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 8.3 | 重写：架构总览、请求链路、可靠性、契约总览、队列契约、HTTP API、快速开始、首页，以及根目录、`compute`、`server`、`web` 的 README | ✅ |
 | 8.4 | 更新 `gain-map-research`：libvips 8.17+ 已支持 UltraHDR JPEG（实测 gain map 随缩放同步缩放） | ✅ |
 | 8.5 | 核对文档时发现并修复：Redis 丢失流或消费组（`NOGROUP`）后，worker 与 orchestrator 不会重建，只会一直报错；现在两侧都会重建（已在本地用清空 Redis 验证） | ✅ |
-| 8.6 | 待办：`GET /api/tasks/:id` 不存在时返回 `404` + `ok`，重试/取消的 `404` 用 `error.param.invalid`，应改为 `error.task.not_found`；de/fr/ja/zh-Hant 缺 35 条任务详情页翻译（回落为英文） | ⬜ |
+| 8.6 | 任务不存在时，`GET /api/tasks/:id` 与重试/取消统一返回 `404 error.task.not_found`（原为 `ok` 与 `error.param.invalid`）；补齐 de/fr/ja/zh-Hant 缺失的 35 条任务详情页翻译 | ✅ |
 
 ### 第 9 步：对外 API 与 MCP（只做异步）
 

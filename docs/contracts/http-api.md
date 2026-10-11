@@ -33,7 +33,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 | 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
 | 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials` |
-| 资源 | `error.job.not_found`、`error.user.already_exists` |
+| 资源 | `error.job.not_found`、`error.task.not_found`、`error.user.already_exists` |
 | 基础设施 | `error.database.unavailable`、`error.queue.unavailable`、`error.internal` |
 
 ## 任务
@@ -131,5 +131,4 @@ Fiber session，存储在 Redis。两种等价凭据：
 ## 已知不一致
 
 - 上传端点直接返回 camelCase 的裸对象（`uploadId`、`fileId`、`fastUpload`），没有使用统一封装（Uppy 的约定）；key 必须以 `uploads/<user_id>/` 开头，否则 `403`。
-- 任务不存在时 `GET /api/tasks/:id` 返回 `404` 但 `code` 为 `ok`；重试与取消的 `404` 使用 `error.param.invalid`。应改为专用的 `error.task.not_found`。
 - `JWT_SECRET` 配置与 JWT 中间件仍在代码中，但没有使用（实际是 session 认证）。

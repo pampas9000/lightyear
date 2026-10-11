@@ -38,6 +38,7 @@ const (
 
 	// Resource / domain errors.
 	CodeJobNotFound      ResponseCode = "error.job.not_found"
+	CodeTaskNotFound     ResponseCode = "error.task.not_found"
 	CodeUserExists       ResponseCode = "error.user.already_exists"
 	CodeQueueEnqueueFail ResponseCode = "error.queue.enqueue_failed"
 
