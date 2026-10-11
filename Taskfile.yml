@@ -1,0 +1,342 @@
+# Lightyear Task Runner (Taskfile.yml)
+# 运行方式: task --list 或 task <task_name>
+version: '3'
+
+# 开启彩色前缀模式：并发运行多任务时，每行日志都会带有醒目的彩色任务名称前缀，如 [api]、[orch]、[worker]、[web]
+output: prefixed
+
+tasks:
+  default:
+    desc: "默认任务：构建核心服务并运行单元测试"
+    cmds:
+      - task: build
+      - task: test
+
+  # ==========================================
+  # 构建相关任务
+  # ==========================================
+
+  build:
+    desc: "编译所有核心后端产物 (Go 二进制服务 + Rust 计算工作器)"
+    cmds:
+      - task: build:server
+      - task: build:compute
+
+  build:server:
+    desc: "编译所有 Go 核心可执行文件至 server/bin/"
+    dir: server
+    cmds:
+      - cmd: mkdir -p bin
+        silent: true
+      - echo "==> Building all Go binaries into server/bin/..."
+      - go build -o bin/api ./cmd/api
+      - go build -o bin/worker ./cmd/worker
+      - echo "✨ All Go binaries built successfully!"
+
+  build:compute:
+    desc: "编译 Rust compute 工作空间所有 crates (Release 模式)"
+    cmds:
+      - echo "==> Building Rust compute workspace in release mode..."
+      - cargo build --workspace --release
+      - echo "✨ Rust compute workspace built successfully!"
+
+  build:compute:wasm:
+    desc: "编译 WebAssembly 媒体处理模块 (WASM)"
+    cmds:
+      - echo "==> Building compute WASM package with wasm-pack..."
+      - wasm-pack build compute/bindings/wasm --target web --out-dir ../../../web/public/wasm
+      - echo "✨ WASM package built successfully!"
+
+  build:wasm:
+    desc: "build:compute:wasm 任务别名"
+    cmds:
+      - task: build:compute:wasm
+
+  build:compute:ffi:
+    desc: "编译 Rust 跨平台原生 FFI 动态/静态库"
+    cmds:
+      - echo "==> Building compute-ffi native library..."
+      - cargo build -p compute-ffi --release
+      - echo "✨ Native FFI library built successfully!"
+
+  build:ffi:
+    desc: "build:compute:ffi 任务别名"
+    cmds:
+      - task: build:compute:ffi
+
+  build:worker:
+    desc: "编译 Rust compute-worker 媒体转码消费者二进制"
+    cmds:
+      - echo "==> Building compute-worker binary..."
+      - cargo build -p compute-worker --release
+      - echo "✨ compute-worker binary built successfully!"
+
+  build:web:
+    desc: "构建 Web 前端应用 (Nuxt 4 + Vue 3)"
+    deps:
+      - task: build:compute:wasm
+    dir: web
+    cmds:
+      - echo "==> Building Web frontend bundle with Bun..."
+      - bun run build
+      - echo "✨ Web frontend built successfully!"
+
+  build:all:
+    desc: "构建全栈产物 (Go 二进制 + Rust 二进制/WASM/FFI + 前端 Web 产物)"
+    deps:
+      - task: build:server
+      - task: build:compute
+      - task: build:compute:wasm
+      - task: build:compute:ffi
+      - task: build:web
+
+  # ==========================================
+  # 代码生成与静态质量检查
+  # ==========================================
+
+  gen:
+    desc: "执行 GORM GEN 数据库查询代码生成"
+    dir: server
+    cmds:
+      - echo "==> Running GORM GEN generator..."
+      - go run ./cmd/gen
+      - echo "✨ Code generated successfully!"
+
+  fmt:
+    desc: "格式化所有代码 (Go, Rust)"
+    cmds:
+      - task: fmt:server
+      - task: fmt:compute
+
+  fmt:server:
+    desc: "格式化 Go 后端代码"
+    dir: server
+    cmds:
+      - echo "==> Formatting Go code..."
+      - go fmt ./...
+
+  fmt:compute:
+    desc: "格式化 Rust 代码"
+    cmds:
+      - echo "==> Formatting Rust code..."
+      - cargo fmt --all
+
+  check:
+    desc: "运行全栈代码静态检查与类型检查 (Go, Rust, Web)"
+    cmds:
+      - task: check:server
+      - task: check:compute
+      - task: check:web
+
+  check:server:
+    desc: "检查 Go 代码编译与语法正确性"
+    dir: server
+    cmds:
+      - echo "==> Checking Go packages..."
+      - go test -run=^$ ./...
+
+  check:compute:
+    desc: "运行 Rust 工作空间 Cargo 语法与类型检查"
+    cmds:
+      - echo "==> Checking Rust workspace..."
+      - cargo check --workspace
+
+  check:web:
+    desc: "运行 Web 前端 Nuxt / Vue 静态类型检查"
+    dir: web
+    cmds:
+      - echo "==> Checking Web TypeScript types..."
+      - bunx vue-tsc -b --noEmit
+
+  # ==========================================
+  # 测试相关任务
+  # ==========================================
+
+  test:
+    desc: "运行全栈单元测试与类型验证 (Go + Rust + Web)"
+    cmds:
+      - task: test:server
+      - task: test:compute
+      - task: test:web
+
+  test:server:
+    desc: "运行 Go 后端服务单元测试"
+    dir: server
+    cmds:
+      - echo "==> Running Go backend unit tests..."
+      - go test -v ./...
+
+  test:compute:
+    desc: "运行 Rust 计算核心与工作器单元测试"
+    cmds:
+      - echo "==> Running Rust compute unit tests..."
+      - cargo test --workspace
+
+  test:web:
+    desc: "运行 Web 前端类型与集成检查"
+    dir: web
+    cmds:
+      - echo "==> Running Web frontend checks..."
+      - bunx vue-tsc -b --noEmit
+
+  # ==========================================
+  # 依赖与环境准备任务
+  # ==========================================
+
+  bootstrap:
+    desc: "一键安装并初始化全栈依赖 (Bun, Go, Rust)"
+    cmds:
+      - task: bootstrap:web
+      - task: bootstrap:server
+      - task: bootstrap:compute
+
+  bootstrap:web:
+    desc: "安装前端 Node/Bun 依赖"
+    cmds:
+      - echo "==> Installing Bun dependencies..."
+      - bun install
+
+  bootstrap:server:
+    desc: "同步 Go 工作空间依赖"
+    cmds:
+      - echo "==> Syncing Go workspace..."
+      - go work sync
+
+  bootstrap:compute:
+    desc: "预取 Rust Cargo 依赖"
+    cmds:
+      - echo "==> Fetching Cargo dependencies..."
+      - cargo fetch --workspace
+
+  doctor:
+    desc: "检查本地开发环境工具链版本"
+    cmds:
+      - echo "==> Checking toolchain versions:"
+      - bun --version
+      - go version
+      - cargo --version
+      - task --version
+      - cmd: wasm-pack --version || echo "wasm-pack not installed; only required for build:compute:wasm."
+        silent: false
+
+  # ==========================================
+  # 单个长寿命服务运行任务
+  # ==========================================
+
+  api:
+    desc: "启动 Go HTTP API 接口服务 (端口: 8080)"
+    cmds:
+      - task: api:run
+
+  api:run:
+    internal: true
+    prefix: "api"
+    dir: server
+    cmds:
+      - echo "==> Starting Go HTTP API server on :8080..."
+      - go run ./cmd/api/main.go
+
+  orchestrator:
+    desc: "启动 Go Task Orchestrator 调度与状态回收服务"
+    cmds:
+      - task: orchestrator:run
+
+  orchestrator:run:
+    internal: true
+    prefix: "orch"
+    dir: server
+    cmds:
+      - echo "==> Starting Go Task Orchestrator daemon..."
+      - go run ./cmd/worker/main.go
+
+  worker:
+    desc: "启动 Rust compute-worker 媒体转码消费者服务"
+    cmds:
+      - task: worker:run
+
+  worker:run:
+    internal: true
+    prefix: "worker"
+    cmds:
+      - echo "==> Starting Rust compute-worker consumer..."
+      - cargo run -p compute-worker
+
+  web:
+    desc: "启动 Nuxt Web 前端开发服务器 (端口: 3000)"
+    prefix: "web"
+    dir: web
+    cmds:
+      - echo "==> Starting Nuxt Web dev server on http://localhost:3000..."
+      - bun run dev
+
+  docs:
+    desc: "启动 VitePress 文档开发服务器"
+    prefix: "docs"
+    cmds:
+      - echo "==> Starting VitePress documentation dev server..."
+      - bun run docs:dev
+
+  # ==========================================
+  # 多进程并发协同启动
+  # ==========================================
+
+  dev:backend:
+    desc: "一键并发启动全部后端服务 (Go API + Go 调度器 + Rust 消费者，带彩色前缀日志)"
+    cmds:
+      - task: dev:backend:spawn
+
+  dev:backend:spawn:
+    internal: true
+    deps:
+      - task: api:run
+      - task: orchestrator:run
+      - task: worker:run
+
+  dev:
+    desc: "一键并发启动全栈开发环境 (Go API + Go 调度器 + Rust 消费者 + Nuxt 前端，带彩色前缀日志)"
+    cmds:
+      - task: dev:spawn
+
+  dev:spawn:
+    internal: true
+    deps:
+      - task: api:run
+      - task: orchestrator:run
+      - task: worker:run
+      - task: web
+
+  # ==========================================
+  # 文档相关任务
+  # ==========================================
+
+  docs:build:
+    desc: "构建 VitePress 项目文档"
+    cmds:
+      - echo "==> Building VitePress documentation..."
+      - bun run docs:build
+
+  docs:preview:
+    desc: "预览已构建的 VitePress 项目文档"
+    cmds:
+      - echo "==> Previewing VitePress documentation..."
+      - bun run docs:preview
+
+  # ==========================================
+  # 清理任务
+  # ==========================================
+
+  clean:
+    desc: "清理编译产物 (server/bin, web/dist, target/, WASM 等)"
+    cmds:
+      - echo "==> Cleaning build artifacts..."
+      - rm -rf server/bin web/.nuxt web/.output web/.nitro web/dist web/.cache target compute/bindings/wasm/pkg
+      - go clean -cache -testcache
+
+  reset:
+    desc: "深度重置开发环境 (清理构建产物与 node_modules)"
+    deps:
+      - task: clean
+    cmds:
+      - echo "==> Removing node_modules..."
+      - rm -rf node_modules web/node_modules
+      - echo "✨ Reset completed!"

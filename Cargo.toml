@@ -4,9 +4,9 @@ members = [
     "compute/crates/engine",
     "compute/crates/server-adapter",
     "compute/worker",
-    "compute/bindings/wasm",
-    "compute/bindings/ffi"
+    "compute/bindings/wasm"
 ]
+# "compute/bindings/ffi" is kept as standalone crate, excluded from default workspace builds until a native consumer is introduced.
 resolver = "2"
 
 [workspace.package]
@@ -23,20 +23,12 @@ compute-server-adapter = { path = "compute/crates/server-adapter" }
 serde = { version = "1.0", features = ["derive"] }
 image = { version = "0.25", features = ["avif"] }
 tokio = { version = "1", features = ["full"] }
-cfg-if = "1.0"
 anyhow = "1.0"
-sea-orm = { version = "1.1", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 redis = { version = "1.2", features = ["tokio-comp", "tokio-rustls-comp"] }
-chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.23", features = ["v4","v7", "serde"] }
 config = "0.15"
 validator = { version = "0.20", features = ["derive"] }
 serde_json = "1.0"
-aws-config = { version = "1.1", features = ["behavior-version-latest", "rustls"] }
 aws-sdk-s3 = { version = "1.1", features = ["rustls"] }
 tempfile = "3"
 rustls = { version = "0.23", features = ["ring"] }
-
-
-
-
