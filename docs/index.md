@@ -38,7 +38,6 @@ features:
 - **服务端异步转码**：任务提交 → 队列调度 → Rust Worker 执行 → 结果回收与状态聚合，支持重试、取消、租约超时接管与幂等校验。
 - **高质量静态图像管线**：10-bit 原生色深、自适应 4:4:4/4:2:0 抽样、ACES Filmic 色调映射、蓝噪声抖动、ICC/EXIF 方向保留、HEIC/AVIF 原生 YUV 直通。
 - **浏览器本地沙盒**：WebP / JPEG / PNG / AVIF 编码，JPEG → JXL 频域无损直通（`@jsquash/jxl`），线性光重采样与几何编辑。
-- **原生 FFI（实验性）**：C ABI 暴露解码 + 重编码，供 Flutter / SwiftUI / 桌面端集成。
 
 ## 技术栈
 

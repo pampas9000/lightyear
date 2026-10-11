@@ -9,6 +9,9 @@ pub struct ToolCapabilities {
     #[cfg(test)]
     pub djxl_available: bool,
     pub avifenc_available: bool,
+    /// Whether this avifenc build can apply `--sharpyuv` to 4:2:0 output;
+    /// builds without libsharpyuv fail the whole encode instead.
+    pub avifenc_sharpyuv: bool,
     pub avifdec_available: bool,
     pub heif_enc_available: bool,
     pub heif_dec_available: bool,
@@ -39,6 +42,7 @@ impl ToolCapabilities {
             #[cfg(test)]
             djxl_available: version_probe("djxl", "--version").await,
             avifenc_available: avifenc_ok,
+            avifenc_sharpyuv: avifenc_ok && sharpyuv_probe().await,
             avifdec_available: avifdec_ok,
             heif_enc_available: heif_enc_ok,
             heif_dec_available: heif_dec_ok,
@@ -84,6 +88,26 @@ impl ToolCapabilities {
         }
         Ok(())
     }
+}
+
+/// True when avifenc can encode a tiny 4:2:0 image with `--sharpyuv`.
+async fn sharpyuv_probe() -> bool {
+    let Ok(dir) = tempfile::tempdir() else {
+        return false;
+    };
+    let input = dir.path().join("probe.png");
+    let pixels = image::RgbImage::from_pixel(4, 4, image::Rgb([200, 40, 40]));
+    if pixels.save(&input).is_err() {
+        return false;
+    }
+    let mut cmd = Command::new("avifenc");
+    cmd.args(["--sharpyuv", "--yuv", "420"])
+        .arg(&input)
+        .arg(dir.path().join("probe.avif"));
+    run(&mut cmd, "avifenc", PROBE_TIMEOUT)
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// True when `program` runs with `flag` and exits successfully.

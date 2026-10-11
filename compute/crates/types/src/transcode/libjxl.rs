@@ -29,7 +29,9 @@ pub struct LibjxlParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color_space: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Internal: set by the adapter to a temp file holding the source ICC.
+    /// Never read from requests, or callers could embed arbitrary worker files.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub icc_pathname: Option<String>,
 }
 

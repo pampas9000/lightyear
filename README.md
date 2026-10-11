@@ -13,11 +13,10 @@ web ──HTTP──▶ server ──Redis Streams──▶ compute-worker ─�
                 └── S3 / R2 (uploads, artifacts)                └── host CLIs (cjxl/avifenc/avifdec/heif-dec/cwebp)
 
 browser ──Web Worker──▶ compute-wasm ──▶ compute-engine
-native  ──C ABI──────▶ compute-ffi  ──▶ compute-engine
 ```
 
 - `server`: Go 1.26 + Fiber v3 HTTP API, GORM/PostgreSQL persistence, Redis Streams orchestration (`cmd/api` + `cmd/worker` orchestrator), S3/R2 storage integration. It never implements codecs.
-- `compute`: Rust workspace (edition 2024). `compute-engine` owns the portable pipeline, `compute-server-adapter` owns `run_transcode` (host CLI composition, magic-byte detection, native YUV passthrough), `compute-worker` is a stateless Redis/S3 consumer, `compute-wasm` / `compute-ffi` are thin host bindings.
+- `compute`: Rust workspace (edition 2024). `compute-engine` owns the portable pipeline, `compute-server-adapter` owns `run_transcode` (host CLI composition, magic-byte detection, native YUV passthrough), `compute-worker` is a stateless Redis/S3 consumer, `compute-wasm` is a thin browser binding.
 - `web`: Nuxt 4 thin client. All business requests are proxied to the Go API; the WASM sandbox runs locally in a Web Worker.
 
 ## WASM local transcoding sandbox
@@ -46,7 +45,6 @@ compute/
   crates/engine/          portable codec/color/edit core
   crates/server-adapter/  run_transcode host pipeline
   bindings/wasm/          browser bindings
-  bindings/ffi/           C ABI bindings (standalone crate, excluded from the workspace)
   worker/                 Redis/S3 consumer
 web/                Nuxt 4 app (app/ directory)
 docs/               documentation site (VitePress)
@@ -70,7 +68,7 @@ task worker           # Rust compute-worker
 task web              # Nuxt dev server (:3000)
 task check            # go build / cargo check / vue-tsc
 task test             # go test + cargo test + vue-tsc
-task build:all        # server binaries + cargo release + wasm + ffi + web
+task build:all        # server binaries + cargo release + wasm + web
 ```
 
 Direct fallbacks:
@@ -79,7 +77,7 @@ Direct fallbacks:
 go run ./server/cmd/api
 go run ./server/cmd/worker
 cargo run -p compute-worker
-cargo test --workspace        # excludes compute-ffi (standalone crate)
+cargo test --workspace
 go test ./server/...
 cd web && bun run dev
 bun run build:compute:wasm
@@ -89,7 +87,7 @@ bun run docs:dev              # docs site
 
 ## Conventions
 
-- lowercase kebab-case directories; singular names for runtime boundaries (`server`, `web`, `worker`, `api`, `wasm`, `ffi`), plural for collections (`crates`, `bindings`, `components`, `pages`)
+- lowercase kebab-case directories; singular names for runtime boundaries (`server`, `web`, `worker`, `api`, `wasm`), plural for collections (`crates`, `bindings`, `components`, `pages`)
 - Rust crates in `compute` are prefixed with `compute-`
 - no physical foreign keys; UUID v7 primary keys; `snake_case` DB fields
 - update the nearest doc when a boundary or subsystem changes
@@ -99,7 +97,7 @@ bun run docs:dev              # docs site
 - [Getting started](docs/getting-started.md) — layout, commands, ports, configuration
 - [Architecture overview](docs/architecture/overview.md) — boundaries, components, data model
 - [Request flows](docs/architecture/request-flows.md) · [Reliability](docs/architecture/reliability.md)
-- [Contracts](docs/contracts/index.md) — HTTP API, Redis Streams queue, WASM, FFI
+- [Contracts](docs/contracts/index.md) — HTTP API, Redis Streams queue, WASM
 - [Color pipeline](docs/compute/color-pipeline.md) · [Metadata & alpha](docs/compute/metadata.md) · [Limitations](docs/compute/limitations.md)
 - [Fidelity benchmark](docs/quality/fidelity-benchmark.md)
 - [Engineering notes](docs/engineering-notes/index.md)

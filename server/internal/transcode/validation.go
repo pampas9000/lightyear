@@ -49,7 +49,7 @@ func (p *Params) Validate(targetFormat string) error {
 		if err := validateAVIFColor(p.Color); err != nil {
 			return err
 		}
-		return nil
+		return p.keepOnly(avifOpts)
 
 	case "JXL":
 		if p.Engine != "libjxl:jxl" {
@@ -62,7 +62,10 @@ func (p *Params) Validate(targetFormat string) error {
 		if err := json.Unmarshal(p.EngineParams, &jxlOpts); err != nil {
 			return fmt.Errorf("parse jxl params: %w", err)
 		}
-		return validateJxl(jxlOpts)
+		if err := validateJxl(jxlOpts); err != nil {
+			return err
+		}
+		return p.keepOnly(jxlOpts)
 
 	case "HEIC":
 		if p.Engine != "libheif:heic" {
@@ -74,6 +77,18 @@ func (p *Params) Validate(targetFormat string) error {
 		// Skip validation for WebP, JPEG, PNG etc., allowing them to bypass check
 		return nil
 	}
+}
+
+// keepOnly replaces the raw engine params with the validated typed options, so
+// fields this server does not know (e.g. worker-internal file paths) are never
+// stored or forwarded to the compute worker.
+func (p *Params) keepOnly(opts any) error {
+	raw, err := json.Marshal(opts)
+	if err != nil {
+		return fmt.Errorf("normalize engine params: %w", err)
+	}
+	p.EngineParams = raw
+	return nil
 }
 
 func validateAvif(opts LibavifParams) error {

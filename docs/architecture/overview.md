@@ -4,7 +4,7 @@ Lightyear 是一个多语言 Monorepo，承载同一套转码能力在不同运�
 
 - `web` 是产品入口：界面、上传、任务提交与结果展示
 - `server` 是业务协调层：HTTP API、任务创建、调度、状态聚合与系统集成
-- `compute` 是能力核心：可移植编解码、宿主管线、WASM/FFI 导出与 Worker 执行
+- `compute` 是能力核心：可移植编解码、宿主管线、WASM 导出与 Worker 执行
 - `docs` 是跨模块的架构、契约与工程记录
 
 ## 顶层结构
@@ -16,7 +16,6 @@ web ──HTTP──▶ server ──Outbox──▶ Redis Streams ──▶ exe
                 └── S3/R2（上传 / attempt 隔离产物）
 
 浏览器 ──Web Worker──▶ compute-wasm ──▶ compute-engine
-原生端 ──C ABI──────▶ compute-ffi  ──▶ compute-engine
 ```
 
 ### 运行组件
@@ -30,7 +29,6 @@ web ──HTTP──▶ server ──Outbox──▶ Redis Streams ──▶ exe
 | compute-engine | `compute/crates/engine` | 可移植核心：编解码封装、色彩与传递函数、编辑管线、Y4M/PAM 序列化、抖动/色调映射、ICC/EXIF 解析 |
 | compute-types | `compute/crates/types` | 跨语言共享类型与 Redis Streams 线上协议（`protocol.rs`） |
 | compute-wasm | `compute/bindings/wasm` | 浏览器导出（`wasm-bindgen`） |
-| compute-ffi | `compute/bindings/ffi` | C ABI 导出（实验性；独立 crate，不在 workspace 内） |
 | Web 控制台 | `web` | Nuxt 4 薄客户端 + 代理，及 WASM 本地沙盒 |
 
 ## 技术栈

@@ -35,8 +35,7 @@ export default defineConfig({
           { text: '总览与兼容规则', link: '/contracts/' },
           { text: 'HTTP API', link: '/contracts/http-api' },
           { text: '队列（Redis Streams）', link: '/contracts/queue' },
-          { text: 'WASM', link: '/contracts/wasm' },
-          { text: 'FFI', link: '/contracts/ffi' }
+          { text: 'WASM', link: '/contracts/wasm' }
         ]
       },
       {

@@ -363,7 +363,7 @@
         "quality": "压缩质量",
         "quality_desc": "控制输出的压缩质量。不适用于无损格式。",
         "webp_info": "当前环境下的纯 Rust WebP 编码为数学无损压缩，质量滑块在此格式下无效。",
-        "jxl_info": "JPEG XL 输入原始 JPEG 时自动触发频域无损直通（零像素损失且额外减小体积）；其他图片经官方 libjxl 编码，支持有损压缩，质量滑块生效。",
+        "jxl_info": "图片在浏览器中经 libjxl 有损编码，质量滑块生效。JPEG 无损重构仅在服务端转码中可用。",
         "resize": "尺寸调节与缩放",
         "lock_ratio": "锁定比例",
         "unlock_ratio": "解锁比例",

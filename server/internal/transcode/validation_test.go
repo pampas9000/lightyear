@@ -198,3 +198,28 @@ func TestParamsValuePreservesNonEngineFields(t *testing.T) {
 		t.Fatalf("strict setting was lost: %+v", decoded)
 	}
 }
+
+func TestParamsValidation_DropsUnknownEngineParams(t *testing.T) {
+	for format, engine := range map[string]string{"AVIF": "libavif:avif", "JXL": "libjxl:jxl"} {
+		p := Params{
+			Engine:       engine,
+			EngineParams: json.RawMessage(`{"quality":80,"icc_path":"/proc/self/environ","icc_pathname":"/etc/passwd"}`),
+		}
+		if err := p.Validate(format); err != nil {
+			t.Fatalf("%s: unexpected error: %v", format, err)
+		}
+		var stored map[string]any
+		if err := json.Unmarshal(p.EngineParams, &stored); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := stored["icc_path"]; ok {
+			t.Errorf("%s: icc_path survived normalization: %s", format, p.EngineParams)
+		}
+		if _, ok := stored["icc_pathname"]; ok {
+			t.Errorf("%s: icc_pathname survived normalization: %s", format, p.EngineParams)
+		}
+		if stored["quality"] != float64(80) {
+			t.Errorf("%s: quality lost: %s", format, p.EngineParams)
+		}
+	}
+}

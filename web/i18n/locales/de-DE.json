@@ -290,7 +290,7 @@
         "quality": "Kompressionsqualität",
         "quality_desc": "Steuert die Kompressionsqualität der Ausgabe. Gilt nicht für verlustfreie Formate.",
         "webp_info": "Die reine Rust-WebP-Kodierung in dieser Umgebung ist mathematisch verlustfrei. Die Qualitätseinstellung ist nicht anwendbar.",
-        "jxl_info": "Bei JPEG-Eingaben wird automatisch ein verlustfreier Frequenzbereichs-Durchlauf ausgelöst (kein Pixelverlust, kleinere Dateien); andere Bilder werden über offizielles libjxl verlustbehaftet kodiert – der Qualitätsslider ist anwendbar.",
+        "jxl_info": "Bilder werden im Browser über libjxl (verlustbehaftet) kodiert – der Qualitätsslider ist anwendbar. Die verlustfreie JPEG-Rekonstruktion ist nur in der Server-Pipeline verfügbar.",
         "resize": "Abmessungen & Skalierung",
         "lock_ratio": "Seitenverhältnis sperren",
         "unlock_ratio": "Seitenverhältnis entsperren",

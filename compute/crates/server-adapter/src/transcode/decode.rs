@@ -8,9 +8,9 @@ use std::path::Path;
 
 /// Decodes the input file into memory.
 ///
-/// AVIF and HEIC inputs prefer the tool-based decode path into uncompressed Y4M
-/// so high bit-depth and chroma survive; everything else goes through the
-/// portable pure-Rust decoder. The `probe` comes from magic bytes, so a
+/// AVIF inputs prefer `avifdec` into uncompressed Y4M so high bit-depth and
+/// chroma survive; HEIC inputs use `heif-dec` into 16-bit PNG; everything else
+/// goes through the portable pure-Rust decoder. The `probe` comes from magic bytes, so a
 /// mislabelled or extension-less file still takes the right path.
 ///
 /// Y4M carries colour planes only. An input that declares an alpha plane is
@@ -45,12 +45,18 @@ pub async fn decode_to_image(
 
     let source_bytes = tokio::fs::read(input_path).await.unwrap_or_default();
 
+    // heif-dec's Y4M writer always emits 8-bit 4:2:0 without a range tag, so
+    // HEIC goes through its 16-bit PNG output, which keeps depth and levels.
+    if tool == "heif-dec" {
+        return decode_png_with_tool(tool, input_path, &source_bytes).await;
+    }
+
     if compute_engine::probe_alpha_channel(&source_bytes) {
         println!(
             "[Transcode] {} input declares an alpha plane; decoding via 16-bit PNG since Y4M cannot carry alpha",
             tool
         );
-        return decode_alpha_with_tool(tool, input_path, &source_bytes).await;
+        return decode_png_with_tool(tool, input_path, &source_bytes).await;
     }
 
     decode_planar_with_tool(tool, input_path, &source_bytes, params).await
@@ -89,10 +95,10 @@ async fn decode_planar_with_tool(
 
 /// Decodes through an external CLI into a 16-bit PNG.
 ///
-/// This is the fallback for alpha-bearing sources: PNG is the only output these
-/// tools offer that can carry both an alpha plane and more than 8 bits per
-/// channel.
-async fn decode_alpha_with_tool(
+/// Used for every HEIC input and for alpha-bearing AVIF: PNG is the only output
+/// these tools offer that can carry both an alpha plane and more than 8 bits
+/// per channel.
+async fn decode_png_with_tool(
     tool: &str,
     input_path: &Path,
     source_bytes: &[u8],

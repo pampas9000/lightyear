@@ -39,7 +39,7 @@
 | :--- | :--- |
 | EXIF / XMP 不完整保留 | 仅读取并烘焙 Orientation；相机参数、GPS、XMP 在“解码 → 重编码”路径丢失（JPEG → JXL 频域直通除外） |
 | HDR 母带元数据未实现 | Mastering Display / CLLI 不做保留或写入 |
-| Gain Map 不支持 | Apple / Google HDR Gain Map 探测代码已删除（无消费方，见[色彩路线图](/compute/color-roadmap)）；双层 JPEG 仅解码主图。**注意**：原生 YUV 直通目前没有 Gain Map 门禁（Phase A 未实施），带增益图的 AVIF/HEIC 走直通会丢辅助图元 |
+| Gain Map 不支持 | Apple / Google HDR Gain Map 探测代码已删除（无消费方，见[色彩路线图](/compute/color-roadmap)）；双层 JPEG 仅解码主图。**注意**：原生 YUV 直通目前没有 Gain Map 门禁（Phase A 未实施），带增益图的 AVIF 走直通会丢辅助图元 |
 | 颜色管理不是完整 CMS | 像素处理、AVIF CICP 与 JXL 标签共享输出决策；已知 nclx transfer 优先于请求默认值。任意 ICC/TRC、广色域转换和未覆盖的标签组合仍见 R1/R7 |
 | 广色域 tone mapping 输出受限 | AVIF/JXL 可保留基色并改为 sRGB transfer；JPEG/PNG/WebP/HEIC 尚不能生成相应新 profile，当前明确拒绝此类请求 |
 | 不做色域转换 | 产品定位为转码/压缩工具，`ColorSpace` 仅描述源图；广色域通过 ICC/CICP 透传，不重写像素 |
@@ -54,7 +54,6 @@
 
 | 限制 | 说明 |
 | :--- | :--- |
-| FFI 实验性 | 仅解码 + 重编码（质量固定 80）；`compute/bindings/ffi` 不在 workspace 内，`cargo test --workspace` 不覆盖 |
 | HTTP API 无版本号 | 路由固定 `/api`；部分历史端点字段大小写不一致（详见 [HTTP 契约](/contracts/http-api)） |
 | 队列协议无 Schema 生成 | `queue.go` 与 `protocol.rs` 为双侧手写镜像，只能靠成对审查与测试保证一致 |
 | e2e 测试依赖宿主 CLI | 本机缺少 CLI 时相关 e2e 用例会跳过（打印 skip），CI 应显式安装工具链 |

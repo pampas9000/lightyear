@@ -60,7 +60,6 @@ interface ConvertImageMessage {
         format: string;
         quality: number;
         color?: Record<string, any>;
-        isDirectBypassEligible?: boolean;
     };
 }
 
@@ -162,32 +161,12 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
             })
         }
     } else if (type === 'convert') {
-        const { data, format, quality, color, isDirectBypassEligible } = message.payload
+        const { data, format, quality, color } = message.payload
         try {
             const targetFmt = format.toLowerCase()
 
-            // 1. JPEG -> JXL frequency-domain direct bypass (Lossless Reconstruction via @jsquash/jxl)
-            const isJpeg = data.length >= 2 && data[0] === 0xFF && data[1] === 0xD8
-            if (targetFmt === 'jxl' && isJpeg && isDirectBypassEligible !== false) {
-                try {
-                    // Dynamically import @jsquash/jxl to avoid inflating startup bundle
-                    const jxlModule = await import('@jsquash/jxl')
-                    // Encode directly from JPEG stream without uncompressing to pixels
-                    const jxlBuffer = await jxlModule.encode(data as any, {
-                        lossless_jpeg: true,
-                    } as any)
-                    const result = new Uint8Array(jxlBuffer)
-                    self.postMessage(
-                        { type: 'convert_ok', id, result },
-                        [result.buffer] as Transferable[]
-                    )
-                    return
-                } catch (jxlErr) {
-                    console.warn('Direct JXL bypass failed, falling back to pixel pipeline:', jxlErr)
-                }
-            }
-
-            // 2. High-fidelity pixel transcode via compute-wasm + @jsquash/jxl encoder for JXL
+            // Pixel transcode via compute-wasm; JXL is encoded by @jsquash/jxl, which
+            // only accepts pixels (no JPEG reconstruction).
             if (!wasmModule) {
                 throw new Error('WASM module not initialized')
             }

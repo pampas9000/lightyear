@@ -1,6 +1,6 @@
 //! Zero-conversion hand-off between a planar decoder and a planar encoder.
 //!
-//! `avifdec`/`heif-dec` hand back a file's own YUV planes as Y4M, and `avifenc`
+//! `avifdec` hands back a file's own YUV planes as Y4M, and `avifenc`
 //! accepts Y4M on stdin. When both sides agree on the layout, the samples never
 //! have to be reconstructed into RGB and projected back — which is the largest
 //! avoidable loss in a YUV→YUV transcode, and the difference between one matrix
@@ -44,7 +44,7 @@ pub struct YuvLayout {
 /// falls back to the pixel pipeline.
 ///
 /// NOTE: The native zero-conversion YUV path is marked **EXPERIMENTAL**. It is
-/// strictly restricted to a whitelist of pairs (AVIF -> AVIF, HEIC -> AVIF) with
+/// strictly restricted to AVIF -> AVIF with
 /// matching layout, no editing, no tone-mapping, and no alpha channels.
 pub async fn try_native_path(
     input_path: &Path,
@@ -71,13 +71,12 @@ pub async fn try_native_path(
         return None;
     }
 
-    let tool = if probe.is_avif() && tools.avifdec_available {
-        "avifdec"
-    } else if probe.is_heic() && tools.heif_dec_available {
-        "heif-dec"
-    } else {
+    // HEIC is excluded: heif-dec's Y4M is always 8-bit 4:2:0 with no range tag,
+    // so forwarding it would truncate depth and avifenc would read it as limited.
+    if !probe.is_avif() || !tools.avifdec_available {
         return None;
-    };
+    }
+    let tool = "avifdec";
 
     let source_bytes = tokio::fs::read(input_path).await.ok()?;
     // Y4M has no alpha channel, so an alpha plane would be dropped silently.

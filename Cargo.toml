@@ -6,7 +6,6 @@ members = [
     "compute/worker",
     "compute/bindings/wasm"
 ]
-# "compute/bindings/ffi" is kept as standalone crate, excluded from default workspace builds until a native consumer is introduced.
 resolver = "2"
 
 [workspace.package]

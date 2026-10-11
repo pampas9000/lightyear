@@ -179,10 +179,18 @@ async fn encode_avif(
     let has_alpha = has_transparency(img);
     // If image has alpha, standard Y4M cannot carry it safely (only 8-bit C444alpha exists
     // and is not universally supported; libheif drops it completely).
-    // In accordance with docs/compute/codec-engines.md, route alpha through intermediate PNG.
-    if has_alpha {
+    // avifenc also ignores `--sharpyuv` for Y4M input, so a sharp 4:2:0 request
+    // must hand it RGB. Both cases route through a lossless intermediate PNG.
+    // Sharp YUV is dropped rather than failing the job when this avifenc build
+    // lacks it; 16-bit RGB is also excluded, since builds without libyuv reject it.
+    if !tools.avifenc_sharpyuv || compute_engine::is_16bit_image(img) {
+        avif_params.sharp_yuv = None;
+    }
+    let wants_sharp_yuv =
+        avif_params.sharp_yuv == Some(true) && effective_yuv == YuvFormat::Yuv420;
+    if has_alpha || wants_sharp_yuv {
         let temp_dir = tempfile::tempdir()?;
-        let temp_png = temp_dir.path().join("alpha_interm.png");
+        let temp_png = temp_dir.path().join("avifenc_input.png");
         let png_bytes = compute_engine::encode(img, Format::Png, 100)?;
         tokio::fs::write(&temp_png, png_bytes).await?;
 
@@ -190,7 +198,7 @@ async fn encode_avif(
         let result = run_command(
             "avifenc",
             &args,
-            "Encoding AVIF with alpha via intermediate PNG",
+            "Encoding AVIF from intermediate PNG (alpha or sharp YUV)",
             "avifenc",
         )
         .await;
@@ -633,6 +641,7 @@ mod tests {
             cjxl_available: false,
             djxl_available: false,
             avifenc_available: false,
+            avifenc_sharpyuv: false,
             avifdec_available: false,
             heif_enc_available: false,
             heif_dec_available: false,

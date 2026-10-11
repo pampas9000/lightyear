@@ -161,6 +161,7 @@ fn test_can_use_jpeg_to_jxl_direct_bypass() {
         cjxl_available: true,
         djxl_available: true,
         avifenc_available: true,
+        avifenc_sharpyuv: true,
         avifdec_available: true,
         heif_enc_available: true,
         heif_dec_available: true,
@@ -693,8 +694,129 @@ async fn test_e2e_heic_encoding_and_roundtrip() {
     assert_eq!(decoded.height(), 16);
 }
 
+/// heif-dec's Y4M output is 8-bit 4:2:0 without a range tag; HEIC must keep its
+/// depth and full-range levels on both the pixel path and the AVIF target.
 #[tokio::test]
-async fn test_e2e_heic_decode_via_y4m_if_available() {
+async fn test_e2e_10bit_heic_keeps_depth_and_range() {
+    let tools = ToolCapabilities::probe().await;
+    if !tools.heif_dec_available || !tools.heif_enc_available || !tools.avifdec_available {
+        eprintln!("heif-enc/heif-dec/avifdec unavailable, skipping 10-bit HEIC test");
+        return;
+    }
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let png_input = temp_dir.path().join("deep.png");
+    let heic_file = temp_dir.path().join("deep.heic");
+    let png_out = temp_dir.path().join("deep_out.png");
+    let avif_out = temp_dir.path().join("deep_out.avif");
+    let avif_png = temp_dir.path().join("deep_avif.png");
+
+    // Dark-to-light ramp whose ends sit away from 0/65535, so a limited-range
+    // misread would visibly clip them.
+    let ramp = image::ImageBuffer::from_fn(32, 32, |x, _| {
+        let v = 4096 + (x as u16) * 1800;
+        image::Rgb([v, v, v])
+    });
+    image::DynamicImage::ImageRgb16(ramp)
+        .save_with_format(&png_input, image::ImageFormat::Png)
+        .unwrap();
+    let status = tokio::process::Command::new("heif-enc")
+        .args(["-b", "10", "-q", "95"])
+        .arg(&png_input)
+        .arg("-o")
+        .arg(&heic_file)
+        .status()
+        .await
+        .unwrap();
+    assert!(status.success());
+
+    let darkest = |img: &image::DynamicImage| img.to_rgb16().pixels().map(|p| p[0]).min().unwrap();
+
+    run_transcode(&heic_file, &png_out, Format::Png, &None, Some(Format::Heic), &[])
+        .await
+        .unwrap();
+    let decoded = image::open(&png_out).unwrap();
+    assert!(compute_engine::is_16bit_image(&decoded), "HEIC decode lost depth");
+    assert!(darkest(&decoded) > 2048, "HEIC decode clipped the dark end");
+
+    run_transcode(&heic_file, &avif_out, Format::Avif, &None, Some(Format::Heic), &[])
+        .await
+        .unwrap();
+    let info = tokio::process::Command::new("avifdec")
+        .arg("--info")
+        .arg(&avif_out)
+        .output()
+        .await
+        .unwrap();
+    let info = String::from_utf8_lossy(&info.stdout);
+    assert!(info.contains("Bit Depth      : 10"), "HEIC -> AVIF lost depth:\n{info}");
+    let status = tokio::process::Command::new("avifdec")
+        .args(["-d", "16"])
+        .arg(&avif_out)
+        .arg(&avif_png)
+        .status()
+        .await
+        .unwrap();
+    assert!(status.success());
+    let roundtrip = image::open(&avif_png).unwrap();
+    assert!(darkest(&roundtrip) > 2048, "HEIC -> AVIF clipped the dark end");
+}
+
+/// `--sharpyuv` only works on RGB input, so sharp 4:2:0 goes through PNG and
+/// must still honor the requested layout; 16-bit pixels (which avifenc builds
+/// without libyuv cannot sharpen) must not fail the request.
+#[tokio::test]
+async fn test_e2e_sharp_yuv_avif_keeps_requested_layout() {
+    let tools = ToolCapabilities::probe().await;
+    if !tools.avifenc_available || !tools.avifdec_available {
+        eprintln!("avifenc/avifdec unavailable, skipping sharp YUV test");
+        return;
+    }
+    let temp_dir = tempfile::tempdir().unwrap();
+    let rgb8 = temp_dir.path().join("sharp8.png");
+    let rgba16 = temp_dir.path().join("sharp16.png");
+    image::DynamicImage::ImageRgb8(image::ImageBuffer::from_fn(16, 16, |x, y| {
+        if (x + y) % 2 == 0 { image::Rgb([255u8, 0, 0]) } else { image::Rgb([0, 0, 255]) }
+    }))
+    .save_with_format(&rgb8, image::ImageFormat::Png)
+    .unwrap();
+    image::DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(16, 16, |x, _| {
+        image::Rgba([60_000u16, 1_000, 1_000, if x < 8 { 30_000 } else { 65_535 }])
+    }))
+    .save_with_format(&rgba16, image::ImageFormat::Png)
+    .unwrap();
+
+    let params = |depth: u8| {
+        Some(Params {
+            engine: Some("libavif:avif".into()),
+            engine_params: serde_json::json!({ "sharp_yuv": true }),
+            color: Some(ColorEncoding {
+                nominal_bit_depth: depth,
+                chroma: compute_types::ChromaSubsampling::Yuv420,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+    };
+    for (input, depth) in [(&rgb8, 8u8), (&rgba16, 10)] {
+        let out = input.with_extension("avif");
+        run_transcode(input, &out, Format::Avif, &params(depth), Some(Format::Png), &[])
+            .await
+            .unwrap();
+        let info = tokio::process::Command::new("avifdec")
+            .arg("--info")
+            .arg(&out)
+            .output()
+            .await
+            .unwrap();
+        let info = String::from_utf8_lossy(&info.stdout);
+        assert!(info.contains(&format!("Bit Depth      : {depth}")), "{info}");
+        assert!(info.contains("Format         : YUV420"), "{info}");
+    }
+}
+
+#[tokio::test]
+async fn test_e2e_heic_decode_if_available() {
     let tools = ToolCapabilities::probe().await;
     if !tools.heif_dec_available {
         return;
@@ -736,7 +858,7 @@ async fn test_e2e_heic_decode_via_y4m_if_available() {
     assert!(enc_status.success());
     assert!(heic_file.exists());
 
-    // Decode HEIC to PNG via run_transcode (uses heif-dec -> Y4M -> read_y4m_to_image)
+    // Decode HEIC to PNG via run_transcode (heif-dec -> 16-bit PNG)
     let res = run_transcode(
         &heic_file,
         &roundtrip_png,

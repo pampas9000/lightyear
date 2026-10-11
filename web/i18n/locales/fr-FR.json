@@ -290,7 +290,7 @@
         "quality": "Qualité de Compression",
         "quality_desc": "Contrôle la qualité de compression de sortie. Ne s'applique pas aux formats sans perte.",
         "webp_info": "L'encodage WebP en Rust pur dans cet environnement est mathématiquement sans perte. Le curseur de qualité n'est pas applicable.",
-        "jxl_info": "Pour les JPEG d'origine, un contournement fréquentiel sans perte est déclenché automatiquement (zéro perte de pixels, fichiers plus petits); les autres images sont encodées via le libjxl officiel avec compression avec perte — le curseur de qualité s'applique.",
+        "jxl_info": "Les images sont encodées dans le navigateur via libjxl avec compression avec perte — le curseur de qualité s'applique. La reconstruction JPEG sans perte n'est disponible que dans le pipeline serveur.",
         "resize": "Dimensions & Redimensionnement",
         "lock_ratio": "Ratio Verrouillé",
         "unlock_ratio": "Ratio Déverrouillé",

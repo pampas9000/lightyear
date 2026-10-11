@@ -363,7 +363,7 @@
         "quality": "Quality Selector",
         "quality_desc": "Controls output compression quality. Does not apply to lossless formats.",
         "webp_info": "Pure Rust WebP encoding in this environment is mathematically lossless. The quality setting is not applicable.",
-        "jxl_info": "Raw JPEG inputs automatically trigger lossless frequency-domain bypass (zero pixel loss, smaller files); other images are encoded via official libjxl with lossy compression — the quality slider applies.",
+        "jxl_info": "Images are encoded in the browser via libjxl with lossy compression — the quality slider applies. Lossless JPEG reconstruction is only available in the server pipeline.",
         "resize": "Dimensions & Rescaling",
         "lock_ratio": "Ratio Locked",
         "unlock_ratio": "Ratio Unlocked",

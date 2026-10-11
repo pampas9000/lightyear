@@ -156,8 +156,7 @@ export function useComputeWasm() {
         data: Uint8Array,
         format: string,
         quality: number,
-        color?: Record<string, any>,
-        isDirectBypassEligible: boolean = true
+        color?: Record<string, any>
     ): Promise<Uint8Array> => {
         if (!import.meta.client) throw new Error('Cannot run in SSR mode')
         await initWasm()
@@ -169,7 +168,7 @@ export function useComputeWasm() {
             w.postMessage({
                 type: 'convert',
                 id,
-                payload: { data, format, quality, color, isDirectBypassEligible }
+                payload: { data, format, quality, color }
             })
         })
     }

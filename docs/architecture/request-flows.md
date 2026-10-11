@@ -1,6 +1,6 @@
 # 请求链路
 
-系统有三条执行路径：服务端异步任务流、浏览器 WASM 本地流、原生 FFI 集成流。
+系统有两条执行路径：服务端异步任务流、浏览器 WASM 本地流。
 
 ## 1. 服务端异步任务流（默认主链路）
 
@@ -54,7 +54,7 @@ web ─▶ Nitro 代理 ─▶ Go API ─▶ PostgreSQL + Outbox
 2. 用户拖入文件并调整参数（目标格式、质量、缩放、旋转、滤镜、色彩）。
 3. Worker 调用 WASM 导出：`browser_convert` / `browser_convert_advanced` / `browser_edit_image` / `browser_edit_to_raw_rgba` / `browser_decode_raw_pixels` / `browser_get_metadata`。
 4. 图像处理全程在 WASM 线性内存中以 TypedArray 流转，不经过 DOM Canvas；主线程只负责渲染与交互。
-5. JXL 路径直接使用 `@jsquash/jxl`；无几何编辑的 JPEG 输入触发 `lossless_jpeg` 频域直通，零像素解码损失。
+5. JXL 目标先由 `compute-wasm` 解码为像素，再交给 `@jsquash/jxl` 编码；它只接受像素输入，浏览器端没有 JPEG 无损重构（该能力仅在服务端 `cjxl` 路径中提供）。
 
 与服务端的画质对齐原则（避免“浏览器端二等公民”）：
 
@@ -63,16 +63,6 @@ web ─▶ Nitro 代理 ─▶ Go API ─▶ PostgreSQL + Outbox
 - **传递函数感知**：Resize / Blur 依据源 `TransferCharacteristics` 动态线性化
 - **自适应抽样**：UI/文字/线条走 4:4:4，连续色调照片走 4:2:0
 - **广色域限制**：浏览器编码器无法写入 ICC/CICP，广色域源图**原样输出不带标识的像素**，UI 提示可能偏饱和；保留需求走服务端。详见[已知限制](/compute/limitations)
-
-## 3. 原生 FFI 集成流（实验性）
-
-```text
-Flutter / SwiftUI / 桌面端 ──C ABI──▶ compute-ffi ──▶ compute-engine
-```
-
-1. 宿主链接 `compute-ffi` 产物（当前仅解码 + 重编码，质量固定 80）。
-2. 通过 `transcoder_process` 传入字节缓冲与格式码，取回堆缓冲后必须调用 `transcoder_free_buffer`。
-3. 编辑、参数与 JXL 对齐 `compute-wasm` 的能力尚未落地，等真实消费方出现再扩展。
 
 ## 请求生命周期速览
 

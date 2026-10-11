@@ -105,8 +105,7 @@ YUV 直通旨在跨容器转码时，跳过“YUV → RGB 重建 → YUV 重新�
 当前实现检查以下主要条件；它还不是完整的无损保留门禁：
 
 1. **格式对**：严格限定在有限集合：
-   - `AVIF -> AVIF`
-   - `HEIC -> AVIF`
+   - `AVIF -> AVIF`（`HEIC -> AVIF` 已移除：`heif-dec` 的 Y4M 固定 8-bit 4:2:0 且无 range 标签，直通会截断位深并被 avifenc 当作 limited range）
 2. **无编辑操作**：`ops.is_empty()`（无缩放、无裁剪、无旋转、无水印）。
 3. **无色彩重映射**：`tone_mapping == None` 且未请求矩阵/色彩空间重投影。
 4. **无 Alpha 通道**：`!probe_alpha_channel()`（带透明通道必须退回 §3 的 PNG16 管道）。

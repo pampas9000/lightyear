@@ -31,12 +31,12 @@
 | 元数据 | EXIF 其余标签 / XMP / HDR10 元数据 | ⏸️ | — | 未实现；JPEG→JXL 直通除外 |
 | 元数据 | HDR Gain Map | 🚫 已删除 | — | 无消费方的 probe 层按 YAGNI 删除 |
 | 管线 | JPEG → JXL 频域直通 | ✅ | `server-adapter::transcode::bypass` | 6 项条件严格匹配，Brunsli 重构 |
-| 管线 | 原生 YUV 直通（HEIC/AVIF → AVIF） | ⚠️ Experimental | `server-adapter::transcode::native` | 已支持有效参数门禁；Gain Map、MatrixOnly 和完整工具版本矩阵仍不在范围内 |
+| 管线 | 原生 YUV 直通（AVIF → AVIF） | ⚠️ Experimental | `server-adapter::transcode::native` | 已支持有效参数门禁；Gain Map、MatrixOnly 和完整工具版本矩阵仍不在范围内 |
 | 管线 | 色度上采样双线性重构 | ✅ | `engine::color::yuv` | `yuv` crate（libyuv 同源），替换最近邻 |
 | 管线 | Alpha 解码保护 | ✅ | `engine::color::metadata` + decode | `auxC` 探测，带 Alpha 自动改走 16-bit PNG |
 | 管线 | 输入格式 magic-byte 探测 | ✅ | `server-adapter::transcode::detect` | `infer` 三级解析，字节优先 |
 | 管线 | 工具能力动态探测 | ✅ | `server-adapter::transcode::probe` | `ToolCapabilities`，strict 阻断 / 非 strict 降级 |
-| 格式 | HEIC/HEIF 输入解码 | ✅ | `server-adapter::transcode::decode` | `heif-dec` 直出 Y4M，零 C 依赖污染 WASM |
+| 格式 | HEIC/HEIF 输入解码 | ✅ | `server-adapter::transcode::decode` | `heif-dec` 输出 16-bit PNG，零 C 依赖污染 WASM |
 | 格式 | 纯 Rust JXL 编码器 | ⚠️ 生态限制 | — | 编码依赖 `cjxl` / WASM 侧 `@jsquash/jxl` |
 | 质检 | 素材审计与测试入口 | ✅ | `scripts/benchmark.ts` | 素材头断言 + workspace 测试；不是全量转码产物画质/性能门禁 |
 | Web | WASM 动态加载与本地转码 | ✅ | `web/app/workers` + `compute-wasm` | 动态 `import()`，Worker chunk 按需加载 |
@@ -62,7 +62,7 @@
 ## 已有实现（不代表所有组合通过）
 
 - 4:2:2 色度抽样与 Y4M C422 封装打通（8/10-bit）
-- HEIC 原生服务端解码（`heif-dec` 直出 Y4M，WASM 保持纯 Rust）
+- HEIC 原生服务端解码（`heif-dec` 输出 16-bit PNG，WASM 保持纯 Rust）
 - 色调映射收敛为 `ToneMappingOperator::{None, AcesFilmic}`
 - 抖动收敛为 `dither: bool`（固定 Blue Noise）
 - 源 ICC 二进制提取与 CLI 注入通道（AVIF/ JXL/WebP/JPEG/PNG）

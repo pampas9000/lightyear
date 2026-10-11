@@ -9,7 +9,6 @@
 | `web` → `server` | [HTTP API](/contracts/http-api) | `server/internal/api/handlers`、`internal/transcode/params.go` |
 | `server` ↔ `compute-worker` | [Queue](/contracts/queue) | `server/internal/task/queue.go` + `compute/crates/types/src/protocol.rs`（镜像定义） |
 | `web` → `compute/bindings/wasm` | [WASM](/contracts/wasm) | `compute/bindings/wasm/src/lib.rs` |
-| 原生宿主 → `compute/bindings/ffi` | [FFI](/contracts/ffi) | `compute/bindings/ffi/src/lib.rs` |
 | 媒体领域类型 | 本页 §领域类型 | `compute/crates/types` |
 
 跨语言镜像规则：媒体领域以 `compute-types` 为 Rust 侧权威定义，Go（`internal/transcode`）与 TypeScript（`web/app/lib/types`）手工镜像；线上协议以 `queue.go` 与 `protocol.rs` 双侧镜像为准，改动必须成对提交。
@@ -69,12 +68,11 @@
 
 - 重命名/删除字段，把可选变必填，改变字段含义
 - 修改枚举字符串值（HTTP 状态、格式串、色彩串）
-- 修改 WASM/FFI 函数签名、参数顺序、返回值所有权
-- FFI 二进制布局或内存归属规则变化
+- 修改 WASM 函数签名、参数顺序、返回值所有权
 
 ### `Format` 枚举演进
 
-仓库内新增 `Format` 变体时可同步更新所有消费者；但对外暴露新的格式字符串（HTTP/队列/WASM/FFI）属于破坏性变更，需按版本化契约处理。
+仓库内新增 `Format` 变体时可同步更新所有消费者；但对外暴露新的格式字符串（HTTP/队列/WASM）属于破坏性变更，需按版本化契约处理。
 
 ## 契约现状
 
@@ -83,6 +81,5 @@
 | HTTP API（认证/任务/工作流/上传/下载/草稿） | 已实现 |
 | Redis Streams 队列（含 attempt_id、心跳、取消） | 已实现 |
 | WASM 导出（6 个函数） | 已实现（`heic`/`jxl` 编码有生态限制） |
-| FFI 导出（3 个符号） | 实验性，未纳入 workspace |
 | 队列协议 JSON Schema 生成 | 未实现（当前为双侧手写镜像） |
 | API 路径版本化 | 未实现（`/api` 无版本） |

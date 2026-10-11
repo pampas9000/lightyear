@@ -30,7 +30,6 @@
 │   ├── crates/engine/          # compute-engine：可移植编解码 / 色彩 / 编辑核心
 │   ├── crates/server-adapter/  # compute-server-adapter：run_transcode 宿主管线
 │   ├── bindings/wasm/          # compute-wasm：浏览器导出
-│   ├── bindings/ffi/           # compute-ffi：C ABI（独立 crate，未纳入 workspace）
 │   └── worker/                 # compute-worker：Redis/S3 消费者
 ├── web/                        # Nuxt 4 前端（app/ 目录结构）
 ├── docs/                       # 本文档站（VitePress）
@@ -56,7 +55,7 @@ task orchestrator     # Go 调度/回收守护进程
 task worker           # Rust compute-worker
 task check            # server 编译 / cargo check / vue-tsc
 task test             # go test + cargo test + vue-tsc
-task build:all        # server 二进制 + cargo release + wasm + ffi + web
+task build:all        # server 二进制 + cargo release + wasm + web
 ```
 
 直接工具链回退（适合单生态调试）：
@@ -65,15 +64,13 @@ task build:all        # server 二进制 + cargo release + wasm + ffi + web
 go run ./server/cmd/api            # API
 go run ./server/cmd/worker         # Orchestrator
 cargo run -p compute-worker        # Rust worker
-cargo test --workspace             # Rust 测试（ffi 除外，见下）
+cargo test --workspace             # Rust 测试
 go test ./server/...               # Go 测试
 cd web && bun run dev              # 前端
 bun run build:compute:wasm         # 构建 WASM 到 web/public/wasm
 bun run benchmark                  # 画质素材 + 容器头断言 + cargo test
 bun run docs:dev                   # 文档站
 ```
-
-> `compute/bindings/ffi` 是独立 crate，被显式排除在 workspace 之外，`cargo build/test --workspace` 不会构建它，需要时用 `cargo build -p compute-ffi`（或 `task build:compute:ffi`）。
 
 ## 端口与依赖服务
 
@@ -92,4 +89,4 @@ bun run docs:dev                   # 文档站
 - [架构总览](/architecture/overview)：边界、组件与数据模型
 - [请求链路](/architecture/request-flows)：三条执行路径
 - [可靠性设计](/architecture/reliability)：attempt_id / 租约 / XAUTOCLAIM
-- [接口契约](/contracts/)：HTTP、队列、WASM、FFI
+- [接口契约](/contracts/)：HTTP、队列、WASM

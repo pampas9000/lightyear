@@ -81,6 +81,22 @@ mod tests {
     }
 
     #[test]
+    fn request_cannot_choose_worker_icc_files() {
+        let params = Params {
+            engine_params: serde_json::json!({
+                "quality": 80,
+                "icc_path": "/proc/self/environ",
+                "icc_pathname": "/etc/passwd"
+            }),
+            ..Default::default()
+        };
+        let avif = params.parse_libavif_params().unwrap();
+        assert_eq!(avif.quality, Some(80));
+        assert!(avif.icc_path.is_none());
+        assert!(params.parse_libjxl_params().unwrap().icc_pathname.is_none());
+    }
+
+    #[test]
     fn test_params_validation() {
         let avif_json = serde_json::json!({
             "quality": 90,

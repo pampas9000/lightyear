@@ -290,7 +290,7 @@
         "quality": "壓縮質量",
         "quality_desc": "控制輸出的壓縮質量。不適用於無損格式。",
         "webp_info": "當前環境下的純 Rust WebP 編碼為數學無損壓縮，質量滑塊在此格式下無效。",
-        "jxl_info": "JPEG XL 輸入原始 JPEG 時自動觸發頻域無損直通（零像素損失且額外減小體積）；其他圖片經官方 libjxl 編碼，支援有損壓縮，質量滑塊生效。",
+        "jxl_info": "圖片在瀏覽器中經 libjxl 有損編碼，質量滑塊生效。JPEG 無損重構僅在伺服器端轉碼中可用。",
         "resize": "尺寸調節與縮放",
         "lock_ratio": "鎖定比例",
         "unlock_ratio": "解鎖比例",

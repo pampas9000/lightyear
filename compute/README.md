@@ -1,10 +1,10 @@
 # Compute
 
-Rust workspace for `lightyear`. It owns all media processing: portable codecs, color pipeline, host adapters, browser/native bindings, and the async worker.
+Rust workspace for `lightyear`. It owns all media processing: portable codecs, color pipeline, host adapters, the browser binding, and the async worker.
 
 Current pipeline behavior is documented in the docs site: [Color pipeline](../docs/compute/color-pipeline.md), [Metadata & alpha](../docs/compute/metadata.md), [Limitations](../docs/compute/limitations.md). Queue payloads are mirrored in [Queue](../docs/contracts/queue.md).
 
-Note: the Cargo workspace root lives at `../Cargo.toml`. `compute/bindings/ffi` is a standalone crate and is deliberately **excluded** from workspace builds until a native consumer exists.
+Note: the Cargo workspace root lives at `../Cargo.toml`.
 
 ## Directory layout
 
@@ -15,8 +15,7 @@ compute/
 │   ├── engine/           # compute-engine: portable codec/color/edit core (WASM-safe)
 │   └── server-adapter/   # compute-server-adapter: run_transcode host pipeline
 ├── bindings/
-│   ├── wasm/             # compute-wasm: browser exports (wasm-bindgen)
-│   └── ffi/              # compute-ffi: C ABI exports (experimental, standalone)
+│   └── wasm/             # compute-wasm: browser exports (wasm-bindgen)
 └── worker/               # compute-worker: stateless Redis/S3 consumer
 ```
 
@@ -51,10 +50,6 @@ Host-only pipeline. `run_transcode` caches tool availability for the process lif
 
 Thin browser binding layer. Exposes six functions (`browser_convert`, `browser_convert_advanced`, `browser_edit_image`, `browser_edit_to_raw_rgba`, `browser_decode_raw_pixels`, `browser_get_metadata`); JXL encoding is delegated to `@jsquash/jxl` in the web worker. See the [WASM contract](../docs/contracts/wasm.md).
 
-### `compute-ffi`
-
-Thin C ABI layer, currently experimental: `transcoder_version`, `transcoder_process` (decode + re-encode, quality fixed at 80) and `transcoder_free_buffer`. See the [FFI contract](../docs/contracts/ffi.md).
-
 ### `compute-worker`
 
 Runtime boundary for asynchronous jobs. It is stateless with respect to the database.
@@ -67,7 +62,7 @@ Runtime boundary for asynchronous jobs. It is stateless with respect to the data
 
 ## Dependency direction
 
-`compute-types` ← `compute-engine` ← `compute-wasm` / `compute-ffi` / `compute-server-adapter` / `compute-worker`.
+`compute-types` ← `compute-engine` ← `compute-wasm` / `compute-server-adapter` / `compute-worker`.
 
 ## Commands
 
@@ -77,7 +72,6 @@ Run from the repository root:
 task test:compute          # or: cargo test --workspace
 task build:compute         # or: cargo build --workspace --release
 task build:compute:wasm    # wasm-pack -> web/public/wasm
-task build:compute:ffi     # cargo build -p compute-ffi --release
 task worker                # cargo run -p compute-worker
 ```
 

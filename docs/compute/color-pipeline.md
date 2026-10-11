@@ -10,9 +10,9 @@
 
 避免不必要的中间编解码，但不为“零中间容器”牺牲 Alpha 或格式兼容性：
 
-- 解码用 `avifdec` / `heif-dec` 直出**无压缩 Y4M 裸流**（保留原始 YUV 平面与 10-bit 值域），由 `read_y4m_to_image` 在内存中还原
+- AVIF 解码用 `avifdec` 直出**无压缩 Y4M 裸流**（保留原始 YUV 平面与 10-bit 值域），由 `read_y4m_to_image` 在内存中还原；HEIC 一律用 `heif-dec` 输出 16-bit PNG（其 Y4M 固定为 8-bit 4:2:0 且无 range 标签）
 - 编码由引擎内存生成 Y4M 裸流，经 `stdin` 直灌 `avifenc --stdin`；RGB 路径使用 16-bit PAM 裸流
-- 带 Alpha 的 AVIF/HEIC、HEIC 编码与 cwebp 文件输入使用无损 PNG 中转；需验证实际位深和 metadata
+- 带 Alpha 的 AVIF、HEIC 解码与编码、请求 sharp YUV 的 8-bit 4:2:0 AVIF 以及 cwebp 文件输入使用无损 PNG 中转（avifenc 对 Y4M 输入会忽略 `--sharpyuv`）
 - PNG 压缩本身不等于画质损失。取消这些中转属于实测瓶颈出现后的优化，不是当前正确性的前提
 
 ### 2. 无损中间层的四个隐形陷阱
@@ -96,7 +96,7 @@
 
 adapter 内部的 `YuvLayout` 只做当前有执行路径的布局相等判断：
 
-- 当输入输出平面布局、矩阵、抽样、range、位深完全一致（典型：HEIC → AVIF），且无编辑、无色调映射、无 Alpha 时，`transcode/native.rs` 把解码器产出的 Y4M 直接管道送入 `avifenc --stdin`，全程不接触 RGB
+- 当输入输出平面布局、矩阵、抽样、range、位深完全一致（仅 AVIF → AVIF；HEIC 因 `heif-dec` 的 Y4M 输出会截断位深且缺 range 标签而排除），且无编辑、无色调映射、无 Alpha 时，`transcode/native.rs` 把解码器产出的 Y4M 直接管道送入 `avifenc --stdin`，全程不接触 RGB
 - CICP 由 `resolve_native_cicp` 从源 `nclx` 搬运（而不是默认 BT.709），避免反解 BT.601/BT.2020 内容时偏色
 - 编辑会回退到像素路径；显式 `"none"` 不会阻断 native，legacy `engine_params` 会参与目标布局解析，缺少 `avifenc` 会在选择路径前失败或按能力明确降级。矩阵转换没有独立直通路径，Gain Map 门禁也未实现。
 

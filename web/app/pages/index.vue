@@ -495,7 +495,7 @@
                             <span>{{ $t('wasm_sandbox.webp_info') }}</span>
                         </div>
 
-                        <!-- Jxl JPEG direct-bypass notice -->
+                        <!-- Jxl encoding notice -->
                         <div v-else-if="targetFormat === 'jxl'"
                             class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
                             <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
@@ -704,7 +704,7 @@
 
         <!-- Hidden input for file selection (always present in DOM to support dynamic image replacement) -->
         <input ref="fileInput" type="file" class="hidden"
-            accept="image/png, image/jpeg, image/webp, image/avif, image/jxl" @change="handleFileChange" />
+            accept="image/png, image/jpeg, image/webp, image/jxl" @change="handleFileChange" />
     </div>
 </template>
 

@@ -49,7 +49,9 @@ pub struct LibavifParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cicp: Option<Cicp>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Internal: set by the adapter to a temp file holding the source ICC.
+    /// Never read from requests, or callers could embed arbitrary worker files.
+    #[serde(skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub icc_path: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]

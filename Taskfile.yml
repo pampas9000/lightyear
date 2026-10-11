@@ -52,18 +52,6 @@ tasks:
     cmds:
       - task: build:compute:wasm
 
-  build:compute:ffi:
-    desc: "编译 Rust 跨平台原生 FFI 动态/静态库"
-    cmds:
-      - echo "==> Building compute-ffi native library..."
-      - cargo build -p compute-ffi --release
-      - echo "✨ Native FFI library built successfully!"
-
-  build:ffi:
-    desc: "build:compute:ffi 任务别名"
-    cmds:
-      - task: build:compute:ffi
-
   build:worker:
     desc: "编译 Rust compute-worker 媒体转码消费者二进制"
     cmds:
@@ -82,12 +70,11 @@ tasks:
       - echo "✨ Web frontend built successfully!"
 
   build:all:
-    desc: "构建全栈产物 (Go 二进制 + Rust 二进制/WASM/FFI + 前端 Web 产物)"
+    desc: "构建全栈产物 (Go 二进制 + Rust 二进制/WASM + 前端 Web 产物)"
     deps:
       - task: build:server
       - task: build:compute
       - task: build:compute:wasm
-      - task: build:compute:ffi
       - task: build:web
 
   # ==========================================
