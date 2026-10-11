@@ -14,9 +14,10 @@ pub struct S3Config {
 
 #[derive(Debug, Deserialize, Validate, Clone)]
 pub struct WorkerConfig {
+    #[allow(dead_code)]
     pub database_url: String,
     pub redis_url: String,
-    
+
     #[validate(nested)]
     pub s3: S3Config,
 }
@@ -30,10 +31,7 @@ impl WorkerConfig {
             // Load from file if it exists (e.g. worker.toml/worker.json)
             .add_source(File::with_name("worker").required(false))
             // Load from environment variables
-            .add_source(
-                Environment::default()
-                    .separator("__")
-            );
+            .add_source(Environment::default().separator("__"));
 
         // Map standard flat environment variables if they are present
         if let Ok(db_url) = std::env::var("DATABASE_URL") {

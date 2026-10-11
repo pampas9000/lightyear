@@ -1,3 +1,11 @@
+//! C ABI bindings for native hosts (Flutter, SwiftUI, desktop).
+//!
+//! # Status
+//!
+//! Experimental: exposes decode + re-encode only (JPEG, PNG, WebP, AVIF).
+//! Edit operations, parameters and JXL parity with `compute-wasm` are pending
+//! a real native consumer; prefer `compute-wasm` as the reference surface.
+
 use compute_types::Format;
 use std::os::raw::{c_char, c_uchar};
 
@@ -37,7 +45,10 @@ pub unsafe extern "C" fn transcoder_process(
         _ => return std::ptr::null_mut(),
     };
 
-    match compute_engine::process(input, target_format, None) {
+    let result = compute_engine::load_from_memory(input)
+        .and_then(|img| compute_engine::encode(&img, target_format, 80));
+
+    match result {
         Ok(result) => {
             unsafe { *out_len = result.len() };
             let mut boxed_slice = result.into_boxed_slice();

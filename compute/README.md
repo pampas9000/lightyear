@@ -1,189 +1,84 @@
 # Compute
 
-The `compute` directory contains the Rust-based media compute layer for the monorepo.
+Rust workspace for `lightyear`. It owns all media processing: portable codecs, color pipeline, host adapters, browser/native bindings, and the async worker.
 
-It is responsible for:
+Current pipeline behavior is documented in the docs site: [Color pipeline](../docs/compute/color-pipeline.md), [Metadata & alpha](../docs/compute/metadata.md), [Limitations](../docs/compute/limitations.md). Queue payloads are mirrored in [Queue](../docs/contracts/queue.md).
 
-- portable transcoding and codec logic
-- browser-facing WebAssembly bindings
-- native FFI bindings for mobile and desktop clients
-- worker-side job execution
+Note: the Cargo workspace root lives at `../Cargo.toml`. `compute/bindings/ffi` is a standalone crate and is deliberately **excluded** from workspace builds until a native consumer exists.
 
-Note: the Cargo workspace root lives at `../Cargo.toml`. The code in this directory is one logical subsystem inside the root Rust workspace.
+## Directory layout
 
-## Directory Layout
+```text
+compute/
+├── crates/
+│   ├── types/            # compute-types: shared domain types + Redis Streams protocol
+│   ├── engine/           # compute-engine: portable codec/color/edit core (WASM-safe)
+│   └── server-adapter/   # compute-server-adapter: run_transcode host pipeline
+├── bindings/
+│   ├── wasm/             # compute-wasm: browser exports (wasm-bindgen)
+│   └── ffi/              # compute-ffi: C ABI exports (experimental, standalone)
+└── worker/               # compute-worker: stateless Redis/S3 consumer
+```
 
-- `bindings/wasm`  
-  Browser-facing WebAssembly package built with `wasm-bindgen` and `wasm-pack`.
-
-- `bindings/ffi`  
-  Native FFI package that exposes a C-compatible ABI for embedding in Flutter, SwiftUI, or other native clients.
-
-- `crates/types`  
-  Shared domain types such as formats, jobs, and encode options. This is the contract crate used across the compute layer.
-
-- `crates/engine`  
-  Portable Rust compute core. This crate should stay reusable across WASM, FFI, and worker contexts.
-
-- `crates/server-adapter`  
-  Server-only or native integration layer for capabilities that are not suitable for WASM, such as FFmpeg bindings or other host-side adapters.
-
-- `worker`  
-  Job execution runtime. It receives jobs, selects the appropriate execution strategy, and invokes the portable engine or server adapter.
-
-## Crate Responsibilities
+## Crate responsibilities
 
 ### `compute-types`
 
-Owns shared schemas and transport-safe models.
-
-Use this crate for:
-
-- job payload definitions
-- encode and transcode options
-- format enums
-- types shared between bindings, worker, and adapters
+Shared schemas and transport-safe models: `Format`, `Params` / `LibavifParams` / `LibjxlParams`, the color model (`ColorEncoding`, `ColorSpace`, `ProfilePolicy`, `ToneMappingOperator`, `ChromaSubsampling`), `ImageEditOp`, and `protocol.rs` (stream keys + `ComputePayload` / `ResultPayload`). Native YUV layout matching is private to the server adapter.
 
 ### `compute-engine`
 
-Owns portable codec and transformation logic.
+Portable codec and transformation logic. Stays usable from WASM and native targets; no server-only dependencies and no C linkage.
 
-Rules:
-
-- keep it usable from WASM and native targets
-- avoid server-only dependencies here
-- prefer pure Rust implementations when possible
+- `color/`: transfer functions (sRGB/BT.709/HLG/PQ + HLG OOTF), YUV planes + Y4M/PAM serialization, chroma detection, ICC containers, EXIF orientation, output pipeline
+- `edit.rs`: transfer-aware linear-light edit pipeline with `fast_image_resize`
+- `dither.rs` / `tonemap.rs`: Blue Noise dithering and ACES Filmic tone mapping
+- `lib.rs`: `load_from_memory` / `encode`; JXL and HEIC encoding are intentionally unavailable here
 
 ### `compute-server-adapter`
 
-Owns host-only extensions.
+Host-only pipeline. `run_transcode` caches tool availability for the process lifetime, detects input format by magic bytes, then chooses JPEG→JXL bypass, native YUV passthrough, or the pixel path (decode → resolve output color → edits → tone map/dither → encode). Restart the worker after changing installed tools.
 
-Use this crate for:
+- Pixel transforms, AVIF CICP and JXL hints share one output-color decision; conflicting explicit CICP is rejected.
+- Source ICC stays in memory and is written to a temporary file only for CLIs that need a pathname. Tone-mapped pixels never reuse the source ICC.
+- Tone-mapped wide-gamut output currently requires AVIF or JXL. Other targets fail instead of emitting an incorrectly tagged image.
 
-- FFmpeg bindings
-- native media tool adapters
-- server-side acceleration paths
-- functionality that cannot run in the browser
+- Host CLIs: `cjxl`, `avifenc`, `avifdec`, `heif-dec`, `cwebp` (`djxl` is probed/tests only)
+- Falls back to the portable engine when CLIs are absent (`strict=true` fails instead)
+- Not WASM-safe and not used by the browser bindings
 
 ### `compute-wasm`
 
-Thin binding layer for browser consumers.
-
-Use this crate to:
-
-- expose stable browser-facing APIs
-- convert JavaScript inputs into `compute-types`
-- delegate actual processing to `compute-engine`
+Thin browser binding layer. Exposes six functions (`browser_convert`, `browser_convert_advanced`, `browser_edit_image`, `browser_edit_to_raw_rgba`, `browser_decode_raw_pixels`, `browser_get_metadata`); JXL encoding is delegated to `@jsquash/jxl` in the web worker. See the [WASM contract](../docs/contracts/wasm.md).
 
 ### `compute-ffi`
 
-Thin binding layer for native clients.
-
-Use this crate to:
-
-- expose a C ABI
-- provide FFI-safe function boundaries
-- wrap `compute-engine` for mobile and desktop consumers
+Thin C ABI layer, currently experimental: `transcoder_version`, `transcoder_process` (decode + re-encode, quality fixed at 80) and `transcoder_free_buffer`. See the [FFI contract](../docs/contracts/ffi.md).
 
 ### `compute-worker`
 
-Runtime execution boundary for asynchronous jobs.
+Runtime boundary for asynchronous jobs. It is stateless with respect to the database.
 
-Use this crate to:
+- [x] Consumes `transcoder:compute:stream` (`transcoder:compute:group`) with XAUTOCLAIM first, claiming one job per execution slot
+- [x] Downloads input from S3/R2, uploads output, writes `transcoder:results:stream`
+- [x] Validates payloads, resolves target format and color params, calls `run_transcode`
+- [x] Sends `PROCESSING` heartbeats every 30s and honors cancellation keys
+- [x] Reports output size, dimensions, mime type in result metadata
 
-- [x] Accept queued jobs via Redis Streams (`transcoder:compute:stream`)
-- [x] Download input file from S3 bucket and upload target output to S3
-- [x] Choose the processing strategy based on target formats
-- [x] Call `compute-engine` or shell-based transcode execution in a sandboxed temp directory
-- [x] Report execution details, output sizes, image dimensions, and mime-type back via results stream
+## Dependency direction
 
-## Naming Convention
+`compute-types` ← `compute-engine` ← `compute-wasm` / `compute-ffi` / `compute-server-adapter` / `compute-worker`.
 
-All Rust crates in this subsystem use the `compute-*` prefix:
+## Commands
 
-- `compute-types`
-- `compute-engine`
-- `compute-server-adapter`
-- `compute-wasm`
-- `compute-ffi`
-- `compute-worker`
+Run from the repository root:
 
-This keeps ownership and dependency direction obvious across the monorepo.
+```bash
+task test:compute          # or: cargo test --workspace
+task build:compute         # or: cargo build --workspace --release
+task build:compute:wasm    # wasm-pack -> web/public/wasm
+task build:compute:ffi     # cargo build -p compute-ffi --release
+task worker                # cargo run -p compute-worker
+```
 
-## Dependency Direction
-
-Keep dependencies flowing inward:
-
-- bindings and worker depend on core crates
-- `compute-engine` depends on `compute-types`
-- `compute-server-adapter` depends on `compute-types`
-- `compute-types` should stay at the bottom and avoid depending on other compute crates
-
-In practice:
-
-- `compute-types` <- `compute-engine`
-- `compute-types` <- `compute-server-adapter`
-- `compute-engine` <- `compute-wasm`
-- `compute-engine` <- `compute-ffi`
-- `compute-engine` and `compute-server-adapter` <- `compute-worker`
-
-## Working With This Layer
-
-Run commands from the repository root.
-
-If you are using the monorepo task runner, prefer these `just` recipes:
-
-### Common `just` commands
-
-    just test-compute
-    just build-compute
-    just dev-worker
-    just build-compute-ffi
-    just build-compute-wasm
-
-You can also invoke the underlying Rust and WASM commands directly:
-
-### Test everything
-
-    cargo test --workspace
-
-### Build all Rust crates
-
-    cargo build --workspace --release
-
-### Run the worker
-
-    cargo run -p compute-worker
-
-### Build the FFI library
-
-    cargo build -p compute-ffi --release
-
-### Build the WASM package
-
-    wasm-pack build compute/bindings/wasm --target web
-
-## Output Artifacts
-
-- Rust build outputs go to the root `target/` directory
-- WASM package output is generated under `compute/bindings/wasm/pkg`
-
-## Design Rules
-
-- Put all shared payloads and transport contracts in `compute-types`
-- Keep `compute-engine` portable and reusable
-- Keep `compute-server-adapter` host-specific
-- Keep `compute-wasm` and `compute-ffi` thin
-- Keep orchestration logic in `compute-worker`, not in the bindings
-- Add new crates only when they define a clear boundary
-
-## Future Growth
-
-This layout is designed to support:
-
-- more codecs in the portable engine
-- stronger native server integrations
-- stable mobile bindings
-- reusable contracts across backend, worker, and client runtimes
-
-When adding new functionality, prefer extending the existing boundaries before introducing a new crate.
+External CLI tools unlock the full-fidelity paths (10-bit, ICC, native passthrough, Brunsli bypass). Without them the adapter degrades gracefully, and CLI-gated e2e tests print a skip.

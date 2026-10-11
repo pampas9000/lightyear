@@ -25,6 +25,12 @@ pub struct LibjxlParams {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progressive: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_space: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icc_pathname: Option<String>,
 }
 
 fn validate_libjxl_params(params: &LibjxlParams) -> Result<(), validator::ValidationError> {

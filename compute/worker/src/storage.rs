@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Result};
-use aws_sdk_s3::config::{Credentials, Region};
+use anyhow::{Result, anyhow};
 use aws_sdk_s3::Client;
+use aws_sdk_s3::config::{Credentials, Region};
 use std::path::Path;
 
 /// Builds a Cloudflare R2 compatible AWS S3 client using static credentials.
@@ -10,13 +10,7 @@ pub async fn build_s3_client(
     secret_access_key: &str,
     region_opt: &Option<String>,
 ) -> Client {
-    let credentials = Credentials::new(
-        access_key_id,
-        secret_access_key,
-        None,
-        None,
-        "Static",
-    );
+    let credentials = Credentials::new(access_key_id, secret_access_key, None, None, "Static");
 
     let region = Region::new(region_opt.clone().unwrap_or_else(|| "auto".to_string()));
 
@@ -60,14 +54,25 @@ pub async fn download_from_s3(
         .key(key)
         .send()
         .await
-        .map_err(|e| anyhow!("Failed to download from S3 (bucket: {}, key: {}): {}", bucket, key, e))?;
+        .map_err(|e| {
+            anyhow!(
+                "Failed to download from S3 (bucket: {}, key: {}): {}",
+                bucket,
+                key,
+                e
+            )
+        })?;
 
-    let data = result.body.collect().await
+    let data = result
+        .body
+        .collect()
+        .await
         .map_err(|e| anyhow!("Failed to read S3 body: {}", e))?;
-    
-    tokio::fs::write(local_path, data.into_bytes()).await
+
+    tokio::fs::write(local_path, data.into_bytes())
+        .await
         .map_err(|e| anyhow!("Failed to write downloaded file to local path: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -78,7 +83,8 @@ pub async fn upload_to_s3(
     key: &str,
     local_path: &Path,
 ) -> Result<()> {
-    let body = aws_sdk_s3::primitives::ByteStream::from_path(local_path).await
+    let body = aws_sdk_s3::primitives::ByteStream::from_path(local_path)
+        .await
         .map_err(|e| anyhow!("Failed to read local file for S3 upload: {}", e))?;
 
     client
@@ -88,7 +94,14 @@ pub async fn upload_to_s3(
         .body(body)
         .send()
         .await
-        .map_err(|e| anyhow!("Failed to upload to S3 (bucket: {}, key: {}): {}", bucket, key, e))?;
+        .map_err(|e| {
+            anyhow!(
+                "Failed to upload to S3 (bucket: {}, key: {}): {}",
+                bucket,
+                key,
+                e
+            )
+        })?;
 
     Ok(())
 }

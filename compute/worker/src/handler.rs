@@ -1,33 +1,44 @@
-use anyhow::Result;
-use std::path::Path;
-use compute_types::{Format, Params};
-use crate::protocol::ComputePayload;
+use crate::error::ComputeError;
 use crate::storage;
-use crate::shell;
+use compute_server_adapter::run_transcode;
+use compute_types::{ComputePayload, Format, Params};
+use std::path::Path;
 
 pub async fn handle_compute(
     s3_client: &aws_sdk_s3::Client,
     default_bucket: &str,
     payload: &ComputePayload,
-) -> Result<serde_json::Value, anyhow::Error> {
+) -> Result<serde_json::Value, ComputeError> {
     // Parse target format case-insensitively
     let format_json_val = serde_json::Value::String(payload.target_format.trim().to_lowercase());
-    let target_format: Format = serde_json::from_value(format_json_val)
-        .map_err(|_| anyhow::anyhow!("Unsupported or invalid target format: '{}'", payload.target_format))?;
+    let target_format: Format = serde_json::from_value(format_json_val).map_err(|_| {
+        ComputeError::InvalidRequest(format!(
+            "Unsupported or invalid target format: '{}'",
+            payload.target_format
+        ))
+    })?;
 
     // Parse outer Params
     let mut parsed_params = None;
     if let Some(ref val) = payload.params {
-        let params: Params = serde_json::from_value(val.clone())
-            .map_err(|e| anyhow::anyhow!("Failed to parse transcode Params: {}", e))?;
-        params.validate_for_format(target_format.clone())
-            .map_err(|e| anyhow::anyhow!("Transcode parameter validation failed: {}", e))?;
+        let params: Params = serde_json::from_value(val.clone()).map_err(|e| {
+            ComputeError::InvalidRequest(format!("Failed to parse transcode Params: {}", e))
+        })?;
+        params
+            .validate_for_format(target_format.clone())
+            .map_err(|e| {
+                ComputeError::InvalidRequest(format!(
+                    "Transcode parameter validation failed: {}",
+                    e
+                ))
+            })?;
         parsed_params = Some(params);
     }
 
     // Create a local temp sandboxed directory
-    let temp_dir = tempfile::tempdir()
-        .map_err(|e| anyhow::anyhow!("Failed to create temporary directory: {}", e))?;
+    let temp_dir = tempfile::tempdir().map_err(|e| {
+        ComputeError::Internal(format!("Failed to create temporary directory: {}", e))
+    })?;
 
     let (input_bucket, input_key) = storage::parse_s3_path(&payload.input_path, default_bucket);
     let (output_bucket, output_key) = storage::parse_s3_path(&payload.output_path, default_bucket);
@@ -46,21 +57,30 @@ pub async fn handle_compute(
     // A. Download from S3
     storage::download_from_s3(s3_client, &input_bucket, &input_key, &local_input_path)
         .await
-        .map_err(|e| anyhow::anyhow!("download input from S3 failed: {}", e))?;
+        .map_err(|e| {
+            ComputeError::SourceUnavailable(format!("Download input from S3 failed: {}", e))
+        })?;
+
+    let empty_ops = Vec::new();
+    let ops = payload.ops.as_deref().unwrap_or(&empty_ops);
 
     // B. Perform Local Transcoding
-    shell::run_transcode(
+    run_transcode(
         &local_input_path,
         &local_output_path,
         target_format,
         &parsed_params,
         payload.input_format,
+        ops,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("local transcode execution failed: {}", e))?;
+    .map_err(|e| ComputeError::EncodeFailed(format!("Local transcode execution failed: {}", e)))?;
 
     // Get output metadata details
-    let metadata_size = tokio::fs::metadata(&local_output_path).await?.len();
+    let metadata_size = tokio::fs::metadata(&local_output_path)
+        .await
+        .map_err(|e| ComputeError::Internal(format!("Failed to read output metadata: {}", e)))?
+        .len();
     let mut width = 0;
     let mut height = 0;
     if let Ok(img) = image::image_dimensions(&local_output_path) {
@@ -71,7 +91,7 @@ pub async fn handle_compute(
     // C. Upload output to S3
     storage::upload_to_s3(s3_client, &output_bucket, &output_key, &local_output_path)
         .await
-        .map_err(|e| anyhow::anyhow!("upload output to S3 failed: {}", e))?;
+        .map_err(|e| ComputeError::StorageFailed(format!("Upload output to S3 failed: {}", e)))?;
 
     // Determine output mime type
     let mime_type = match out_ext.as_str() {

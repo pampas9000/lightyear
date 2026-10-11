@@ -1,15 +1,10 @@
-use anyhow::Result;
-use compute_types::{EncodeOptions, Format};
+//! Host-side adapters for the compute layer.
+//!
+//! Owns capabilities that cannot run in WASM and are specific to a host
+//! environment: probing and driving external encoder/decoder CLIs (`cjxl`,
+//! `avifenc`, `avifdec`, `heif-dec`) and composing them with the portable
+//! `compute-engine` into a full transcode pipeline.
 
-/** Encode with ffmpeg */
-pub fn ffmpeg_encode(
-    _data: &[u8],
-    _target_format: Format,
-    _options: Option<EncodeOptions>,
-) -> Result<Vec<u8>> {
-    // This is a placeholder for FFI server-side exclusive codes like ffmpeg-next bindings
-    // Since this crate will not be compiled into WASM, we can safely use thread-blocking components
-    // or heavy C-bindings here.
+mod transcode;
 
-    unimplemented!("Server-side exclusive C bindings are not implemented yet.");
-}
+pub use transcode::run_transcode;

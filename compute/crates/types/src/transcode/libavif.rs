@@ -1,3 +1,4 @@
+use crate::transcode::color::{Cicp, ColorRange};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
@@ -37,6 +38,22 @@ pub struct LibavifParams {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yuv: Option<YuvFormat>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(range(min = 8, max = 12))]
+    pub depth: Option<i32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_range: Option<ColorRange>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cicp: Option<Cicp>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icc_path: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_size: Option<u64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[validate(nested)]

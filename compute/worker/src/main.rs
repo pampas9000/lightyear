@@ -1,11 +1,10 @@
 use anyhow::Result;
 
 mod config;
+mod error;
 mod handler;
-mod protocol;
 mod queue;
 mod redis_connection;
-mod shell;
 mod storage;
 mod worker;
 
@@ -21,7 +20,9 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to load configuration: {}", e))?;
     println!("Configuration loaded and validated.");
 
-    println!("Redis URL: {}", config.redis_url);
+    // Mask Redis URL password for safe logging
+    let masked_redis_url = mask_url_credentials(&config.redis_url);
+    println!("Redis URL: {}", masked_redis_url);
     if let Some(ref ep) = config.s3.endpoint {
         println!("S3 Endpoint: {}", ep);
     }
@@ -60,4 +61,36 @@ async fn main() -> Result<()> {
     worker_runtime.run().await?;
 
     Ok(())
+}
+
+/// Masks user credentials (password) inside a URL string for safe logging.
+/// Example: `rediss://default:secret@host:6379` -> `rediss://default:******@host:6379`
+fn mask_url_credentials(raw: &str) -> String {
+    let Some(scheme_end) = raw.find("://") else {
+        return raw.to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority = &raw[authority_start..];
+    let authority_end = authority
+        .find(['/', '?', '#'])
+        .map(|i| authority_start + i)
+        .unwrap_or(raw.len());
+
+    let userinfo = &raw[authority_start..authority_end];
+    let Some(at_pos) = userinfo.rfind('@') else {
+        return raw.to_string();
+    };
+
+    let credentials = &userinfo[..at_pos];
+    let masked = match credentials.split_once(':') {
+        Some((user, _pass)) => format!("{}:******", user),
+        None => credentials.to_string(),
+    };
+
+    format!(
+        "{}{}{}",
+        &raw[..authority_start],
+        masked,
+        &raw[authority_start + at_pos..]
+    )
 }
