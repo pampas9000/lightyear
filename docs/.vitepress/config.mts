@@ -13,13 +13,17 @@ export default defineConfig({
       { text: '契约', link: '/contracts/' },
       { text: '计算引擎', link: '/compute/color-pipeline' },
       { text: '质量基准', link: '/quality/fidelity-benchmark' },
-      { text: '工程笔记', link: '/engineering-notes/' }
+      { text: '工程笔记', link: '/engineering-notes/' },
+      { text: '路线图', link: '/roadmap' }
     ],
 
     sidebar: [
       {
         text: '快速开始',
-        items: [{ text: '安装与运行', link: '/getting-started' }]
+        items: [
+          { text: '安装与运行', link: '/getting-started' },
+          { text: '改进路线图', link: '/roadmap' }
+        ]
       },
       {
         text: '架构',

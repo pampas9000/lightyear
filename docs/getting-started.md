@@ -4,7 +4,7 @@
 
 - Bun 1.0+
 - Go 1.26+
-- Rust stable（edition 2024，`rust-toolchain.toml` 已固定）
+- Rust nightly（edition 2024，由 `rust-toolchain.toml` 指定）
 - [`task`](https://taskfile.dev)（Taskfile runner，Monorepo 主入口）
 - `wasm-pack`（构建浏览器 WASM 包）
 - 服务端媒体工具（可选，缺失时按严格/降级策略处理）：`cjxl`、`avifenc`、`avifdec`、`heif-dec`、`cwebp`

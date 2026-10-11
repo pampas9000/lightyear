@@ -53,7 +53,7 @@ scripts/            benchmark + quality fixtures
 
 ## Development
 
-Prerequisites: Bun 1.0+, Go 1.26+, Rust stable, `task`, `wasm-pack`. Optional server-side tools: `cjxl`, `avifenc`, `avifdec`, `heif-dec`, `cwebp`.
+Prerequisites: Bun 1.0+, Go 1.26+, Rust nightly (pinned by `rust-toolchain.toml`), `task`, `wasm-pack`. Optional server-side tools: `cjxl`, `avifenc`, `avifdec`, `heif-dec`, `cwebp`.
 
 `Taskfile.yml` is the primary entrypoint:
 
