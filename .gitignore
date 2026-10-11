@@ -18,6 +18,7 @@ __debug_bin*
 /web/.nitro/
 /web/dist/
 /web/.cache/
+*.tsbuildinfo
 
 # Logs
 *.log
