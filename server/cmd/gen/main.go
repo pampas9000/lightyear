@@ -16,6 +16,11 @@ func main() {
 		models.User{},
 		models.File{},
 		models.Job{},
+		models.JobInput{},
+		models.JobOutput{},
+		models.JobAttempt{},
+		models.OutboxEvent{},
+		models.ProviderInvocation{},
 		models.Task{},
 		models.Workflow{},
 	)

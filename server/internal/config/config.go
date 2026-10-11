@@ -68,7 +68,7 @@ func Load() Config {
 
 	// 2. Read from .env file if available
 	if err := k.Load(file.Provider(".env"), dotenv.Parser()); err != nil {
-		// It's okay if the config file is not found
+		_ = k.Load(file.Provider("../.env"), dotenv.Parser())
 	}
 
 	// 3. Bind environment variables

@@ -16,18 +16,28 @@ import (
 )
 
 var (
-	Q        = new(Query)
-	File     *file
-	Job      *job
-	Task     *task
-	User     *user
-	Workflow *workflow
+	Q                  = new(Query)
+	File               *file
+	Job                *job
+	JobAttempt         *jobAttempt
+	JobInput           *jobInput
+	JobOutput          *jobOutput
+	OutboxEvent        *outboxEvent
+	ProviderInvocation *providerInvocation
+	Task               *task
+	User               *user
+	Workflow           *workflow
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	*Q = *Use(db, opts...)
 	File = &Q.File
 	Job = &Q.Job
+	JobAttempt = &Q.JobAttempt
+	JobInput = &Q.JobInput
+	JobOutput = &Q.JobOutput
+	OutboxEvent = &Q.OutboxEvent
+	ProviderInvocation = &Q.ProviderInvocation
 	Task = &Q.Task
 	User = &Q.User
 	Workflow = &Q.Workflow
@@ -35,35 +45,50 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:       db,
-		File:     newFile(db, opts...),
-		Job:      newJob(db, opts...),
-		Task:     newTask(db, opts...),
-		User:     newUser(db, opts...),
-		Workflow: newWorkflow(db, opts...),
+		db:                 db,
+		File:               newFile(db, opts...),
+		Job:                newJob(db, opts...),
+		JobAttempt:         newJobAttempt(db, opts...),
+		JobInput:           newJobInput(db, opts...),
+		JobOutput:          newJobOutput(db, opts...),
+		OutboxEvent:        newOutboxEvent(db, opts...),
+		ProviderInvocation: newProviderInvocation(db, opts...),
+		Task:               newTask(db, opts...),
+		User:               newUser(db, opts...),
+		Workflow:           newWorkflow(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	File     file
-	Job      job
-	Task     task
-	User     user
-	Workflow workflow
+	File               file
+	Job                job
+	JobAttempt         jobAttempt
+	JobInput           jobInput
+	JobOutput          jobOutput
+	OutboxEvent        outboxEvent
+	ProviderInvocation providerInvocation
+	Task               task
+	User               user
+	Workflow           workflow
 }
 
 func (q *Query) Available() bool { return q.db != nil }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:       db,
-		File:     q.File.clone(db),
-		Job:      q.Job.clone(db),
-		Task:     q.Task.clone(db),
-		User:     q.User.clone(db),
-		Workflow: q.Workflow.clone(db),
+		db:                 db,
+		File:               q.File.clone(db),
+		Job:                q.Job.clone(db),
+		JobAttempt:         q.JobAttempt.clone(db),
+		JobInput:           q.JobInput.clone(db),
+		JobOutput:          q.JobOutput.clone(db),
+		OutboxEvent:        q.OutboxEvent.clone(db),
+		ProviderInvocation: q.ProviderInvocation.clone(db),
+		Task:               q.Task.clone(db),
+		User:               q.User.clone(db),
+		Workflow:           q.Workflow.clone(db),
 	}
 }
 
@@ -77,30 +102,45 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:       db,
-		File:     q.File.replaceDB(db),
-		Job:      q.Job.replaceDB(db),
-		Task:     q.Task.replaceDB(db),
-		User:     q.User.replaceDB(db),
-		Workflow: q.Workflow.replaceDB(db),
+		db:                 db,
+		File:               q.File.replaceDB(db),
+		Job:                q.Job.replaceDB(db),
+		JobAttempt:         q.JobAttempt.replaceDB(db),
+		JobInput:           q.JobInput.replaceDB(db),
+		JobOutput:          q.JobOutput.replaceDB(db),
+		OutboxEvent:        q.OutboxEvent.replaceDB(db),
+		ProviderInvocation: q.ProviderInvocation.replaceDB(db),
+		Task:               q.Task.replaceDB(db),
+		User:               q.User.replaceDB(db),
+		Workflow:           q.Workflow.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	File     IFileDo
-	Job      IJobDo
-	Task     ITaskDo
-	User     IUserDo
-	Workflow IWorkflowDo
+	File               IFileDo
+	Job                IJobDo
+	JobAttempt         IJobAttemptDo
+	JobInput           IJobInputDo
+	JobOutput          IJobOutputDo
+	OutboxEvent        IOutboxEventDo
+	ProviderInvocation IProviderInvocationDo
+	Task               ITaskDo
+	User               IUserDo
+	Workflow           IWorkflowDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		File:     q.File.WithContext(ctx),
-		Job:      q.Job.WithContext(ctx),
-		Task:     q.Task.WithContext(ctx),
-		User:     q.User.WithContext(ctx),
-		Workflow: q.Workflow.WithContext(ctx),
+		File:               q.File.WithContext(ctx),
+		Job:                q.Job.WithContext(ctx),
+		JobAttempt:         q.JobAttempt.WithContext(ctx),
+		JobInput:           q.JobInput.WithContext(ctx),
+		JobOutput:          q.JobOutput.WithContext(ctx),
+		OutboxEvent:        q.OutboxEvent.WithContext(ctx),
+		ProviderInvocation: q.ProviderInvocation.WithContext(ctx),
+		Task:               q.Task.WithContext(ctx),
+		User:               q.User.WithContext(ctx),
+		Workflow:           q.Workflow.WithContext(ctx),
 	}
 }
 

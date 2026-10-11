@@ -3,9 +3,9 @@ package handlers
 import (
 	"errors"
 
-	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/workflow"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -27,11 +27,13 @@ func (h *WorkflowHandler) Install(router fiber.Router) {
 	router.Post("/workflows", h.CreateWorkflow)
 	router.Get("/workflows/:id", h.GetWorkflow)
 	router.Get("/workflows", h.ListWorkflows)
+	router.Put("/workflows/:id", h.UpdateWorkflow)
+	router.Delete("/workflows/:id", h.DeleteWorkflow)
 }
 
 type CreateWorkflowRequest struct {
-	Name         string                 `json:"name"`
-	TargetFormat string                 `json:"targetFormat"`
+	Name         string           `json:"name"`
+	TargetFormat string           `json:"targetFormat"`
 	Params       transcode.Params `json:"params,omitempty"`
 }
 
@@ -63,31 +65,111 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 
 	switch {
 	case errors.Is(err, workflow.ErrNameRequired):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", validationDetail{Field: "name", Reason: "required"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
 	case errors.Is(err, workflow.ErrTargetFormatRequired):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "targetFormat is required.", validationDetail{Field: "targetFormat", Reason: "required"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "targetFormat is required.", response.ValidationDetail{Field: "targetFormat", Reason: "required"})
 	}
 
 	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create workflow.", map[string]any{"reason": err.Error()})
+}
+
+// ownerFromContext extracts and parses the authenticated user id from the request context.
+func ownerFromContext(c fiber.Ctx) (uuid.UUID, error) {
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return uuid.Nil, errors.New("user id not found in context")
+	}
+	return uuid.Parse(userIdStr)
 }
 
 func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 	idStr := c.Params("id")
 	parsedID, err := uuid.Parse(idStr)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", validationDetail{Field: "id", Reason: "must be a valid UUID"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	wf, err := h.service.GetWorkflow(c.Context(), parsedID)
+	ownerID, err := ownerFromContext(c)
 	if err != nil {
-		// TODO: specific error check for gorm
-		if err.Error() == "record not found" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	}
+
+	wf, err := h.service.GetWorkflow(c.Context(), ownerID, parsedID)
+	if err != nil {
+		if errors.Is(err, workflow.ErrWorkflowNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
 		}
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch workflow.", map[string]any{"reason": err.Error()})
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflow fetched.", wf)
+}
+
+type UpdateWorkflowRequest struct {
+	Name         string           `json:"name"`
+	TargetFormat string           `json:"targetFormat"`
+	Params       transcode.Params `json:"params,omitempty"`
+}
+
+func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
+	idStr := c.Params("id")
+	parsedID, err := uuid.Parse(idStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+
+	ownerID, err := ownerFromContext(c)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	}
+
+	var req UpdateWorkflowRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body.", map[string]any{"reason": err.Error()})
+	}
+
+	wf, err := h.service.UpdateWorkflow(c.Context(), ownerID, parsedID, workflow.CreateWorkflowInput{
+		OwnerID:      ownerID,
+		Name:         req.Name,
+		TargetFormat: req.TargetFormat,
+		Params:       req.Params,
+	})
+	if err == nil {
+		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflow updated.", wf)
+	}
+
+	switch {
+	case errors.Is(err, workflow.ErrNameRequired):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
+	case errors.Is(err, workflow.ErrTargetFormatRequired):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "targetFormat is required.", response.ValidationDetail{Field: "targetFormat", Reason: "required"})
+	case errors.Is(err, workflow.ErrWorkflowNotFound):
+		return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
+	}
+
+	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to update workflow.", map[string]any{"reason": err.Error()})
+}
+
+func (h *WorkflowHandler) DeleteWorkflow(c fiber.Ctx) error {
+	idStr := c.Params("id")
+	parsedID, err := uuid.Parse(idStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+
+	ownerID, err := ownerFromContext(c)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	}
+
+	if err := h.service.DeleteWorkflow(c.Context(), ownerID, parsedID); err != nil {
+		if errors.Is(err, workflow.ErrWorkflowNotFound) {
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
+		}
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete workflow.", map[string]any{"reason": err.Error()})
+	}
+
+	return response.RespondEmptySuccess(c, fiber.StatusOK, response.CodeOK, "Workflow deleted.")
 }
 
 func (h *WorkflowHandler) ListWorkflows(c fiber.Ctx) error {

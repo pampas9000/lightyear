@@ -35,19 +35,18 @@ func NewUploadHandler(db *gorm.DB, cfg config.Config, storage *storage.S3Service
 }
 
 func (h *UploadHandler) Install(router fiber.Router) {
-	s3Group := router.Group("/s3/multipart")
-	s3Group.Post("/", h.CreateMultipartUpload)
-	s3Group.Get("/:uploadId", h.ListParts)
-	s3Group.Get("/:uploadId/:partNumber", h.SignPart)
-	s3Group.Post("/:uploadId/complete", h.CompleteMultipartUpload)
-	s3Group.Delete("/:uploadId", h.AbortMultipartUpload)
-
-	router.Get("/files/:id/download", h.DownloadFile)
+	// S3 Multipart Upload procedures
+	router.Post("/upload/multipart/init", h.CreateMultipartUpload)
+	router.Get("/upload/multipart/:uploadId/list-parts", h.ListParts)
+	router.Get("/upload/multipart/:uploadId/sign-part/:partNumber", h.SignPart)
+	router.Post("/upload/multipart/:uploadId/complete", h.CompleteMultipartUpload)
+	router.Post("/upload/multipart/:uploadId/abort", h.AbortMultipartUpload)
 }
 
 type CreateMultipartRequest struct {
 	Filename string `json:"filename"`
 	Type     string `json:"type"`
+	Hash     string `json:"hash"`
 }
 
 func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
@@ -64,6 +63,37 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 	ownerID, err := uuid.Parse(userIdStr)
 	if err != nil {
 		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	// SHA-256 Fast Upload check
+	if req.Hash != "" {
+		var existing models.File
+		if errDb := h.db.WithContext(c.Context()).Where("owner_id = ? AND hash = ? AND status = ?", ownerID, req.Hash, "UPLOADED").First(&existing).Error; errDb == nil {
+			// Lock check to ensure DraftFile doesn't already exist for this exact file to avoid duplicates in the same queue
+			var existingDraft models.DraftFile
+			if errDraft := h.db.WithContext(c.Context()).Where("file_id = ? AND owner_id = ?", existing.ID, ownerID).First(&existingDraft).Error; errDraft != nil {
+				draftFile := &models.DraftFile{
+					FileID:  existing.ID,
+					OwnerID: ownerID,
+				}
+				if errCreate := h.db.WithContext(c.Context()).Create(draftFile).Error; errCreate == nil {
+					return c.JSON(fiber.Map{
+						"uploadId":   "",
+						"key":        existing.Path,
+						"fileId":     existing.ID.String(),
+						"fastUpload": true,
+					})
+				}
+			} else {
+				// If draft already exists, just return it directly (idempotent / duplicate prevention)
+				return c.JSON(fiber.Map{
+					"uploadId":   "",
+					"key":        existing.Path,
+					"fileId":     existing.ID.String(),
+					"fastUpload": true,
+				})
+			}
+		}
 	}
 
 	ext := filepath.Ext(req.Filename)
@@ -89,9 +119,22 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 		UploadID:        uploadId,
 		UploadExpiresAt: &expiresAt,
 		Size:            0,
+		Hash:            req.Hash,
 	}
-	if err := h.db.Create(file).Error; err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create file record", map[string]any{"reason": err.Error()})
+	err = h.db.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(file).Error; err != nil {
+			return err
+		}
+		draftFile := &models.DraftFile{
+			FileID:  file.ID,
+			OwnerID: ownerID,
+		}
+		return tx.Create(draftFile).Error
+	})
+	if err != nil {
+		// Compensate by aborting the multipart upload in S3 to prevent leaking
+		_ = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create file and draft record", map[string]any{"reason": err.Error()})
 	}
 
 	return c.JSON(fiber.Map{
@@ -104,8 +147,28 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 func (h *UploadHandler) ListParts(c fiber.Ctx) error {
 	uploadId := c.Params("uploadId")
 	key := c.Query("key")
-	if key == "" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key query parameter is required")
+
+	if key == "" || uploadId == "" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "uploadId and key are required")
+	}
+
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	// Owner validation via DB record check
+	var file models.File
+	if err := h.db.Where("upload_id = ? AND owner_id = ? AND path = ?", uploadId, ownerID, key).First(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied or upload not found")
+		}
+		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Database error")
 	}
 
 	parts, err := h.storage.ListParts(c.Context(), h.cfg.S3.Bucket, key, uploadId)
@@ -142,18 +205,37 @@ func (h *UploadHandler) ListParts(c fiber.Ctx) error {
 
 func (h *UploadHandler) SignPart(c fiber.Ctx) error {
 	uploadId := c.Params("uploadId")
-	partNumber := c.Params("partNumber")
+	partNumberStr := c.Params("partNumber")
 	key := c.Query("key")
-	if key == "" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key query parameter is required")
+
+	if key == "" || uploadId == "" || partNumberStr == "" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "uploadId, key and partNumber are required")
 	}
 
-	var pNum int32
-	if _, err := fmt.Sscanf(partNumber, "%d", &pNum); err != nil {
+	var partNumber int32
+	if _, err := fmt.Sscanf(partNumberStr, "%d", &partNumber); err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid partNumber")
 	}
 
-	url, err := h.storage.SignPart(c.Context(), h.cfg.S3.Bucket, key, uploadId, pNum, 1*time.Hour)
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok || userIdStr == "" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	}
+
+	var file models.File
+	if err := h.db.Where("upload_id = ? AND owner_id = ? AND path = ?", uploadId, ownerID, key).First(&file).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied or upload not found")
+		}
+		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Database error")
+	}
+
+	url, err := h.storage.SignPart(c.Context(), h.cfg.S3.Bucket, key, uploadId, partNumber, 1*time.Hour)
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to sign part", map[string]any{"reason": err.Error()})
 	}
@@ -164,7 +246,7 @@ func (h *UploadHandler) SignPart(c fiber.Ctx) error {
 }
 
 type CompleteMultipartRequest struct {
-	Key   string `json:"key"`
+	Key   string `json:"key" validate:"required"`
 	Parts []struct {
 		PartNumber int32  `json:"PartNumber"`
 		ETag       string `json:"ETag"`
@@ -173,14 +255,13 @@ type CompleteMultipartRequest struct {
 
 func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 	uploadId := c.Params("uploadId")
-
 	var req CompleteMultipartRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body")
 	}
 
-	if req.Key == "" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key is required")
+	if uploadId == "" || req.Key == "" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "uploadId and key are required")
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
@@ -235,9 +316,11 @@ func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 		file.MimeType = *headOut.ContentType
 	}
 
-	// 5. Update File record status to UPLOADED and set S3-verified Size
+	// 5. Update File record status to UPLOADED and set S3-verified Size and UploadedAt
 	file.Status = "UPLOADED"
 	file.Size = actualSize
+	now := time.Now()
+	file.UploadedAt = &now
 	if err := h.db.Save(&file).Error; err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to update file record status to UPLOADED", map[string]any{"reason": err.Error()})
 	}
@@ -249,11 +332,19 @@ func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 	})
 }
 
+type AbortMultipartRequest struct {
+	Key string `json:"key" validate:"required"`
+}
+
 func (h *UploadHandler) AbortMultipartUpload(c fiber.Ctx) error {
 	uploadId := c.Params("uploadId")
-	key := c.Query("key")
-	if key == "" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key query parameter is required")
+	var req AbortMultipartRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body")
+	}
+
+	if req.Key == "" || uploadId == "" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "uploadId and key are required")
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
@@ -268,63 +359,21 @@ func (h *UploadHandler) AbortMultipartUpload(c fiber.Ctx) error {
 
 	// Validate prefix
 	expectedPrefix := fmt.Sprintf("uploads/%s/", userIdStr)
-	if !strings.HasPrefix(key, expectedPrefix) {
+	if !strings.HasPrefix(req.Key, expectedPrefix) {
 		return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied to the specified key prefix")
 	}
 
-	err = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+	err = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, req.Key, uploadId)
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to abort multipart upload", map[string]any{"reason": err.Error()})
 	}
 
 	// Update status of the File record to ABORTED in the database
 	var file models.File
-	if err := h.db.Where("path = ? AND owner_id = ?", key, ownerID).First(&file).Error; err == nil {
+	if err := h.db.Where("path = ? AND owner_id = ?", req.Key, ownerID).First(&file).Error; err == nil {
 		file.Status = "ABORTED"
 		_ = h.db.Save(&file)
 	}
 
 	return c.JSON(fiber.Map{})
 }
-
-func (h *UploadHandler) DownloadFile(c fiber.Ctx) error {
-	idStr := c.Params("id")
-	parsedID, err := uuid.Parse(idStr)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid file ID format.", validationDetail{Field: "id", Reason: "must be a valid UUID"})
-	}
-
-	userIdStr, ok := c.Locals("user_id").(string)
-	if !ok || userIdStr == "" {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
-	}
-
-	var file models.File
-	if err := h.db.Where("id = ? AND owner_id = ?", parsedID, ownerID).First(&file).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "File not found.")
-		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch file record.", map[string]any{"reason": err.Error()})
-	}
-
-	// Restrict to UPLOADED files only to prevent downloading partial or failed items
-	if file.Status != "UPLOADED" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "File is not fully uploaded or completed yet.")
-	}
-
-	// Generate a 15-minute presigned download URL
-	url, err := h.storage.GetPresignedURL(c.Context(), h.cfg.S3.Bucket, file.Path, false, 15*time.Minute)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to generate download URL", map[string]any{"reason": err.Error()})
-	}
-
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Download URL generated successfully.", fiber.Map{
-		"url": url,
-	})
-}
-

@@ -204,6 +204,32 @@ func newWorkflow(db *gorm.DB, opts ...gen.DOOption) workflow {
 		}{
 			RelationField: field.NewRelation("Jobs.OutputFile", "models.File"),
 		},
+		Inputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("Jobs.Inputs", "models.JobInput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Jobs.Inputs.File", "models.File"),
+			},
+		},
+		Outputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("Jobs.Outputs", "models.JobOutput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Jobs.Outputs.File", "models.File"),
+			},
+		},
 	}
 
 	_workflow.Tasks = workflowHasManyTasks{
@@ -366,6 +392,18 @@ type workflowHasManyJobs struct {
 	}
 	OutputFile struct {
 		field.RelationField
+	}
+	Inputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
+	}
+	Outputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
 	}
 }
 

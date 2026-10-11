@@ -143,3 +143,11 @@ func (s *S3Service) HeadObject(ctx context.Context, bucket, key string) (*s3.Hea
 	})
 }
 
+// DeleteObject deletes an object from S3.
+func (s *S3Service) DeleteObject(ctx context.Context, bucket, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	return err
+}

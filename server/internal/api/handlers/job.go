@@ -4,9 +4,9 @@ import (
 	"errors"
 	"log"
 
-	"transcoder/server/internal/transcode"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/job"
+	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -34,15 +34,10 @@ func (h *Handler) Install(router fiber.Router) {
 }
 
 type CreateJobRequest struct {
-	InputPath    string                 `json:"inputPath"`
-	OutputPath   string                 `json:"outputPath"`
-	TargetFormat string                 `json:"targetFormat"`
+	InputPath    string           `json:"inputPath"`
+	OutputPath   string           `json:"outputPath"`
+	TargetFormat string           `json:"targetFormat"`
 	Params       transcode.Params `json:"params,omitempty"`
-}
-
-type validationDetail struct {
-	Field  string `json:"field"`
-	Reason string `json:"reason"`
 }
 
 func (h *Handler) CreateJob(c fiber.Ctx) error {
@@ -91,7 +86,7 @@ func (h *Handler) CreateJob(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			response.CodeParamRequired,
 			"inputPath is required.",
-			validationDetail{Field: "inputPath", Reason: "required"},
+			response.ValidationDetail{Field: "inputPath", Reason: "required"},
 		)
 	case errors.Is(err, job.ErrOutputPathRequired):
 		return response.RespondErrorWithDetails(
@@ -99,7 +94,7 @@ func (h *Handler) CreateJob(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			response.CodeParamRequired,
 			"outputPath is required.",
-			validationDetail{Field: "outputPath", Reason: "required"},
+			response.ValidationDetail{Field: "outputPath", Reason: "required"},
 		)
 	case errors.Is(err, job.ErrTargetFormatRequired):
 		return response.RespondErrorWithDetails(
@@ -107,7 +102,7 @@ func (h *Handler) CreateJob(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			response.CodeParamRequired,
 			"targetFormat is required.",
-			validationDetail{Field: "targetFormat", Reason: "required"},
+			response.ValidationDetail{Field: "targetFormat", Reason: "required"},
 		)
 	}
 
@@ -145,13 +140,21 @@ func (h *Handler) GetJob(c fiber.Ctx) error {
 			fiber.StatusBadRequest,
 			response.CodeParamInvalid,
 			"Invalid job id format.",
-			validationDetail{Field: "id", Reason: "must be a valid UUID"},
+			response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"},
 		)
 	}
 
-	result, err := h.service.GetJob(c.Context(), parsedID)
+	userID, ok := c.Locals("user_id").(string)
+	if !ok {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
+	}
+	ownerID, err := uuid.Parse(userID)
 	if err != nil {
-		if err.Error() == "record not found" {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID.")
+	}
+	result, err := h.service.GetJob(c.Context(), ownerID, parsedID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return response.RespondError(
 				c,
 				fiber.StatusNotFound,

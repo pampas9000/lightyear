@@ -34,6 +34,8 @@ func newTask(db *gorm.DB, opts ...gen.DOOption) task {
 	_task.Status = field.NewString(tableName, "status")
 	_task.OwnerID = field.NewField(tableName, "owner_id")
 	_task.WorkflowID = field.NewField(tableName, "workflow_id")
+	_task.IdempotencyKey = field.NewString(tableName, "idempotency_key")
+	_task.RequestFingerprint = field.NewString(tableName, "request_fingerprint")
 	_task.Jobs = taskHasManyJobs{
 		db: db.Session(&gorm.Session{}),
 
@@ -203,6 +205,32 @@ func newTask(db *gorm.DB, opts ...gen.DOOption) task {
 		}{
 			RelationField: field.NewRelation("Jobs.OutputFile", "models.File"),
 		},
+		Inputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("Jobs.Inputs", "models.JobInput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Jobs.Inputs.File", "models.File"),
+			},
+		},
+		Outputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("Jobs.Outputs", "models.JobOutput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Jobs.Outputs.File", "models.File"),
+			},
+		},
 	}
 
 	_task.Owner = taskBelongsToOwner{
@@ -225,14 +253,16 @@ func newTask(db *gorm.DB, opts ...gen.DOOption) task {
 type task struct {
 	taskDo
 
-	ALL        field.Asterisk
-	ID         field.Field
-	CreatedAt  field.Time
-	UpdatedAt  field.Time
-	Status     field.String
-	OwnerID    field.Field
-	WorkflowID field.Field
-	Jobs       taskHasManyJobs
+	ALL                field.Asterisk
+	ID                 field.Field
+	CreatedAt          field.Time
+	UpdatedAt          field.Time
+	Status             field.String
+	OwnerID            field.Field
+	WorkflowID         field.Field
+	IdempotencyKey     field.String
+	RequestFingerprint field.String
+	Jobs               taskHasManyJobs
 
 	Owner taskBelongsToOwner
 
@@ -259,6 +289,8 @@ func (t *task) updateTableName(table string) *task {
 	t.Status = field.NewString(table, "status")
 	t.OwnerID = field.NewField(table, "owner_id")
 	t.WorkflowID = field.NewField(table, "workflow_id")
+	t.IdempotencyKey = field.NewString(table, "idempotency_key")
+	t.RequestFingerprint = field.NewString(table, "request_fingerprint")
 
 	t.fillFieldMap()
 
@@ -275,13 +307,15 @@ func (t *task) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *task) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 9)
+	t.fieldMap = make(map[string]field.Expr, 11)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
 	t.fieldMap["status"] = t.Status
 	t.fieldMap["owner_id"] = t.OwnerID
 	t.fieldMap["workflow_id"] = t.WorkflowID
+	t.fieldMap["idempotency_key"] = t.IdempotencyKey
+	t.fieldMap["request_fingerprint"] = t.RequestFingerprint
 
 }
 
@@ -362,6 +396,18 @@ type taskHasManyJobs struct {
 	}
 	OutputFile struct {
 		field.RelationField
+	}
+	Inputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
+	}
+	Outputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
 	}
 }
 

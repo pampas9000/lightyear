@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"transcoder/server/internal/models"
-	"transcoder/server/internal/task"
+	"transcoder/server/internal/services/outbox"
 	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
@@ -59,9 +60,7 @@ func NewService(db *gorm.DB, kv *redis.Client) *Service {
 	}
 }
 
-// CreateJob validates input, persists a pending job, and attempts to enqueue it.
-// It may return a non-nil job together with an error when the database write
-// succeeds but queue submission fails.
+// CreateJob atomically commits a pending legacy job and its outbox wakeup.
 func (s *Service) CreateJob(ctx context.Context, input CreateJobInput) (*models.Job, error) {
 	normalized, err := normalizeCreateJobInput(input)
 	if err != nil {
@@ -81,24 +80,26 @@ func (s *Service) CreateJob(ctx context.Context, input CreateJobInput) (*models.
 		Params:       normalized.Params,
 	}
 
-	if err := s.db.WithContext(ctx).Create(jobModel).Error; err != nil {
-		return nil, fmt.Errorf("create job record: %w", err)
-	}
-
-	if err := task.EnqueueJob(ctx, s.kv, jobModel.ID.String()); err != nil {
-		return jobModel, &QueueEnqueueError{
-			JobID: jobModel.ID,
-			Err:   err,
+	if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(jobModel).Error; err != nil {
+			return err
 		}
+		return outbox.EnqueueJob(tx, jobModel.ID, time.Now())
+	}); err != nil {
+		return nil, fmt.Errorf("create job and outbox: %w", err)
 	}
 
 	return jobModel, nil
 }
 
-// GetJob returns a single job by its ID.
-func (s *Service) GetJob(ctx context.Context, id uuid.UUID) (*models.Job, error) {
+// GetJob returns a single job belonging to the authenticated owner.
+func (s *Service) GetJob(ctx context.Context, ownerID, id uuid.UUID) (*models.Job, error) {
 	var j models.Job
-	if err := s.db.WithContext(ctx).First(&j, "id = ?", id).Error; err != nil {
+	if err := s.db.WithContext(ctx).
+		Preload("Inputs", func(db *gorm.DB) *gorm.DB { return db.Order("position") }).
+		Preload("Outputs", func(db *gorm.DB) *gorm.DB { return db.Order("position") }).
+		Preload("Inputs.File").Preload("Outputs.File").
+		First(&j, "id = ? AND owner_id = ?", id, ownerID).Error; err != nil {
 		return nil, err
 	}
 	return &j, nil

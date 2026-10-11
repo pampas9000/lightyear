@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"transcoder/server/internal/api/handlers"
 	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/config"
@@ -20,6 +22,8 @@ type Router struct {
 	workflow *handlers.WorkflowHandler
 	task     *handlers.TaskHandler
 	upload   *handlers.UploadHandler
+	draft    *handlers.DraftHandler
+	file     *handlers.FileHandler
 	auth     *handlers.AuthHandler
 	session  *session.Store
 }
@@ -29,7 +33,10 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	store := session.NewStore(session.Config{
 		Storage:        fiber_redis.NewFromConnection(kv),
 		CookieHTTPOnly: true,
+		CookiePath:     "/",
 		CookieSecure:   cfg.IsProduction(),
+		CookieSameSite: "Lax",
+		IdleTimeout:    7 * 24 * time.Hour,
 	})
 
 	return &Router{
@@ -37,6 +44,8 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		workflow: handlers.NewWorkflowHandler(db),
 		task:     handlers.NewTaskHandler(db, kv),
 		upload:   handlers.NewUploadHandler(db, cfg, s3Storage),
+		draft:    handlers.NewDraftHandler(db, s3Storage, cfg.S3.Bucket),
+		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket),
 		auth:     handlers.NewAuthHandler(db, store, cfg),
 		session:  store,
 	}
@@ -60,4 +69,6 @@ func (r *Router) Install(app fiber.Router) {
 	r.workflow.Install(protected)
 	r.task.Install(protected)
 	r.upload.Install(protected)
+	r.draft.Install(protected)
+	r.file.Install(protected)
 }

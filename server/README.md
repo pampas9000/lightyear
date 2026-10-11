@@ -1,190 +1,108 @@
 # Server
 
-Go service for the `transcoder` monorepo.
+Go service for the `lightyear` monorepo. It owns the HTTP API, task persistence and orchestration, and system integrations. It does **not** perform media transcoding — that work belongs to `compute`.
 
-This service is responsible for:
-
-- exposing the HTTP API used by `web`
-- validating and creating transcoding jobs
-- coordinating task handoff to the Rust compute layer
-- owning server-side orchestration concerns such as queueing, auth, storage integration, and job lifecycle management
-
-The server does **not** perform heavy media transcoding itself. That work belongs to `compute`.
+Feature contracts live in the docs site: [HTTP API](../docs/contracts/http-api.md), [Queue](../docs/contracts/queue.md), [Reliability](../docs/architecture/reliability.md).
 
 ## Responsibilities
 
-- accept API requests from clients
-- create and persist transcoding jobs
-- enqueue work for `compute/worker`
-- return job status, metadata, and results
-- host server-only integrations that should not live in the browser or in portable Rust bindings
+- accept API requests from `web` and future native clients
+- validate and persist transcoding tasks/jobs (GORM + PostgreSQL)
+- schedule work through a transactional Outbox and Redis Streams; coordinate installed executors
+- aggregate job results into task state; run leases, retries and stale recovery
+- manage uploads, download URLs, drafts, workflows and sessions
 
-## Directory Layout
+## Processes
+
+| Binary | Command | Role |
+| :--- | :--- | :--- |
+| API | `go run ./cmd/api` | Fiber v3 HTTP API, session middleware, background storage cleanup |
+| Orchestrator | `go run ./cmd/worker` | Consumes `transcoder:jobs:stream` / `transcoder:results:stream`, claims jobs, dispatches installed executor payloads, recovers stale leases |
+| Migration | `go run ./cmd/migrate` | Runs the repeatable PostgreSQL schema migration when `AUTO_MIGRATE=false` |
+| Codegen | `go run ./cmd/gen` | Regenerates `internal/query` with gorm/gen |
+
+Suggested local run (from repo root):
+
+```bash
+task api
+task orchestrator
+```
+
+## Directory layout
 
 ```text
 server/
 ├── cmd/
-│   └── api/               # service entrypoint and bootstrap wiring
-├── ent/                   # generated ORM code and schema definitions
+│   ├── api/               # API bootstrap and dependency wiring
+│   ├── migrate/           # explicit PostgreSQL migration command
+│   ├── worker/            # orchestrator daemon
+│   └── gen/               # gorm/gen code generator
 ├── internal/
-│   ├── config/            # runtime configuration loading
-│   ├── http/              # HTTP handlers, DTOs, route registration
-│   └── tasks/             # application logic and queue orchestration
-└── go.mod
+│   ├── api/               # routes, handlers, middleware, response envelope
+│   ├── config/            # koanf configuration loading
+│   ├── models/            # GORM entities (UUID v7, no physical FKs)
+│   ├── query/             # generated type-safe queries
+│   ├── services/          # auth / job / task / workflow / storage
+│   ├── task/              # Redis Streams queue contract and payloads
+│   ├── transcode/         # transcode params model + validation
+│   └── pkg/s3/            # AWS SDK v2 client factory
+└── pkg/util/              # UUID v7 helpers
 ```
 
 ## Development
 
-From the monorepo root, prefer the root `justfile` for day-to-day server work:
-
 ```bash
-just bootstrap-server
-just dev-server
+task bootstrap:server
+task test:server          # or: go test ./server/...
+task fmt:server           # or: gofmt -w server
 ```
 
-You can still invoke the underlying commands directly when needed:
-
-```bash
-go run ./server/cmd/api
-npm run dev:server
-```
-
-Run tests:
-
-```bash
-just test-server
-```
-
-Or directly:
-
-```bash
-go test ./server/...
-```
-
-Format Go code:
-
-```bash
-just fmt-server
-```
-
-Or directly:
-
-```bash
-gofmt -w server
-```
-
-## Module and Workspace
-
-This service is a normal Go module:
-
-- module path: `transcoder/server`
-- workspace root: `../go.work`
-
-That means you can work on it either from the repo root or from inside `server/`.
-
-## Current Layering
-
-The current server code is split into a reasonable set of responsibilities:
-
-- `cmd/api`
-  - process bootstrap only
-  - loads config
-  - opens PostgreSQL and Redis
-  - builds the Fiber app and starts listening
-- `internal/config`
-  - owns runtime configuration defaults and environment parsing
-- `internal/http`
-  - owns route registration, request binding, and HTTP error mapping
-  - should stay transport-focused
-- `internal/tasks`
-  - owns job validation, persistence orchestration, and queue handoff
-- `ent`
-  - owns generated ORM code and schema definitions
-  - should remain generated rather than wrapped prematurely
-
-This is a solid direction for a Go service: `cmd` stays thin, `internal/http` handles transport, and application logic is pushed inward.
-
-## Extension Guidance
-
-If you continue evolving this service, these are the most natural next additions:
-
-- `internal/queue`
-  - extract Redis-specific broker behavior here if queue logic grows beyond a single enqueue call
-- `internal/storage`
-  - object storage and artifact persistence
-- `internal/auth`
-  - authentication and authorization concerns
-- `internal/http/middleware`
-  - structured logging, request IDs, auth middleware, rate limiting
-
-A few conventions are worth preserving:
-
-- keep `cmd/api` limited to wiring and startup
-- keep `internal/http` free of direct business orchestration where possible
-- keep Ent as the main persistence layer instead of adding a generic repository abstraction too early
-- add new packages only when they represent a clear boundary, not just to make the tree look larger
-
-## Service Boundaries
-
-### Input
-
-The server receives requests from:
-
-- `web` for user-facing job creation and status queries
-- future native clients that may use the same API surface
-
-### Output
-
-The server hands work off to:
-
-- `compute/worker` for task execution
-- `compute/bindings/ffi` or `compute/bindings/wasm` indirectly when those artifacts are used by other applications
-
-## Planned Internal Conventions
-
-As the service grows, keep the structure organized by capability:
-
-- `internal/http` for request/response concerns
-- `internal/tasks` for job orchestration
-- `internal/queue` for broker integration
-- `internal/storage` for object/file persistence
-- `internal/config` for configuration loading
-- `internal/auth` for authentication and authorization
-
-Use `cmd/api` only for process bootstrap and wiring. Keep business logic in `internal/...`.
+Module path `transcoder/server`, workspace root `../go.work`.
 
 ## Configuration
 
-Current runtime configuration is loaded from environment variables with defaults:
+Loaded with koanf from defaults, `server/.env` (falls back to `.env`) and environment variables.
 
-- `APP_ENV`
-- `SERVER_ADDR`
-- `PORT`
-- `DATABASE_URL`
-- `REDIS_URL`
-- `AUTO_MIGRATE`
+| Variable | Default | Notes |
+| :--- | :--- | :--- |
+| `APP_ENV` | `development` | `production` enables Secure cookies |
+| `SERVER_ADDR` | `[::]:8080` | Wins over `PORT` |
+| `PORT` | — | Normalized to `:PORT` |
+| `DATABASE_URL` | local postgres `transcoder` | PostgreSQL |
+| `REDIS_URL` | `redis://localhost:6379/0` | Sessions, streams, cancellation flags |
+| `AUTO_MIGRATE` | `true` | GORM AutoMigrate on API boot |
+| `FRONTEND_URL` | `http://localhost:3000` | OAuth success redirect |
+| `S3_ENDPOINT` / `S3_ACCESS_ID` / `S3_ACCESS_KEY` / `S3_BUCKET` | — | S3/R2 storage |
+| `GOOGLE_CLIENT_ID` / `_SECRET` / `_CALLBACK_URL` | — | Google OIDC (enabled when set) |
+| `GITHUB_CLIENT_ID` / `_SECRET` / `_CALLBACK_URL` | — | GitHub OAuth (enabled when set) |
+| `JWT_SECRET` | dev value | Reserved; JWT middleware exists but is unused (session auth is active) |
 
-Behavior notes:
+## Current status
 
-- `SERVER_ADDR` wins over `PORT`
-- `PORT` is normalized to `:PORT`
-- `AUTO_MIGRATE` defaults to enabled
+- [x] Fiber v3 API with unified response envelope and stable response codes
+- [x] Session auth (Redis store) + GitHub/Google OAuth, bearer-token or cookie
+- [x] GORM/PostgreSQL persistence with UUID v7, no physical foreign keys
+- [x] Task create/list/detail/retry/cancel and stats
+- [x] Workflows, multipart uploads with SHA-256 fast path, presigned downloads, drafts
+- [x] Redis Streams orchestration with transactional Outbox, atomic attempt claim, attempt-scoped outputs/cancellation, heartbeats, stale recovery, and artifact validation
+- [x] Generic operation model for transcode, image generation, upscaling, and editing; AI executors are gated until installed
+- [x] Durable external-provider invocation ledger for idempotent submission and reconciliation of unknown outcomes
+- [x] S3/R2 storage integration and hourly cleanup of expired uploads/drafts
 
-## Technologies
+### Known gaps
 
-- **Language**: Go 1.26+
-- **API Framework**: [Fiber v3](https://gofiber.io/)
-- **ORM**: [Ent](https://entgo.io/)
-- **Database**: PostgreSQL
-- **Queue**: Redis
+- `POST /api/jobs` is removed from routing (handler remains); jobs are created through tasks
+- HTTP routes are unversioned (`/api`), and a few historical endpoints use `camelCase` fields (see HTTP contract)
+- `JWT_SECRET` and the JWT middleware are dead code
+- No concrete AI provider adapter or AI worker is deployed yet; AI requests are rejected with `422` until an executor is registered
+- Redis Outbox delivery is at-least-once; external providers still require provider-side idempotency and reconciliation
 
-## Current Status
+## Migrations
 
-The service is operational with a cleaner boundary between bootstrap, transport, and orchestration:
+For production deployments with `AUTO_MIGRATE=false`, run:
 
-- [x] Fiber v3 server bootstrap in `cmd/api`
-- [x] Environment-driven runtime config in `internal/config`
-- [x] Ent ORM with PostgreSQL persistence
-- [x] Job creation and status endpoints
-- [x] Task service orchestration in `internal/tasks`
-- [x] Redis LPUSH task enqueueing
+```bash
+go run ./server/cmd/migrate
+```
+
+The migration is repeatable and backfills legacy job input/output relations.

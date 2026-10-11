@@ -3,18 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"os"
 	"time"
 
 	"transcoder/server/internal/api"
 	"transcoder/server/internal/config"
-	"transcoder/server/internal/models"
 	"transcoder/server/internal/pkg/s3"
+	"transcoder/server/internal/schema"
 	"transcoder/server/internal/services/storage"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	aws_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
@@ -74,7 +76,7 @@ func run() error {
 	s3Service := storage.NewS3Service(s3Client)
 
 	// Start background task to clean up expired upload records
-	storage.StartCleanupTask(ctx, db, 1*time.Hour)
+	storage.StartCleanupTask(ctx, db, s3Service, config.S3.Bucket, 1*time.Hour)
 
 	// Initialize Fiber App with Storage Service
 	app := newFiberApp(db, kv, config, s3Service)
@@ -93,39 +95,28 @@ func run() error {
 }
 
 func openDatabase(ctx context.Context, cfg config.DatabaseConfig) (*gorm.DB, error) {
-	db, err := gorm.Open(postgres.Open(cfg.URL), &gorm.Config{
+	newLogger := gormlogger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		gormlogger.Config{
+			SlowThreshold:             1000 * time.Millisecond,
+			LogLevel:                  gormlogger.Warn,
+			IgnoreRecordNotFoundError: true,
+			Colorful:                  false,
+		},
+	)
+
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  cfg.URL,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{
+		Logger:                                   newLogger,
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open postgres connection: %w", err)
 	}
 
-	if cfg.AutoMigrate {
-		// 1. Create custom enum type if not exists
-		createEnumSQL := `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'job_status') THEN CREATE TYPE job_status AS ENUM ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'); END IF; END $$;`
-		if err := db.Exec(createEnumSQL).Error; err != nil {
-			return nil, fmt.Errorf("create job_status enum: %w", err)
-		}
-
-		// 2. Convert existing varchar column to enum if table and column exist
-		alterColumnSQL := `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'jobs' AND column_name = 'status' AND data_type = 'character varying') THEN ALTER TABLE jobs ALTER COLUMN status DROP DEFAULT; ALTER TABLE jobs ALTER COLUMN status TYPE job_status USING status::job_status; ALTER TABLE jobs ALTER COLUMN status SET DEFAULT 'PENDING'::job_status; END IF; END $$;`
-		if err := db.Exec(alterColumnSQL).Error; err != nil {
-			return nil, fmt.Errorf("alter jobs status column to enum: %w", err)
-		}
-
-		if err := db.AutoMigrate(
-			&models.User{},
-			&models.UserOauthAccount{},
-			&models.File{},
-			&models.Workflow{},
-			&models.Task{},
-			&models.Job{},
-		); err != nil {
-			return nil, fmt.Errorf("auto migrate schema: %w", err)
-		}
-	}
-
-	// Configure database connection pool to keep connections warm
+	// 1. Configure database connection pool immediately so all startup queries reuse connections
 	sqlDB, err := db.DB()
 	if err == nil {
 		sqlDB.SetMaxIdleConns(10)           // Keep up to 10 idle connections warm
@@ -133,6 +124,14 @@ func openDatabase(ctx context.Context, cfg config.DatabaseConfig) (*gorm.DB, err
 		sqlDB.SetConnMaxLifetime(time.Hour) // Close connections after 1 hour to recycle resources
 	} else {
 		slog.Warn("failed to configure connection pool", "error", err)
+	}
+
+	// 2. Run AutoMigrate if enabled
+	if cfg.AutoMigrate {
+		slog.Info("running auto migration (can be disabled via AUTO_MIGRATE=false for faster startup)")
+		if err := schema.Migrate(db); err != nil {
+			return nil, fmt.Errorf("auto migrate schema: %w", err)
+		}
 	}
 
 	slog.Info("postgres connected")

@@ -47,8 +47,23 @@ func TestAggregateTaskStatus(t *testing.T) {
 			expected: models.TaskPartiallyFailed,
 		},
 		{
-			name:     "mixed processing, completed, failed is processing",
-			statuses: []models.JobStatus{models.JobProcessing, models.JobCompleted, models.JobFailed},
+			name:     "all cancelled is cancelled",
+			statuses: []models.JobStatus{models.JobCancelled, models.JobCancelled},
+			expected: models.TaskCancelled,
+		},
+		{
+			name:     "mixed completed and cancelled is partially failed",
+			statuses: []models.JobStatus{models.JobCompleted, models.JobCancelled},
+			expected: models.TaskPartiallyFailed,
+		},
+		{
+			name:     "mixed cancelled and failed is failed",
+			statuses: []models.JobStatus{models.JobCancelled, models.JobFailed},
+			expected: models.TaskFailed,
+		},
+		{
+			name:     "mixed processing and cancelled is processing",
+			statuses: []models.JobStatus{models.JobProcessing, models.JobCancelled},
 			expected: models.TaskProcessing,
 		},
 	}

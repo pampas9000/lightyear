@@ -85,3 +85,9 @@ func normalizeResponseCode(code ResponseCode, fallback ResponseCode) string {
 	}
 	return code.String()
 }
+
+// ValidationDetail represents a machine-readable field validation error.
+type ValidationDetail struct {
+	Field  string `json:"field"`
+	Reason string `json:"reason"`
+}

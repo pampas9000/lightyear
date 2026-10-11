@@ -32,189 +32,342 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 	_job.CreatedAt = field.NewTime(tableName, "created_at")
 	_job.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_job.Status = field.NewString(tableName, "status")
+	_job.Operation = field.NewString(tableName, "operation")
+	_job.Executor = field.NewString(tableName, "executor")
+	_job.OperationParams = field.NewField(tableName, "operation_params")
+	_job.Generation = field.NewInt(tableName, "generation")
+	_job.NextRunAt = field.NewTime(tableName, "next_run_at")
+	_job.LeaseExpiresAt = field.NewTime(tableName, "lease_expires_at")
 	_job.InputPath = field.NewString(tableName, "input_path")
 	_job.OutputPath = field.NewString(tableName, "output_path")
 	_job.TargetFormat = field.NewString(tableName, "target_format")
 	_job.Params = field.NewField(tableName, "params")
 	_job.Progress = field.NewInt(tableName, "progress")
 	_job.ErrorMessage = field.NewString(tableName, "error_message")
+	_job.ErrorCode = field.NewString(tableName, "error_code")
+	_job.RetryCount = field.NewInt(tableName, "retry_count")
+	_job.MaxRetries = field.NewInt(tableName, "max_retries")
 	_job.OwnerID = field.NewField(tableName, "owner_id")
 	_job.TaskID = field.NewField(tableName, "task_id")
 	_job.WorkflowID = field.NewField(tableName, "workflow_id")
 	_job.InputFileID = field.NewField(tableName, "input_file_id")
 	_job.OutputFileID = field.NewField(tableName, "output_file_id")
+	_job.AttemptID = field.NewField(tableName, "attempt_id")
+	_job.Inputs = jobHasManyInputs{
+		db: db.Session(&gorm.Session{}),
+
+		RelationField: field.NewRelation("Inputs", "models.JobInput"),
+		File: struct {
+			field.RelationField
+			Owner struct {
+				field.RelationField
+				Jobs struct {
+					field.RelationField
+					Owner struct {
+						field.RelationField
+					}
+					Task struct {
+						field.RelationField
+						Owner struct {
+							field.RelationField
+						}
+						Workflow struct {
+							field.RelationField
+							Owner struct {
+								field.RelationField
+							}
+							Jobs struct {
+								field.RelationField
+							}
+							Tasks struct {
+								field.RelationField
+							}
+						}
+						Jobs struct {
+							field.RelationField
+						}
+					}
+					Workflow struct {
+						field.RelationField
+					}
+					InputFile struct {
+						field.RelationField
+					}
+					OutputFile struct {
+						field.RelationField
+					}
+					Inputs struct {
+						field.RelationField
+					}
+					Outputs struct {
+						field.RelationField
+						File struct {
+							field.RelationField
+						}
+					}
+				}
+				Tasks struct {
+					field.RelationField
+				}
+				Workflows struct {
+					field.RelationField
+				}
+				Files struct {
+					field.RelationField
+				}
+			}
+			InputToJobs struct {
+				field.RelationField
+			}
+			OutputFromJobs struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("Inputs.File", "models.File"),
+			Owner: struct {
+				field.RelationField
+				Jobs struct {
+					field.RelationField
+					Owner struct {
+						field.RelationField
+					}
+					Task struct {
+						field.RelationField
+						Owner struct {
+							field.RelationField
+						}
+						Workflow struct {
+							field.RelationField
+							Owner struct {
+								field.RelationField
+							}
+							Jobs struct {
+								field.RelationField
+							}
+							Tasks struct {
+								field.RelationField
+							}
+						}
+						Jobs struct {
+							field.RelationField
+						}
+					}
+					Workflow struct {
+						field.RelationField
+					}
+					InputFile struct {
+						field.RelationField
+					}
+					OutputFile struct {
+						field.RelationField
+					}
+					Inputs struct {
+						field.RelationField
+					}
+					Outputs struct {
+						field.RelationField
+						File struct {
+							field.RelationField
+						}
+					}
+				}
+				Tasks struct {
+					field.RelationField
+				}
+				Workflows struct {
+					field.RelationField
+				}
+				Files struct {
+					field.RelationField
+				}
+			}{
+				RelationField: field.NewRelation("Inputs.File.Owner", "models.User"),
+				Jobs: struct {
+					field.RelationField
+					Owner struct {
+						field.RelationField
+					}
+					Task struct {
+						field.RelationField
+						Owner struct {
+							field.RelationField
+						}
+						Workflow struct {
+							field.RelationField
+							Owner struct {
+								field.RelationField
+							}
+							Jobs struct {
+								field.RelationField
+							}
+							Tasks struct {
+								field.RelationField
+							}
+						}
+						Jobs struct {
+							field.RelationField
+						}
+					}
+					Workflow struct {
+						field.RelationField
+					}
+					InputFile struct {
+						field.RelationField
+					}
+					OutputFile struct {
+						field.RelationField
+					}
+					Inputs struct {
+						field.RelationField
+					}
+					Outputs struct {
+						field.RelationField
+						File struct {
+							field.RelationField
+						}
+					}
+				}{
+					RelationField: field.NewRelation("Inputs.File.Owner.Jobs", "models.Job"),
+					Owner: struct {
+						field.RelationField
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Owner", "models.User"),
+					},
+					Task: struct {
+						field.RelationField
+						Owner struct {
+							field.RelationField
+						}
+						Workflow struct {
+							field.RelationField
+							Owner struct {
+								field.RelationField
+							}
+							Jobs struct {
+								field.RelationField
+							}
+							Tasks struct {
+								field.RelationField
+							}
+						}
+						Jobs struct {
+							field.RelationField
+						}
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task", "models.Task"),
+						Owner: struct {
+							field.RelationField
+						}{
+							RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Owner", "models.User"),
+						},
+						Workflow: struct {
+							field.RelationField
+							Owner struct {
+								field.RelationField
+							}
+							Jobs struct {
+								field.RelationField
+							}
+							Tasks struct {
+								field.RelationField
+							}
+						}{
+							RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Workflow", "models.Workflow"),
+							Owner: struct {
+								field.RelationField
+							}{
+								RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Workflow.Owner", "models.User"),
+							},
+							Jobs: struct {
+								field.RelationField
+							}{
+								RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Workflow.Jobs", "models.Job"),
+							},
+							Tasks: struct {
+								field.RelationField
+							}{
+								RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Workflow.Tasks", "models.Task"),
+							},
+						},
+						Jobs: struct {
+							field.RelationField
+						}{
+							RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Task.Jobs", "models.Job"),
+						},
+					},
+					Workflow: struct {
+						field.RelationField
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Workflow", "models.Workflow"),
+					},
+					InputFile: struct {
+						field.RelationField
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.InputFile", "models.File"),
+					},
+					OutputFile: struct {
+						field.RelationField
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.OutputFile", "models.File"),
+					},
+					Inputs: struct {
+						field.RelationField
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Inputs", "models.JobInput"),
+					},
+					Outputs: struct {
+						field.RelationField
+						File struct {
+							field.RelationField
+						}
+					}{
+						RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Outputs", "models.JobOutput"),
+						File: struct {
+							field.RelationField
+						}{
+							RelationField: field.NewRelation("Inputs.File.Owner.Jobs.Outputs.File", "models.File"),
+						},
+					},
+				},
+				Tasks: struct {
+					field.RelationField
+				}{
+					RelationField: field.NewRelation("Inputs.File.Owner.Tasks", "models.Task"),
+				},
+				Workflows: struct {
+					field.RelationField
+				}{
+					RelationField: field.NewRelation("Inputs.File.Owner.Workflows", "models.Workflow"),
+				},
+				Files: struct {
+					field.RelationField
+				}{
+					RelationField: field.NewRelation("Inputs.File.Owner.Files", "models.File"),
+				},
+			},
+			InputToJobs: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Inputs.File.InputToJobs", "models.Job"),
+			},
+			OutputFromJobs: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("Inputs.File.OutputFromJobs", "models.Job"),
+			},
+		},
+	}
+
+	_job.Outputs = jobHasManyOutputs{
+		db: db.Session(&gorm.Session{}),
+
+		RelationField: field.NewRelation("Outputs", "models.JobOutput"),
+	}
+
 	_job.Owner = jobBelongsToOwner{
 		db: db.Session(&gorm.Session{}),
 
 		RelationField: field.NewRelation("Owner", "models.User"),
-		Jobs: struct {
-			field.RelationField
-			Owner struct {
-				field.RelationField
-			}
-			Task struct {
-				field.RelationField
-				Owner struct {
-					field.RelationField
-				}
-				Workflow struct {
-					field.RelationField
-					Owner struct {
-						field.RelationField
-					}
-					Jobs struct {
-						field.RelationField
-					}
-					Tasks struct {
-						field.RelationField
-					}
-				}
-				Jobs struct {
-					field.RelationField
-				}
-			}
-			Workflow struct {
-				field.RelationField
-			}
-			InputFile struct {
-				field.RelationField
-				Owner struct {
-					field.RelationField
-				}
-				InputToJobs struct {
-					field.RelationField
-				}
-				OutputFromJobs struct {
-					field.RelationField
-				}
-			}
-			OutputFile struct {
-				field.RelationField
-			}
-		}{
-			RelationField: field.NewRelation("Owner.Jobs", "models.Job"),
-			Owner: struct {
-				field.RelationField
-			}{
-				RelationField: field.NewRelation("Owner.Jobs.Owner", "models.User"),
-			},
-			Task: struct {
-				field.RelationField
-				Owner struct {
-					field.RelationField
-				}
-				Workflow struct {
-					field.RelationField
-					Owner struct {
-						field.RelationField
-					}
-					Jobs struct {
-						field.RelationField
-					}
-					Tasks struct {
-						field.RelationField
-					}
-				}
-				Jobs struct {
-					field.RelationField
-				}
-			}{
-				RelationField: field.NewRelation("Owner.Jobs.Task", "models.Task"),
-				Owner: struct {
-					field.RelationField
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.Task.Owner", "models.User"),
-				},
-				Workflow: struct {
-					field.RelationField
-					Owner struct {
-						field.RelationField
-					}
-					Jobs struct {
-						field.RelationField
-					}
-					Tasks struct {
-						field.RelationField
-					}
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.Task.Workflow", "models.Workflow"),
-					Owner: struct {
-						field.RelationField
-					}{
-						RelationField: field.NewRelation("Owner.Jobs.Task.Workflow.Owner", "models.User"),
-					},
-					Jobs: struct {
-						field.RelationField
-					}{
-						RelationField: field.NewRelation("Owner.Jobs.Task.Workflow.Jobs", "models.Job"),
-					},
-					Tasks: struct {
-						field.RelationField
-					}{
-						RelationField: field.NewRelation("Owner.Jobs.Task.Workflow.Tasks", "models.Task"),
-					},
-				},
-				Jobs: struct {
-					field.RelationField
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.Task.Jobs", "models.Job"),
-				},
-			},
-			Workflow: struct {
-				field.RelationField
-			}{
-				RelationField: field.NewRelation("Owner.Jobs.Workflow", "models.Workflow"),
-			},
-			InputFile: struct {
-				field.RelationField
-				Owner struct {
-					field.RelationField
-				}
-				InputToJobs struct {
-					field.RelationField
-				}
-				OutputFromJobs struct {
-					field.RelationField
-				}
-			}{
-				RelationField: field.NewRelation("Owner.Jobs.InputFile", "models.File"),
-				Owner: struct {
-					field.RelationField
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.InputFile.Owner", "models.User"),
-				},
-				InputToJobs: struct {
-					field.RelationField
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.InputFile.InputToJobs", "models.Job"),
-				},
-				OutputFromJobs: struct {
-					field.RelationField
-				}{
-					RelationField: field.NewRelation("Owner.Jobs.InputFile.OutputFromJobs", "models.Job"),
-				},
-			},
-			OutputFile: struct {
-				field.RelationField
-			}{
-				RelationField: field.NewRelation("Owner.Jobs.OutputFile", "models.File"),
-			},
-		},
-		Tasks: struct {
-			field.RelationField
-		}{
-			RelationField: field.NewRelation("Owner.Tasks", "models.Task"),
-		},
-		Workflows: struct {
-			field.RelationField
-		}{
-			RelationField: field.NewRelation("Owner.Workflows", "models.Workflow"),
-		},
-		Files: struct {
-			field.RelationField
-		}{
-			RelationField: field.NewRelation("Owner.Files", "models.File"),
-		},
 	}
 
 	_job.Task = jobBelongsToTask{
@@ -249,23 +402,37 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 type job struct {
 	jobDo
 
-	ALL          field.Asterisk
-	ID           field.Field
-	CreatedAt    field.Time
-	UpdatedAt    field.Time
-	Status       field.String
-	InputPath    field.String
-	OutputPath   field.String
-	TargetFormat field.String
-	Params       field.Field
-	Progress     field.Int
-	ErrorMessage field.String
-	OwnerID      field.Field
-	TaskID       field.Field
-	WorkflowID   field.Field
-	InputFileID  field.Field
-	OutputFileID field.Field
-	Owner        jobBelongsToOwner
+	ALL             field.Asterisk
+	ID              field.Field
+	CreatedAt       field.Time
+	UpdatedAt       field.Time
+	Status          field.String
+	Operation       field.String
+	Executor        field.String
+	OperationParams field.Field
+	Generation      field.Int
+	NextRunAt       field.Time
+	LeaseExpiresAt  field.Time
+	InputPath       field.String
+	OutputPath      field.String
+	TargetFormat    field.String
+	Params          field.Field
+	Progress        field.Int
+	ErrorMessage    field.String
+	ErrorCode       field.String
+	RetryCount      field.Int
+	MaxRetries      field.Int
+	OwnerID         field.Field
+	TaskID          field.Field
+	WorkflowID      field.Field
+	InputFileID     field.Field
+	OutputFileID    field.Field
+	AttemptID       field.Field
+	Inputs          jobHasManyInputs
+
+	Outputs jobHasManyOutputs
+
+	Owner jobBelongsToOwner
 
 	Task jobBelongsToTask
 
@@ -294,17 +461,27 @@ func (j *job) updateTableName(table string) *job {
 	j.CreatedAt = field.NewTime(table, "created_at")
 	j.UpdatedAt = field.NewTime(table, "updated_at")
 	j.Status = field.NewString(table, "status")
+	j.Operation = field.NewString(table, "operation")
+	j.Executor = field.NewString(table, "executor")
+	j.OperationParams = field.NewField(table, "operation_params")
+	j.Generation = field.NewInt(table, "generation")
+	j.NextRunAt = field.NewTime(table, "next_run_at")
+	j.LeaseExpiresAt = field.NewTime(table, "lease_expires_at")
 	j.InputPath = field.NewString(table, "input_path")
 	j.OutputPath = field.NewString(table, "output_path")
 	j.TargetFormat = field.NewString(table, "target_format")
 	j.Params = field.NewField(table, "params")
 	j.Progress = field.NewInt(table, "progress")
 	j.ErrorMessage = field.NewString(table, "error_message")
+	j.ErrorCode = field.NewString(table, "error_code")
+	j.RetryCount = field.NewInt(table, "retry_count")
+	j.MaxRetries = field.NewInt(table, "max_retries")
 	j.OwnerID = field.NewField(table, "owner_id")
 	j.TaskID = field.NewField(table, "task_id")
 	j.WorkflowID = field.NewField(table, "workflow_id")
 	j.InputFileID = field.NewField(table, "input_file_id")
 	j.OutputFileID = field.NewField(table, "output_file_id")
+	j.AttemptID = field.NewField(table, "attempt_id")
 
 	j.fillFieldMap()
 
@@ -321,27 +498,41 @@ func (j *job) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (j *job) fillFieldMap() {
-	j.fieldMap = make(map[string]field.Expr, 20)
+	j.fieldMap = make(map[string]field.Expr, 32)
 	j.fieldMap["id"] = j.ID
 	j.fieldMap["created_at"] = j.CreatedAt
 	j.fieldMap["updated_at"] = j.UpdatedAt
 	j.fieldMap["status"] = j.Status
+	j.fieldMap["operation"] = j.Operation
+	j.fieldMap["executor"] = j.Executor
+	j.fieldMap["operation_params"] = j.OperationParams
+	j.fieldMap["generation"] = j.Generation
+	j.fieldMap["next_run_at"] = j.NextRunAt
+	j.fieldMap["lease_expires_at"] = j.LeaseExpiresAt
 	j.fieldMap["input_path"] = j.InputPath
 	j.fieldMap["output_path"] = j.OutputPath
 	j.fieldMap["target_format"] = j.TargetFormat
 	j.fieldMap["params"] = j.Params
 	j.fieldMap["progress"] = j.Progress
 	j.fieldMap["error_message"] = j.ErrorMessage
+	j.fieldMap["error_code"] = j.ErrorCode
+	j.fieldMap["retry_count"] = j.RetryCount
+	j.fieldMap["max_retries"] = j.MaxRetries
 	j.fieldMap["owner_id"] = j.OwnerID
 	j.fieldMap["task_id"] = j.TaskID
 	j.fieldMap["workflow_id"] = j.WorkflowID
 	j.fieldMap["input_file_id"] = j.InputFileID
 	j.fieldMap["output_file_id"] = j.OutputFileID
+	j.fieldMap["attempt_id"] = j.AttemptID
 
 }
 
 func (j job) clone(db *gorm.DB) job {
 	j.jobDo.ReplaceConnPool(db.Statement.ConnPool)
+	j.Inputs.db = db.Session(&gorm.Session{Initialized: true})
+	j.Inputs.db.Statement.ConnPool = db.Statement.ConnPool
+	j.Outputs.db = db.Session(&gorm.Session{Initialized: true})
+	j.Outputs.db.Statement.ConnPool = db.Statement.ConnPool
 	j.Owner.db = db.Session(&gorm.Session{Initialized: true})
 	j.Owner.db.Statement.ConnPool = db.Statement.ConnPool
 	j.Task.db = db.Session(&gorm.Session{Initialized: true})
@@ -357,6 +548,8 @@ func (j job) clone(db *gorm.DB) job {
 
 func (j job) replaceDB(db *gorm.DB) job {
 	j.jobDo.ReplaceDB(db)
+	j.Inputs.db = db.Session(&gorm.Session{})
+	j.Outputs.db = db.Session(&gorm.Session{})
 	j.Owner.db = db.Session(&gorm.Session{})
 	j.Task.db = db.Session(&gorm.Session{})
 	j.Workflow.db = db.Session(&gorm.Session{})
@@ -365,65 +558,239 @@ func (j job) replaceDB(db *gorm.DB) job {
 	return j
 }
 
-type jobBelongsToOwner struct {
+type jobHasManyInputs struct {
 	db *gorm.DB
 
 	field.RelationField
 
-	Jobs struct {
+	File struct {
 		field.RelationField
 		Owner struct {
 			field.RelationField
-		}
-		Task struct {
-			field.RelationField
-			Owner struct {
-				field.RelationField
-			}
-			Workflow struct {
+			Jobs struct {
 				field.RelationField
 				Owner struct {
 					field.RelationField
 				}
-				Jobs struct {
+				Task struct {
+					field.RelationField
+					Owner struct {
+						field.RelationField
+					}
+					Workflow struct {
+						field.RelationField
+						Owner struct {
+							field.RelationField
+						}
+						Jobs struct {
+							field.RelationField
+						}
+						Tasks struct {
+							field.RelationField
+						}
+					}
+					Jobs struct {
+						field.RelationField
+					}
+				}
+				Workflow struct {
 					field.RelationField
 				}
-				Tasks struct {
+				InputFile struct {
 					field.RelationField
 				}
+				OutputFile struct {
+					field.RelationField
+				}
+				Inputs struct {
+					field.RelationField
+				}
+				Outputs struct {
+					field.RelationField
+					File struct {
+						field.RelationField
+					}
+				}
 			}
-			Jobs struct {
+			Tasks struct {
+				field.RelationField
+			}
+			Workflows struct {
+				field.RelationField
+			}
+			Files struct {
 				field.RelationField
 			}
 		}
-		Workflow struct {
+		InputToJobs struct {
 			field.RelationField
 		}
-		InputFile struct {
-			field.RelationField
-			Owner struct {
-				field.RelationField
-			}
-			InputToJobs struct {
-				field.RelationField
-			}
-			OutputFromJobs struct {
-				field.RelationField
-			}
-		}
-		OutputFile struct {
+		OutputFromJobs struct {
 			field.RelationField
 		}
 	}
-	Tasks struct {
-		field.RelationField
+}
+
+func (a jobHasManyInputs) Where(conds ...field.Expr) *jobHasManyInputs {
+	if len(conds) == 0 {
+		return &a
 	}
-	Workflows struct {
-		field.RelationField
+
+	exprs := make([]clause.Expression, 0, len(conds))
+	for _, cond := range conds {
+		exprs = append(exprs, cond.BeCond().(clause.Expression))
 	}
-	Files struct {
-		field.RelationField
+	a.db = a.db.Clauses(clause.Where{Exprs: exprs})
+	return &a
+}
+
+func (a jobHasManyInputs) WithContext(ctx context.Context) *jobHasManyInputs {
+	a.db = a.db.WithContext(ctx)
+	return &a
+}
+
+func (a jobHasManyInputs) Session(session *gorm.Session) *jobHasManyInputs {
+	a.db = a.db.Session(session)
+	return &a
+}
+
+func (a jobHasManyInputs) Model(m *models.Job) *jobHasManyInputsTx {
+	return &jobHasManyInputsTx{a.db.Model(m).Association(a.Name())}
+}
+
+func (a jobHasManyInputs) Unscoped() *jobHasManyInputs {
+	a.db = a.db.Unscoped()
+	return &a
+}
+
+type jobHasManyInputsTx struct{ tx *gorm.Association }
+
+func (a jobHasManyInputsTx) Find() (result []*models.JobInput, err error) {
+	return result, a.tx.Find(&result)
+}
+
+func (a jobHasManyInputsTx) Append(values ...*models.JobInput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
 	}
+	return a.tx.Append(targetValues...)
+}
+
+func (a jobHasManyInputsTx) Replace(values ...*models.JobInput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
+	}
+	return a.tx.Replace(targetValues...)
+}
+
+func (a jobHasManyInputsTx) Delete(values ...*models.JobInput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
+	}
+	return a.tx.Delete(targetValues...)
+}
+
+func (a jobHasManyInputsTx) Clear() error {
+	return a.tx.Clear()
+}
+
+func (a jobHasManyInputsTx) Count() int64 {
+	return a.tx.Count()
+}
+
+func (a jobHasManyInputsTx) Unscoped() *jobHasManyInputsTx {
+	a.tx = a.tx.Unscoped()
+	return &a
+}
+
+type jobHasManyOutputs struct {
+	db *gorm.DB
+
+	field.RelationField
+}
+
+func (a jobHasManyOutputs) Where(conds ...field.Expr) *jobHasManyOutputs {
+	if len(conds) == 0 {
+		return &a
+	}
+
+	exprs := make([]clause.Expression, 0, len(conds))
+	for _, cond := range conds {
+		exprs = append(exprs, cond.BeCond().(clause.Expression))
+	}
+	a.db = a.db.Clauses(clause.Where{Exprs: exprs})
+	return &a
+}
+
+func (a jobHasManyOutputs) WithContext(ctx context.Context) *jobHasManyOutputs {
+	a.db = a.db.WithContext(ctx)
+	return &a
+}
+
+func (a jobHasManyOutputs) Session(session *gorm.Session) *jobHasManyOutputs {
+	a.db = a.db.Session(session)
+	return &a
+}
+
+func (a jobHasManyOutputs) Model(m *models.Job) *jobHasManyOutputsTx {
+	return &jobHasManyOutputsTx{a.db.Model(m).Association(a.Name())}
+}
+
+func (a jobHasManyOutputs) Unscoped() *jobHasManyOutputs {
+	a.db = a.db.Unscoped()
+	return &a
+}
+
+type jobHasManyOutputsTx struct{ tx *gorm.Association }
+
+func (a jobHasManyOutputsTx) Find() (result []*models.JobOutput, err error) {
+	return result, a.tx.Find(&result)
+}
+
+func (a jobHasManyOutputsTx) Append(values ...*models.JobOutput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
+	}
+	return a.tx.Append(targetValues...)
+}
+
+func (a jobHasManyOutputsTx) Replace(values ...*models.JobOutput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
+	}
+	return a.tx.Replace(targetValues...)
+}
+
+func (a jobHasManyOutputsTx) Delete(values ...*models.JobOutput) (err error) {
+	targetValues := make([]interface{}, len(values))
+	for i, v := range values {
+		targetValues[i] = v
+	}
+	return a.tx.Delete(targetValues...)
+}
+
+func (a jobHasManyOutputsTx) Clear() error {
+	return a.tx.Clear()
+}
+
+func (a jobHasManyOutputsTx) Count() int64 {
+	return a.tx.Count()
+}
+
+func (a jobHasManyOutputsTx) Unscoped() *jobHasManyOutputsTx {
+	a.tx = a.tx.Unscoped()
+	return &a
+}
+
+type jobBelongsToOwner struct {
+	db *gorm.DB
+
+	field.RelationField
 }
 
 func (a jobBelongsToOwner) Where(conds ...field.Expr) *jobBelongsToOwner {

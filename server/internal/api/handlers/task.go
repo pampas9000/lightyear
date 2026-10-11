@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"transcoder/server/internal/api/response"
+	"transcoder/server/internal/execution"
+	"transcoder/server/internal/operation"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/transcode"
 
@@ -30,6 +32,8 @@ func (h *TaskHandler) Install(router fiber.Router) {
 	router.Get("/tasks", h.ListTasks)
 	router.Get("/tasks/stats", h.GetStats)
 	router.Get("/tasks/:id", h.GetTask)
+	router.Post("/tasks/:id/retry", h.RetryTask)
+	router.Post("/tasks/:id/cancel", h.CancelTask)
 }
 
 func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
@@ -96,6 +100,7 @@ type CreateTaskRequest struct {
 	TargetFormat   string               `json:"target_format,omitempty"`
 	Params         *transcode.Params    `json:"params,omitempty"`
 	IdempotencyKey string               `json:"idempotency_key,omitempty"`
+	Jobs           []task.JobSpec       `json:"jobs,omitempty"`
 }
 
 func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
@@ -131,20 +136,25 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		TargetFormat:   req.TargetFormat,
 		Params:         transcodeParams,
 		IdempotencyKey: idempotencyPtr,
+		Jobs:           req.Jobs,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Task created successfully.", created)
 	}
 
 	switch {
+	case errors.Is(err, operation.ErrInvalid):
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
+	case errors.Is(err, execution.ErrUnavailable):
+		return response.RespondError(c, fiber.StatusUnprocessableEntity, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, task.ErrNoItemsProvided):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", validationDetail{Field: "items", Reason: "empty"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
 	case errors.Is(err, task.ErrWorkflowNotFound):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", validationDetail{Field: "workflowId", Reason: "not found"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", response.ValidationDetail{Field: "workflowId", Reason: "not found"})
 	case errors.Is(err, task.ErrInvalidFileID):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "file_id is required and must not be nil.", validationDetail{Field: "items", Reason: "file_id is required"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "file_id is required and must not be nil.", response.ValidationDetail{Field: "items", Reason: "file_id is required"})
 	case errors.Is(err, task.ErrFileNotFound):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "input file not found or not uploaded.", validationDetail{Field: "items", Reason: "input file not found or not uploaded"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "input file not found or not uploaded.", response.ValidationDetail{Field: "items", Reason: "input file not found or not uploaded"})
 	case errors.Is(err, task.ErrIdempotencyConflict):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, "Idempotency key conflict: request payload mismatch.")
 	}
@@ -156,7 +166,7 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 	idStr := c.Params("id")
 	parsedID, err := uuid.Parse(idStr)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", validationDetail{Field: "id", Reason: "must be a valid UUID"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
@@ -178,4 +188,93 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task fetched.", result)
+}
+
+type RetryTaskRequest struct {
+	TargetFormat    string            `json:"target_format,omitempty"`
+	Params          *transcode.Params `json:"params,omitempty"`
+	JobIDs          []uuid.UUID       `json:"job_ids,omitempty"`
+	RetryAll        bool              `json:"retry_all,omitempty"`
+	OperationParams *operation.JSON   `json:"operation_params,omitempty"`
+}
+
+func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
+	idStr := c.Params("id")
+	taskID, err := uuid.Parse(idStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+	}
+
+	var req RetryTaskRequest
+	if len(c.Body()) > 0 {
+		if err := c.Bind().Body(&req); err != nil {
+			return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body.", map[string]any{"reason": err.Error()})
+		}
+	}
+
+	updatedTask, err := h.service.RetryTask(c.Context(), task.RetryTaskInput{
+		OwnerID:         ownerID,
+		TaskID:          taskID,
+		TargetFormat:    req.TargetFormat,
+		Params:          req.Params,
+		JobIDs:          req.JobIDs,
+		RetryAll:        req.RetryAll,
+		OperationParams: req.OperationParams,
+	})
+
+	if err != nil {
+		switch {
+		case errors.Is(err, operation.ErrInvalid), errors.Is(err, task.ErrInvalidJobID):
+			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
+		case errors.Is(err, task.ErrJobNotRetryable):
+			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
+		case errors.Is(err, execution.ErrUnavailable):
+			return response.RespondError(c, fiber.StatusUnprocessableEntity, response.CodeParamInvalid, err.Error())
+		case errors.Is(err, task.ErrTaskNotFound):
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeParamInvalid, "Task not found.")
+		case errors.Is(err, task.ErrNoJobsToRetry):
+			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "No failed jobs available to retry.")
+		}
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to retry task.", map[string]any{"reason": err.Error()})
+	}
+
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task retry initiated successfully.", updatedTask)
+}
+
+func (h *TaskHandler) CancelTask(c fiber.Ctx) error {
+	idStr := c.Params("id")
+	taskID, err := uuid.Parse(idStr)
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+
+	userIdStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
+	}
+
+	ownerID, err := uuid.Parse(userIdStr)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+	}
+
+	cancelledTask, err := h.service.CancelTask(c.Context(), ownerID, taskID)
+	if err != nil {
+		if errors.Is(err, task.ErrTaskNotFound) {
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeParamInvalid, "Task not found.")
+		}
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to cancel task.", map[string]any{"reason": err.Error()})
+	}
+
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task cancelled successfully.", cancelledTask)
 }

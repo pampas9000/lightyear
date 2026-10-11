@@ -38,6 +38,10 @@ func newFile(db *gorm.DB, opts ...gen.DOOption) file {
 	_file.Status = field.NewString(tableName, "status")
 	_file.UploadID = field.NewString(tableName, "upload_id")
 	_file.UploadExpiresAt = field.NewTime(tableName, "upload_expires_at")
+	_file.UploadedAt = field.NewTime(tableName, "uploaded_at")
+	_file.Hash = field.NewString(tableName, "hash")
+	_file.Width = field.NewInt(tableName, "width")
+	_file.Height = field.NewInt(tableName, "height")
 	_file.OwnerID = field.NewField(tableName, "owner_id")
 	_file.InputToJobs = fileHasManyInputToJobs{
 		db: db.Session(&gorm.Session{}),
@@ -208,6 +212,32 @@ func newFile(db *gorm.DB, opts ...gen.DOOption) file {
 		}{
 			RelationField: field.NewRelation("InputToJobs.OutputFile", "models.File"),
 		},
+		Inputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("InputToJobs.Inputs", "models.JobInput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("InputToJobs.Inputs.File", "models.File"),
+			},
+		},
+		Outputs: struct {
+			field.RelationField
+			File struct {
+				field.RelationField
+			}
+		}{
+			RelationField: field.NewRelation("InputToJobs.Outputs", "models.JobOutput"),
+			File: struct {
+				field.RelationField
+			}{
+				RelationField: field.NewRelation("InputToJobs.Outputs.File", "models.File"),
+			},
+		},
 	}
 
 	_file.OutputFromJobs = fileHasManyOutputFromJobs{
@@ -241,6 +271,10 @@ type file struct {
 	Status          field.String
 	UploadID        field.String
 	UploadExpiresAt field.Time
+	UploadedAt      field.Time
+	Hash            field.String
+	Width           field.Int
+	Height          field.Int
 	OwnerID         field.Field
 	InputToJobs     fileHasManyInputToJobs
 
@@ -273,6 +307,10 @@ func (f *file) updateTableName(table string) *file {
 	f.Status = field.NewString(table, "status")
 	f.UploadID = field.NewString(table, "upload_id")
 	f.UploadExpiresAt = field.NewTime(table, "upload_expires_at")
+	f.UploadedAt = field.NewTime(table, "uploaded_at")
+	f.Hash = field.NewString(table, "hash")
+	f.Width = field.NewInt(table, "width")
+	f.Height = field.NewInt(table, "height")
 	f.OwnerID = field.NewField(table, "owner_id")
 
 	f.fillFieldMap()
@@ -290,7 +328,7 @@ func (f *file) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (f *file) fillFieldMap() {
-	f.fieldMap = make(map[string]field.Expr, 14)
+	f.fieldMap = make(map[string]field.Expr, 18)
 	f.fieldMap["id"] = f.ID
 	f.fieldMap["created_at"] = f.CreatedAt
 	f.fieldMap["updated_at"] = f.UpdatedAt
@@ -301,6 +339,10 @@ func (f *file) fillFieldMap() {
 	f.fieldMap["status"] = f.Status
 	f.fieldMap["upload_id"] = f.UploadID
 	f.fieldMap["upload_expires_at"] = f.UploadExpiresAt
+	f.fieldMap["uploaded_at"] = f.UploadedAt
+	f.fieldMap["hash"] = f.Hash
+	f.fieldMap["width"] = f.Width
+	f.fieldMap["height"] = f.Height
 	f.fieldMap["owner_id"] = f.OwnerID
 
 }
@@ -382,6 +424,18 @@ type fileHasManyInputToJobs struct {
 	}
 	OutputFile struct {
 		field.RelationField
+	}
+	Inputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
+	}
+	Outputs struct {
+		field.RelationField
+		File struct {
+			field.RelationField
+		}
 	}
 }
 
