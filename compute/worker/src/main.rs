@@ -2,7 +2,7 @@ use anyhow::Result;
 
 mod config;
 mod error;
-mod handler;
+mod job;
 mod queue;
 mod redis_connection;
 mod storage;
@@ -28,37 +28,30 @@ async fn main() -> Result<()> {
     }
     println!("S3 Bucket: {}", config.s3.bucket);
 
-    // Initialize S3 client
-    let s3_client = storage::build_s3_client(
+    let s3 = storage::build_client(
         &config.s3.endpoint,
         &config.s3.access_id,
         &config.s3.access_key,
         &config.s3.region,
-    )
-    .await;
-    println!("S3 client initialized.");
-
-    // Initialize Redis client
+    );
     let redis_client = redis::Client::open(config.redis_url.as_str())?;
-    println!("Redis client initialized.");
-
-    // Connect to Redis once (Fail fast during startup if Redis is unreachable)
+    // Fail fast at startup if Redis is unreachable.
     let conn = redis_connection::connect_once(&redis_client)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to Redis on startup: {}", e))?;
-    println!("Connected to Redis successfully.");
+    println!("Connected to Redis.");
 
-    // Initialize Queue adapter
-    let queue_adapter = queue::QueueAdapter::new(conn);
-
-    // Initialize and run the Worker consumer runtime
-    let mut worker_runtime = worker::Worker::new(
-        redis_client,
-        queue_adapter,
-        s3_client,
-        config.s3.bucket.clone(),
-    );
-    worker_runtime.run().await?;
+    let ctx = job::Context {
+        s3,
+        bucket: config.s3.bucket.clone(),
+        max_source_bytes: config.max_source_bytes,
+        limits: compute_imageops::Limits {
+            max_pixels: config.max_pixels,
+        },
+    };
+    worker::Worker::new(redis_client, queue::Queue::new(conn), ctx)
+        .run()
+        .await?;
 
     Ok(())
 }

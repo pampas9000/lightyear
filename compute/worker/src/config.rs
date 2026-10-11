@@ -14,12 +14,25 @@ pub struct S3Config {
 
 #[derive(Debug, Deserialize, Validate, Clone)]
 pub struct WorkerConfig {
-    #[allow(dead_code)]
-    pub database_url: String,
     pub redis_url: String,
 
     #[validate(nested)]
     pub s3: S3Config,
+
+    /// Largest source object accepted, in bytes.
+    #[serde(default = "default_max_source_bytes")]
+    pub max_source_bytes: u64,
+    /// Largest source image accepted, in pixels.
+    #[serde(default = "default_max_pixels")]
+    pub max_pixels: u64,
+}
+
+fn default_max_source_bytes() -> u64 {
+    200 * 1024 * 1024
+}
+
+fn default_max_pixels() -> u64 {
+    compute_imageops::Limits::default().max_pixels
 }
 
 impl WorkerConfig {
@@ -34,9 +47,6 @@ impl WorkerConfig {
             .add_source(Environment::default().separator("__"));
 
         // Map standard flat environment variables if they are present
-        if let Ok(db_url) = std::env::var("DATABASE_URL") {
-            builder = builder.set_override("database_url", db_url)?;
-        }
         if let Ok(redis_url) = std::env::var("REDIS_URL") {
             builder = builder.set_override("redis_url", redis_url)?;
         }
@@ -54,6 +64,12 @@ impl WorkerConfig {
         }
         if let Ok(bucket) = std::env::var("S3_BUCKET") {
             builder = builder.set_override("s3.bucket", bucket)?;
+        }
+        if let Ok(bytes) = std::env::var("WORKER_MAX_SOURCE_BYTES") {
+            builder = builder.set_override("max_source_bytes", bytes)?;
+        }
+        if let Ok(pixels) = std::env::var("WORKER_MAX_PIXELS") {
+            builder = builder.set_override("max_pixels", pixels)?;
         }
 
         let settings: WorkerConfig = builder.build()?.try_deserialize()?;

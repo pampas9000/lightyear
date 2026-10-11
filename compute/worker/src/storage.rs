@@ -1,130 +1,81 @@
-use anyhow::{Result, anyhow};
+use crate::error::ComputeError;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
-use std::path::Path;
+use aws_sdk_s3::primitives::ByteStream;
 
-/// Builds a Cloudflare R2 compatible AWS S3 client using static credentials.
-pub async fn build_s3_client(
+/// Builds an S3 (R2-compatible) client with static credentials.
+pub fn build_client(
     endpoint: &Option<String>,
     access_key_id: &str,
     secret_access_key: &str,
-    region_opt: &Option<String>,
+    region: &Option<String>,
 ) -> Client {
     let credentials = Credentials::new(access_key_id, secret_access_key, None, None, "Static");
-
-    let region = Region::new(region_opt.clone().unwrap_or_else(|| "auto".to_string()));
-
-    let mut config_builder = aws_sdk_s3::config::Builder::new()
+    let mut builder = aws_sdk_s3::config::Builder::new()
         .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
         .credentials_provider(credentials)
-        .region(region)
+        .region(Region::new(region.clone().unwrap_or_else(|| "auto".into())))
         .force_path_style(true);
-
     if let Some(ep) = endpoint {
-        config_builder = config_builder.endpoint_url(ep);
+        builder = builder.endpoint_url(ep);
     }
-
-    Client::from_conf(config_builder.build())
+    Client::from_conf(builder.build())
 }
 
-/// Parses an S3 URI string into a (bucket, key) tuple.
-/// If it does not start with `s3://`, treats the path as a key under the default bucket.
-pub fn parse_s3_path(path: &str, default_bucket: &str) -> (String, String) {
-    if let Some(stripped) = path.strip_prefix("s3://") {
-        if let Some((bucket, key)) = stripped.split_once('/') {
-            (bucket.to_string(), key.to_string())
-        } else {
-            (stripped.to_string(), String::new())
-        }
-    } else {
-        (default_bucket.to_string(), path.to_string())
-    }
-}
-
-/// Downloads a file from S3 and writes it to a local file path.
-pub async fn download_from_s3(
+/// Downloads an object, refusing anything larger than `max_bytes`.
+pub async fn download(
     client: &Client,
     bucket: &str,
     key: &str,
-    local_path: &Path,
-) -> Result<()> {
-    let result = client
+    max_bytes: u64,
+) -> Result<Vec<u8>, ComputeError> {
+    let object = client
         .get_object()
         .bucket(bucket)
         .key(key)
         .send()
         .await
-        .map_err(|e| {
-            anyhow!(
-                "Failed to download from S3 (bucket: {}, key: {}): {}",
-                bucket,
-                key,
-                e
-            )
+        .map_err(|e| match e.as_service_error() {
+            Some(service) if service.is_no_such_key() => {
+                ComputeError::SourceUnavailable(format!("source object {key} does not exist"))
+            }
+            _ => ComputeError::StorageFailed(format!("download {key}: {e}")),
         })?;
-
-    let data = result
+    let size = object.content_length().unwrap_or(0).max(0) as u64;
+    if size > max_bytes {
+        return Err(ComputeError::SourceUnavailable(format!(
+            "source is {size} bytes, above the {max_bytes}-byte limit"
+        )));
+    }
+    let bytes = object
         .body
         .collect()
         .await
-        .map_err(|e| anyhow!("Failed to read S3 body: {}", e))?;
-
-    tokio::fs::write(local_path, data.into_bytes())
-        .await
-        .map_err(|e| anyhow!("Failed to write downloaded file to local path: {}", e))?;
-
-    Ok(())
+        .map_err(|e| ComputeError::StorageFailed(format!("read {key}: {e}")))?
+        .into_bytes();
+    if bytes.len() as u64 > max_bytes {
+        return Err(ComputeError::SourceUnavailable(format!(
+            "source exceeds the {max_bytes}-byte limit"
+        )));
+    }
+    Ok(bytes.to_vec())
 }
 
-/// Uploads a local file back to S3.
-pub async fn upload_to_s3(
+pub async fn upload(
     client: &Client,
     bucket: &str,
     key: &str,
-    local_path: &Path,
-) -> Result<()> {
-    let body = aws_sdk_s3::primitives::ByteStream::from_path(local_path)
-        .await
-        .map_err(|e| anyhow!("Failed to read local file for S3 upload: {}", e))?;
-
+    bytes: Vec<u8>,
+    content_type: &str,
+) -> Result<(), ComputeError> {
     client
         .put_object()
         .bucket(bucket)
         .key(key)
-        .body(body)
+        .content_type(content_type)
+        .body(ByteStream::from(bytes))
         .send()
         .await
-        .map_err(|e| {
-            anyhow!(
-                "Failed to upload to S3 (bucket: {}, key: {}): {}",
-                bucket,
-                key,
-                e
-            )
-        })?;
-
+        .map_err(|e| ComputeError::StorageFailed(format!("upload {key}: {e}")))?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_s3_path() {
-        // Full URI
-        let (bucket, key) = parse_s3_path("s3://my-bucket/uploads/file.png", "default-bucket");
-        assert_eq!(bucket, "my-bucket");
-        assert_eq!(key, "uploads/file.png");
-
-        // Raw key fallback
-        let (bucket, key) = parse_s3_path("uploads/file.png", "default-bucket");
-        assert_eq!(bucket, "default-bucket");
-        assert_eq!(key, "uploads/file.png");
-
-        // URI without slash
-        let (bucket, key) = parse_s3_path("s3://isolated-bucket", "default-bucket");
-        assert_eq!(bucket, "isolated-bucket");
-        assert_eq!(key, "");
-    }
 }

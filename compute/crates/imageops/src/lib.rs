@@ -164,8 +164,8 @@ fn thumbnail(input: &[u8], options: &ImageOptions) -> Result<VipsImage, Error> {
     if options.color == ColorIntent::Srgb {
         // Untagged sources are assumed to already be sRGB.
         opts = opts
-            .set("import_profile", "srgb")
-            .set("export_profile", "srgb");
+            .set("input_profile", "srgb")
+            .set("output_profile", "srgb");
     }
     VipsImage::thumbnail_buffer_with_opts(input, width, opts)
         .map_err(|e| vips_error("decode and resize", e))

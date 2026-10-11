@@ -11,9 +11,15 @@ use std::time::Duration;
 /// client in the stack, which has no such aggressive default, connects fine.
 const CONNECTION_SETUP_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// Per-command budget. The crate default is 500 ms, which a blocking
+/// `XREADGROUP` always exceeds and a remote Redis occasionally does too.
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Connection parameters shared by the startup probe and the runtime reconnects.
 fn connection_config() -> AsyncConnectionConfig {
-    AsyncConnectionConfig::new().set_connection_timeout(Some(CONNECTION_SETUP_TIMEOUT))
+    AsyncConnectionConfig::new()
+        .set_connection_timeout(Some(CONNECTION_SETUP_TIMEOUT))
+        .set_response_timeout(Some(RESPONSE_TIMEOUT))
 }
 
 /// Attempts to establish a multiplexed asynchronous connection to Redis once.

@@ -1,120 +1,108 @@
-//! Wire contracts for the asynchronous compute pipeline.
+//! Queue contract between the orchestrator and workers (version 2).
 //!
-//! These payloads are exchanged over Redis Streams between the job server and
-//! the compute worker, so they must stay serialization-compatible with the
-//! server-side definitions in `server/internal/task/queue.go`.
+//! Mirrors `server/internal/task/queue.go`; both sides run the fixtures in
+//! `docs/contracts/fixtures/{dispatch,results}-v2.json`.
 
-use crate::{Format, ImageEditOp};
+use crate::ImageOptions;
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA_VERSION: &str = "1.0";
-pub const COMPUTE_STREAM_KEY: &str = "transcoder:compute:stream";
-pub const COMPUTE_GROUP_NAME: &str = "transcoder:compute:group";
-pub const RESULTS_STREAM_KEY: &str = "transcoder:results:stream";
+pub const VERSION: u32 = 2;
+/// Dispatches for image workers. Workers read with `NOACK`: delivery is the
+/// acknowledgement, and the orchestrator's lease decides who owns an attempt.
+pub const QUEUE_IMAGE: &str = "q:image";
+pub const WORKER_GROUP: &str = "workers";
+/// Heartbeats and outcomes for the orchestrator.
+pub const QUEUE_RESULTS: &str = "q:results";
+pub const RESULTS_MAX_LEN: usize = 100_000;
+/// `CANCEL_KEY_PREFIX` + attempt ID exists when the attempt should be abandoned.
+pub const CANCEL_KEY_PREFIX: &str = "cancel:attempt:";
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct ComputePayload {
-    #[allow(dead_code)]
-    pub schema_version: String,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Dispatch {
+    pub v: u32,
     pub job_id: String,
     pub attempt_id: String,
-    pub input_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_format: Option<Format>,
-    pub output_path: String,
-    pub target_format: String,
-    pub params: Option<serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_file_id: Option<String>,
-    #[serde(default)]
-    pub attempt_scoped_cancel: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ops: Option<Vec<ImageEditOp>>,
+    pub op: String,
+    pub options: ImageOptions,
+    pub source_key: String,
+    pub output_key: String,
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct ResultPayload {
-    pub schema_version: String,
-    pub job_id: String,
-    pub attempt_id: String,
-    pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retryable: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub progress: Option<i32>,
-    pub metadata: serde_json::Value,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub artifacts: Vec<Artifact>,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum Status {
+    Running,
+    Completed,
+    Failed,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Artifact {
-    pub file_id: String,
-    pub path: String,
+    pub key: String,
     pub size: u64,
-    pub mime_type: String,
+    pub mime: String,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResultError {
+    pub code: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct JobResult {
+    pub v: u32,
+    pub job_id: String,
+    pub attempt_id: String,
+    pub status: Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact: Option<Artifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResultError>,
+}
+
+impl JobResult {
+    pub fn for_dispatch(dispatch: &Dispatch, status: Status) -> Self {
+        Self {
+            v: VERSION,
+            job_id: dispatch.job_id.clone(),
+            attempt_id: dispatch.attempt_id.clone(),
+            status,
+            progress: None,
+            artifact: None,
+            error: None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
-    const COMPUTE_FIXTURE: &str =
-        include_str!("../../../../docs/contracts/fixtures/compute-v1.0.json");
-    const RESULT_FIXTURE: &str =
-        include_str!("../../../../docs/contracts/fixtures/result-v1.0.json");
+    const DISPATCH: &str = include_str!("../../../../docs/contracts/fixtures/dispatch-v2.json");
+    const RESULTS: &str = include_str!("../../../../docs/contracts/fixtures/results-v2.json");
 
     #[test]
-    fn reads_shared_compute_fixture_and_legacy_defaults() {
-        let payload: ComputePayload = serde_json::from_str(COMPUTE_FIXTURE).unwrap();
-        assert_eq!(payload.schema_version, SCHEMA_VERSION);
-        assert!(payload.attempt_scoped_cancel);
-        assert_eq!(
-            payload.output_file_id.as_deref(),
-            Some("0198a000-0000-7000-8000-000000000003")
-        );
-        let mut legacy: serde_json::Value = serde_json::from_str(COMPUTE_FIXTURE).unwrap();
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("attempt_scoped_cancel");
-        legacy.as_object_mut().unwrap().remove("output_file_id");
-        let payload: ComputePayload = serde_json::from_value(legacy).unwrap();
-        assert!(!payload.attempt_scoped_cancel);
-        assert!(payload.output_file_id.is_none());
+    fn dispatch_fixture_round_trips() {
+        let dispatch: Dispatch = serde_json::from_str(DISPATCH).unwrap();
+        assert_eq!(dispatch.v, VERSION);
+        assert_eq!(dispatch.op, "image.convert");
+        let expected: Value = serde_json::from_str(DISPATCH).unwrap();
+        assert_eq!(serde_json::to_value(dispatch).unwrap(), expected);
     }
 
     #[test]
-    fn writes_shared_result_fixture() {
-        let compute: ComputePayload = serde_json::from_str(COMPUTE_FIXTURE).unwrap();
-        let result = ResultPayload {
-            schema_version: SCHEMA_VERSION.to_string(),
-            job_id: compute.job_id,
-            attempt_id: compute.attempt_id,
-            status: "COMPLETED".to_string(),
-            error_message: None,
-            error_code: None,
-            retryable: None,
-            progress: Some(100),
-            metadata: serde_json::json!({
-                "output_size_bytes": 1234, "mime_type": "image/avif", "width": 512, "height": 256
-            }),
-            artifacts: vec![Artifact {
-                file_id: compute.output_file_id.unwrap(),
-                path: compute.output_path,
-                size: 1234,
-                mime_type: "image/avif".to_string(),
-                width: 512,
-                height: 256,
-            }],
-        };
-        let expected: serde_json::Value = serde_json::from_str(RESULT_FIXTURE).unwrap();
-        assert_eq!(serde_json::to_value(result).unwrap(), expected);
+    fn result_fixtures_round_trip() {
+        let expected: Vec<Value> = serde_json::from_str(RESULTS).unwrap();
+        for value in expected {
+            let result: JobResult = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(result).unwrap(), value);
+        }
     }
 }
