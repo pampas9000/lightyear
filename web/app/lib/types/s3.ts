@@ -1,6 +1,8 @@
 export interface MultipartUploadResponse {
   uploadId: string
   key: string
+  fileId?: string
+  fastUpload?: boolean
 }
 
 export interface PartSignatureResponse {

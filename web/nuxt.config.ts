@@ -25,7 +25,17 @@ export default defineNuxtConfig({
     },
     css: ["~/assets/styles/main.css"],
     vite: {
-        plugins: [tailwindcss()],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        plugins: [tailwindcss() as any],
+        worker: {
+            format: "es",
+        },
+        optimizeDeps: {
+            // @jsquash/jxl glue resolves its .wasm via `new URL(..., import.meta.url)`;
+            // pre-bundling it into /_nuxt/deps/ breaks that path in dev (404 -> invalid wasm magic).
+            // Excluding keeps the raw ESM source served so the relative wasm URL is correct.
+            exclude: ["@jsquash/jxl", "wasm-feature-detect"],
+        },
     },
     typescript: {
         strict: true,

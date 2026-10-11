@@ -2,9 +2,23 @@ import { ref } from 'vue'
 import { useRuntimeConfig } from '#app'
 
 export interface ComputeWasmModule {
+    default: (wasmBinaryUrl: string) => Promise<unknown>;
     browser_convert: (data: Uint8Array, format: string, quality: number) => Uint8Array;
+    browser_convert_advanced: (data: Uint8Array, format: string, quality: number, colorJson?: string) => Uint8Array;
+    browser_decode_raw_pixels: (data: Uint8Array) => {
+        width: number;
+        height: number;
+        is_16bit: boolean;
+        optimal_chroma: string;
+        pixels: Uint8Array;
+    };
     browser_get_metadata: (data: Uint8Array) => string;
-    browser_edit_image: (data: Uint8Array, opsJson: string, format: string, quality: number) => Uint8Array;
+    browser_edit_image: (data: Uint8Array, opsJson: string, format: string, quality: number, colorJson?: string) => Uint8Array;
+    browser_edit_to_raw_rgba: (data: Uint8Array, opsJson: string, colorJson?: string) => {
+        width: number;
+        height: number;
+        pixels: Uint8Array;
+    };
 }
 
 // Module-level globals (singleton worker across component mounts)
@@ -120,7 +134,8 @@ export function useComputeWasm() {
         data: Uint8Array,
         opsJson: string,
         format: string,
-        quality: number
+        quality: number,
+        color?: Record<string, any>
     ): Promise<Uint8Array> => {
         if (!import.meta.client) throw new Error('Cannot run in SSR mode')
         await initWasm()
@@ -132,7 +147,29 @@ export function useComputeWasm() {
             w.postMessage({
                 type: 'edit_image',
                 id,
-                payload: { data, opsJson, format, quality }
+                payload: { data, opsJson, format, quality, color }
+            })
+        })
+    }
+
+    const convertImage = async (
+        data: Uint8Array,
+        format: string,
+        quality: number,
+        color?: Record<string, any>,
+        isDirectBypassEligible: boolean = true
+    ): Promise<Uint8Array> => {
+        if (!import.meta.client) throw new Error('Cannot run in SSR mode')
+        await initWasm()
+        const w = getWorker()
+        const id = Math.random().toString(36).substring(2, 9)
+
+        return new Promise<Uint8Array>((resolve, reject) => {
+            activeRequests.set(id, { resolve, reject })
+            w.postMessage({
+                type: 'convert',
+                id,
+                payload: { data, format, quality, color, isDirectBypassEligible }
             })
         })
     }
@@ -143,6 +180,7 @@ export function useComputeWasm() {
         error,
         initWasm,
         getMetadata,
-        editImage
+        editImage,
+        convertImage,
     }
 }

@@ -15,15 +15,11 @@ import { useAuth } from '~/composables/useAuth'
 import type { ApiResponse } from '~/lib/types/api'
 import type { User } from '~/composables/useAuth'
 
-const { user } = useAuth()
+const { fetchUser } = useAuth()
 
-// Fetch user session state during SSR / initial hydration by forwarding the client's cookies.
-const headers = useRequestHeaders(['cookie'])
-const { data } = await useAsyncData('auth_user_init', () => {
-    return $fetch<ApiResponse<User>>('/api/me', { headers }).catch(() => null)
+await fetchUser()
+
+onMounted(() => {
+    fetchUser()
 })
-
-if (data.value && data.value.success) {
-    user.value = data.value.data
-}
 </script>

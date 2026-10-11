@@ -460,12 +460,14 @@
                                 <SelectItem value="jpeg">JPEG</SelectItem>
                                 <SelectItem value="png">PNG</SelectItem>
                                 <SelectItem value="avif">AVIF</SelectItem>
+                                <SelectItem value="heic">HEIC</SelectItem>
                                 <SelectItem value="jxl">JPEG XL (JXL)</SelectItem>
                             </SelectContent>
                         </Select>
 
                         <!-- Quality setting -->
-                        <div v-if="targetFormat === 'jpeg' || targetFormat === 'avif'" class="space-y-2 pt-2">
+                        <div v-if="targetFormat === 'jpeg' || targetFormat === 'avif' || targetFormat === 'heic' || targetFormat === 'jxl'"
+                            class="space-y-2 pt-2">
                             <div class="flex justify-between text-xs">
                                 <Label class="font-bold text-ink">{{ $t('wasm_sandbox.quality') }}</Label>
                                 <span class="font-bold text-primary font-mono">{{ compressionQuality }}%</span>
@@ -493,7 +495,7 @@
                             <span>{{ $t('wasm_sandbox.webp_info') }}</span>
                         </div>
 
-                        <!-- Jxl notice -->
+                        <!-- Jxl JPEG direct-bypass notice -->
                         <div v-else-if="targetFormat === 'jxl'"
                             class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
                             <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
@@ -587,100 +589,92 @@
 
                     <Separator class="bg-hairline" />
 
-                    <!-- Rotations & Flips -->
-                    <div class="space-y-3">
-                        <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle block">{{
-                            $t('wasm_sandbox.transform') }}</Label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <Button variant="outline"
-                                class="h-9 text-xs font-medium border-hairline hover:bg-surface-2 cursor-pointer gap-1"
-                                :class="{ 'bg-primary/5 text-primary border-primary/20 font-bold': rotateAngle === 90 }"
-                                :disabled="!originalFile" @click="toggleRotate(90)">
-                                <RotateCw class="w-3 h-3" />
-                                90°
-                            </Button>
-                            <Button variant="outline"
-                                class="h-9 text-xs font-medium border-hairline hover:bg-surface-2 cursor-pointer gap-1"
-                                :class="{ 'bg-primary/5 text-primary border-primary/20 font-bold': rotateAngle === 180 }"
-                                :disabled="!originalFile" @click="toggleRotate(180)">
-                                <RotateCw class="w-3 h-3" />
-                                180°
-                            </Button>
-                            <Button variant="outline"
-                                class="h-9 text-xs font-medium border-hairline hover:bg-surface-2 cursor-pointer gap-1"
-                                :class="{ 'bg-primary/5 text-primary border-primary/20 font-bold': flipH }"
-                                :disabled="!originalFile" @click="toggleFlip('h')">
-                                <FlipHorizontal class="w-3 h-3" />
-                                {{ $t('wasm_sandbox.flip_h') }}
-                            </Button>
-                            <Button variant="outline"
-                                class="h-9 text-xs font-medium border-hairline hover:bg-surface-2 cursor-pointer gap-1"
-                                :class="{ 'bg-primary/5 text-primary border-primary/20 font-bold': flipV }"
-                                :disabled="!originalFile" @click="toggleFlip('v')">
-                                <FlipVertical class="w-3 h-3" />
-                                {{ $t('wasm_sandbox.flip_v') }}
-                            </Button>
-                        </div>
-                    </div>
-
-                    <Separator class="bg-hairline" />
-
-                    <!-- Visual Enhancements -->
+                    <!-- Color & Dynamic Range Pipeline -->
                     <div class="space-y-4">
-                        <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle block">{{
-                            $t('wasm_sandbox.adjustments') }}</Label>
-
-                        <!-- Grayscale -->
                         <div class="flex items-center justify-between">
-                            <span class="text-xs font-semibold text-ink">{{ $t('wasm_sandbox.grayscale') }}</span>
+                            <div class="flex flex-col gap-0.5">
+                                <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5">
+                                    <Sparkles class="w-3.5 h-3.5 text-primary" />
+                                    色彩与动态范围管线
+                                </Label>
+                                <span class="text-xs text-ink-subtle">按源图色彩空间转换到 sRGB，支持色深保护、色调映射与抗色带抖动</span>
+                            </div>
                             <button type="button"
                                 class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                :class="grayscaleEnabled ? 'bg-primary' : 'bg-surface-2 border-hairline'"
-                                :disabled="!originalFile" @click="toggleGrayscale">
+                                :class="enableColorPipeline ? 'bg-primary' : 'bg-surface-2 border-hairline'"
+                                :disabled="!originalFile"
+                                @click="enableColorPipeline = !enableColorPipeline; onParameterChange()">
                                 <span
                                     class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
-                                    :class="grayscaleEnabled ? 'translate-x-4' : 'translate-x-0'" />
+                                    :class="enableColorPipeline ? 'translate-x-4' : 'translate-x-0'" />
                             </button>
                         </div>
 
-                        <!-- Brightness -->
-                        <div class="space-y-2">
-                            <div class="flex justify-between text-xs">
-                                <span class="font-medium text-ink-subtle">{{ $t('wasm_sandbox.brightness') }}</span>
-                                <span class="font-mono text-ink font-bold"
-                                    :class="{ 'text-primary': brightness !== 0 }">
-                                    {{ brightness > 0 ? '+' : '' }}{{ brightness }}
+                        <div v-if="enableColorPipeline" class="space-y-3 pt-1 animate-fade-in duration-200">
+                            <div class="space-y-1.5">
+                                <span class="text-xs font-bold text-ink-subtle uppercase">源图色彩空间 (Color Space)</span>
+                                <Select v-model="colorEncoding.color_space" @update:modelValue="onParameterChange">
+                                    <SelectTrigger
+                                        class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
+                                        <SelectItem v-for="option in sourceColorSpaceOptions" :key="option.value"
+                                            :value="option.value">{{ option.label }}</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <span class="block text-[11px] text-ink-subtle">
+                                    此处仅声明源图色彩空间用于正确解析；像素不做色域转换
+                                </span>
+                                <span v-if="isWideGamutSource"
+                                    class="block text-[11px] text-amber-600 dark:text-amber-400">
+                                    浏览器端编码器无法写入 ICC，广色域原色将以无标识输出，颜色可能偏饱和；需要保留请用服务端转码
                                 </span>
                             </div>
-                            <input v-model.number="brightness" type="range" min="-100" max="100"
-                                class="w-full accent-primary h-1 bg-surface-2 rounded-lg cursor-pointer"
-                                :disabled="!originalFile" @change="onParameterChange" />
-                        </div>
 
-                        <!-- Contrast -->
-                        <div class="space-y-2">
-                            <div class="flex justify-between text-xs">
-                                <span class="font-medium text-ink-subtle">{{ $t('wasm_sandbox.contrast') }}</span>
-                                <span class="font-mono text-ink font-bold" :class="{ 'text-primary': contrast !== 0 }">
-                                    {{ contrast > 0 ? '+' : '' }}{{ contrast }}
-                                </span>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="space-y-1.5">
+                                    <span class="text-xs font-bold text-ink-subtle uppercase">输出色深 (Depth)</span>
+                                    <Select
+                                        :model-value="String(colorEncoding.nominal_bit_depth)"
+                                        @update:model-value="val => { colorEncoding.nominal_bit_depth = Number(val); onParameterChange() }">
+                                        <SelectTrigger
+                                            class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
+                                            <SelectItem value="8">8-bit (抖动降深)</SelectItem>
+                                            <SelectItem value="10">10-bit (保留高位深)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div class="space-y-1.5">
+                                    <span class="text-xs font-bold text-ink-subtle uppercase">色调映射 (Tone)</span>
+                                    <Select v-model="colorEncoding.tone_mapping" @update:modelValue="onParameterChange">
+                                        <SelectTrigger
+                                            class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
+                                            <SelectItem value="none">None</SelectItem>
+                                            <SelectItem value="aces_filmic">ACES Filmic</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <span v-if="isHdrSource && colorEncoding.tone_mapping === 'none'"
+                                        class="block text-[11px] text-amber-600 dark:text-amber-400">
+                                        HDR 源图未开启色调映射，输出可能过暗或过曝
+                                    </span>
+                                </div>
                             </div>
-                            <input v-model.number="contrast" type="range" min="-100" max="100"
-                                class="w-full accent-primary h-1 bg-surface-2 rounded-lg cursor-pointer"
-                                :disabled="!originalFile" @change="onParameterChange" />
-                        </div>
 
-                        <!-- Blur -->
-                        <div class="space-y-2">
-                            <div class="flex justify-between text-xs">
-                                <span class="font-medium text-ink-subtle">{{ $t('wasm_sandbox.blur') }}</span>
-                                <span class="font-mono text-ink font-bold" :class="{ 'text-primary': blurSigma > 0 }">
-                                    {{ blurSigma.toFixed(1) }} px
-                                </span>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-ink-subtle uppercase">抖动 (Dither)</span>
+                                <Switch
+                                    :checked="colorEncoding.dither ?? false"
+                                    :disabled="Number(colorEncoding.nominal_bit_depth) >= 10"
+                                    @update:checked="(val: boolean) => { colorEncoding.dither = val; onParameterChange() }"
+                                />
                             </div>
-                            <input v-model.number="blurSigma" type="range" min="0" max="10" step="0.5"
-                                class="w-full accent-primary h-1 bg-surface-2 rounded-lg cursor-pointer"
-                                :disabled="!originalFile" @change="onParameterChange" />
                         </div>
                     </div>
 
@@ -729,6 +723,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import Switch from '@/components/ui/switch/Switch.vue'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export type BatchImageItem = {
@@ -856,13 +851,35 @@ const resizeHeight = ref<number>(0)
 const aspectLocked = ref<boolean>(true)
 const originalAspectRatio = ref<number>(1)
 const resizeFilter = ref<string>('lanczos3')
-const rotateAngle = ref<number>(0)
-const flipH = ref<boolean>(false)
-const flipV = ref<boolean>(false)
-const grayscaleEnabled = ref<boolean>(false)
-const brightness = ref<number>(0)
-const contrast = ref<number>(0)
-const blurSigma = ref<number>(0)
+
+// Color & Dynamic Range pipeline (local WASM)
+type SourceColorSpace = 'srgb' | 'display_p3' | 'bt2020_pq' | 'bt2020_hlg' | 'linear'
+const sourceColorSpaceOptions: Array<{ value: SourceColorSpace; label: string }> = [
+    { value: 'srgb', label: 'sRGB (普通屏幕 / 网络)' },
+    { value: 'display_p3', label: 'Display P3 (苹果广色域)' },
+    { value: 'bt2020_pq', label: 'HDR10 (BT.2020 + PQ)' },
+    { value: 'bt2020_hlg', label: 'HLG (BT.2020 广播 HDR)' },
+    { value: 'linear', label: 'Linear (线性光素材)' },
+]
+
+const enableColorPipeline = ref<boolean>(false)
+const colorEncoding = ref<{
+    color_space: SourceColorSpace
+    nominal_bit_depth: number
+    tone_mapping: string
+    dither: boolean
+}>({
+    color_space: 'srgb',
+    nominal_bit_depth: 8,
+    tone_mapping: 'none',
+    dither: true,
+})
+const isHdrSource = computed(
+    () => colorEncoding.value.color_space === 'bt2020_pq' || colorEncoding.value.color_space === 'bt2020_hlg',
+)
+// Display P3 is the only wide-gamut space whose pixel values would render
+// oversaturated if the browser-side encoder drops the ICC tag.
+const isWideGamutSource = computed(() => colorEncoding.value.color_space === 'display_p3')
 
 // Manual Apply & Trigger States
 const autoApply = ref<boolean>(false)
@@ -920,13 +937,13 @@ const resetSandbox = () => {
     resizeWidth.value = 0
     resizeHeight.value = 0
     aspectLocked.value = true
-    rotateAngle.value = 0
-    flipH.value = false
-    flipV.value = false
-    grayscaleEnabled.value = false
-    brightness.value = 0
-    contrast.value = 0
-    blurSigma.value = 0
+    enableColorPipeline.value = false
+    colorEncoding.value = {
+        color_space: 'srgb',
+        nominal_bit_depth: 8,
+        tone_mapping: 'none',
+        dither: true,
+    }
     autoApply.value = false
     hasPendingChanges.value = false
     dragCounter.value = 0
@@ -1132,29 +1149,7 @@ const processSingleItem = async (item: BatchImageItem) => {
 
     const ops: any[] = []
 
-    // Grayscale
-    if (grayscaleEnabled.value) {
-        ops.push({ type: 'grayscale' })
-    }
-
-    // Adjustments
-    if (brightness.value !== 0 || contrast.value !== 0) {
-        ops.push({
-            type: 'adjust',
-            brightness: brightness.value,
-            contrast: contrast.value
-        })
-    }
-
-    // Blur
-    if (blurSigma.value > 0) {
-        ops.push({
-            type: 'blur',
-            sigma: blurSigma.value
-        })
-    }
-
-    // Resize
+    // Resize (optional boundary constraint)
     if (item.metadata && targetW > 0 && targetH > 0 && (targetW !== item.metadata.width || targetH !== item.metadata.height)) {
         ops.push({
             type: 'resize',
@@ -1164,25 +1159,22 @@ const processSingleItem = async (item: BatchImageItem) => {
         })
     }
 
-    // Flip & Rotate
-    if (flipH.value) {
-        ops.push({ type: 'flip', direction: 'horizontal' })
-    }
-    if (flipV.value) {
-        ops.push({ type: 'flip', direction: 'vertical' })
-    }
-    if (rotateAngle.value > 0) {
-        ops.push({ type: 'rotate', degree: rotateAngle.value })
-    }
-
     const startTime = performance.now()
     const opsJson = JSON.stringify(ops)
+
+    const color = enableColorPipeline.value
+        ? {
+            ...colorEncoding.value,
+            nominal_bit_depth: Number(colorEncoding.value.nominal_bit_depth),
+        }
+        : undefined
 
     const resultBytes = await editImage(
         item.originalBuffer,
         opsJson,
         targetFormat.value,
-        compressionQuality.value
+        compressionQuality.value,
+        color
     )
 
     const duration = performance.now() - startTime
@@ -1336,22 +1328,6 @@ const handleHeightInput = () => {
     if (aspectLocked.value && originalAspectRatio.value && resizeHeight.value > 0) {
         resizeWidth.value = Math.round(resizeHeight.value * originalAspectRatio.value)
     }
-    onParameterChange()
-}
-
-const toggleRotate = (angle: number) => {
-    rotateAngle.value = rotateAngle.value === angle ? 0 : angle
-    onParameterChange()
-}
-
-const toggleFlip = (dir: 'h' | 'v') => {
-    if (dir === 'h') flipH.value = !flipH.value
-    if (dir === 'v') flipV.value = !flipV.value
-    onParameterChange()
-}
-
-const toggleGrayscale = () => {
-    grayscaleEnabled.value = !grayscaleEnabled.value
     onParameterChange()
 }
 
