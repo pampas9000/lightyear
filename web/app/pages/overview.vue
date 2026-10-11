@@ -127,7 +127,7 @@ const storagePercentage = computed(() => {
 
 const getTaskTargetFormat = (task: Task) => {
     if (task.jobs && task.jobs.length > 0) {
-        return task.jobs[0]?.target_format || 'Unknown'
+        return task.jobs[0]?.options?.format?.toUpperCase() || 'Unknown'
     }
     return 'Unknown'
 }

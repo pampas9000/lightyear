@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import type { Job } from '~/lib/types/task'
 import { getErrorDiagnostic } from '~/lib/utils/error-codes'
+import { describe } from '~/lib/image-options'
 import {
     Dialog,
     DialogContent,
@@ -85,11 +86,11 @@ const handleTuneRetry = () => {
                             <DialogTitle class="text-sm font-bold text-ink tracking-tight font-satoshi flex items-center gap-2">
                                 <span>作业失败异常诊断</span>
                                 <Badge variant="outline" class="font-mono text-[10px] font-semibold px-1.5 py-0 uppercase border-hairline">
-                                    {{ job?.target_format }}
+                                    {{ job?.options?.format }}
                                 </Badge>
                             </DialogTitle>
                             <DialogDescription class="text-xs text-ink-subtle truncate max-w-[420px]">
-                                {{ job?.input_file?.name || job?.input_path }}
+                                {{ job?.source_file?.name }}
                             </DialogDescription>
                         </div>
                     </div>
@@ -155,14 +156,14 @@ const handleTuneRetry = () => {
                 <!-- 3. Job Execution Metadata -->
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                     <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
-                        <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">转码引擎</span>
-                        <p class="text-xs font-bold text-ink font-mono">{{ job?.params?.engine || 'Auto' }}</p>
+                        <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">输出参数</span>
+                        <p class="text-xs font-bold text-ink font-mono">{{ describe(job?.options) }}</p>
                     </div>
 
                     <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
-                        <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">自动重试记录</span>
+                        <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">执行次数</span>
                         <p class="text-xs font-bold text-ink font-mono">
-                            {{ job?.retry_count || 0 }} / {{ job?.max_retries || 3 }} 次
+                            {{ job?.attempts || 0 }} / {{ job?.max_attempts || 3 }} 次
                         </p>
                     </div>
 

@@ -325,5 +325,46 @@
         "resize_hint": "提示：各圖片預設保持原始尺寸。開啟此項後，寬高將作為「最大尺寸邊界」對所有圖片按比例等比縮放。",
         "read_file_failed": "讀取檔案失敗: {error}",
         "parse_meta_failed": "解析元資料失敗: {error}"
+    },
+    "image_options": {
+        "source": "來源檔案",
+        "format": "輸出格式",
+        "formats": {
+            "avif": "體積最小",
+            "jxl": "高保真",
+            "webp": "相容最廣",
+            "jpeg": "通用",
+            "png": "無損",
+            "heic": "Apple 裝置"
+        },
+        "lossless": "無損",
+        "jxl_lossless_hint": "JPEG 來源在保留中繼資料時會無損重新封裝，可逐位元組還原原 JPEG。",
+        "quality": "品質",
+        "effort": "壓縮力度",
+        "effort_hint": "力度越高檔案越小，耗時也越長。",
+        "resize": "縮放",
+        "width": "最大寬度（px）",
+        "height": "最大高度（px）",
+        "fit": {
+            "inside": "等比縮入",
+            "cover": "裁切填滿",
+            "fill": "拉伸"
+        },
+        "enlarge": "允許放大",
+        "color": "色彩設定檔",
+        "color_keep": "保留來源",
+        "color_srgb": "轉為 sRGB",
+        "dynamic_range": "HDR",
+        "dynamic_range_keep": "保留",
+        "dynamic_range_sdr": "轉為 SDR",
+        "metadata": "EXIF / XMP",
+        "metadata_strip": "移除",
+        "metadata_keep": "保留",
+        "hdr_hint": "拍攝方向一律套用到像素。暫不支援 PQ/HLG 的 HDR 來源；UltraHDR JPEG 輸出為 JPEG 時保留 gain map。",
+        "advanced": "進階",
+        "chroma": "色度抽樣",
+        "bit_depth": "位元深度",
+        "auto": "自動",
+        "follow_source": "跟隨來源"
     }
 }

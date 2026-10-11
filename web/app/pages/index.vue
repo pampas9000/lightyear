@@ -446,237 +446,7 @@
                         </span>
                     </div>
 
-                    <!-- Format Selection -->
-                    <div class="space-y-3">
-                        <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle block">{{
-                            $t('wasm_sandbox.target_format') }}</Label>
-                        <Select v-model="targetFormat" @update:modelValue="onParameterChange">
-                            <SelectTrigger
-                                class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
-                                <SelectValue placeholder="Select format" />
-                            </SelectTrigger>
-                            <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                <SelectItem value="webp">WebP</SelectItem>
-                                <SelectItem value="jpeg">JPEG</SelectItem>
-                                <SelectItem value="png">PNG</SelectItem>
-                                <SelectItem value="avif">AVIF</SelectItem>
-                                <SelectItem value="heic">HEIC</SelectItem>
-                                <SelectItem value="jxl">JPEG XL (JXL)</SelectItem>
-                            </SelectContent>
-                        </Select>
-
-                        <!-- Quality setting -->
-                        <div v-if="targetFormat === 'jpeg' || targetFormat === 'avif' || targetFormat === 'heic' || targetFormat === 'jxl'"
-                            class="space-y-2 pt-2">
-                            <div class="flex justify-between text-xs">
-                                <Label class="font-bold text-ink">{{ $t('wasm_sandbox.quality') }}</Label>
-                                <span class="font-bold text-primary font-mono">{{ compressionQuality }}%</span>
-                            </div>
-                            <input v-model.number="compressionQuality" type="range" min="1" max="100"
-                                class="w-full accent-primary h-1 bg-surface-2 rounded-lg cursor-pointer"
-                                @change="onParameterChange" />
-                            <!-- Preset Quality Buttons -->
-                            <div class="grid grid-cols-4 gap-1.5 pt-1 select-none">
-                                <Button v-for="preset in [30, 60, 80, 95]" :key="preset" type="button" variant="outline"
-                                    class="h-8 text-xs font-bold border-hairline cursor-pointer select-none transition-all duration-200"
-                                    :class="{ 'bg-primary/5 text-primary border-primary/20': compressionQuality === preset }"
-                                    @click="selectQualityPreset(preset)">
-                                    {{ preset }}%
-                                </Button>
-                            </div>
-                            <span class="text-xs text-ink-subtle leading-normal block pt-1">{{
-                                $t('wasm_sandbox.quality_desc') }}</span>
-                        </div>
-
-                        <!-- Webp notice -->
-                        <div v-else-if="targetFormat === 'webp'"
-                            class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
-                            <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
-                            <span>{{ $t('wasm_sandbox.webp_info') }}</span>
-                        </div>
-
-                        <!-- Jxl encoding notice -->
-                        <div v-else-if="targetFormat === 'jxl'"
-                            class="p-3.5 bg-surface-2/30 border border-hairline rounded-lg text-xs text-ink-subtle leading-relaxed flex gap-2">
-                            <Info class="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
-                            <span>{{ $t('wasm_sandbox.jxl_info') }}</span>
-                        </div>
-                    </div>
-
-                    <Separator class="bg-hairline" />
-
-                    <!-- Dimensions & Rescaling -->
-                    <div class="space-y-4">
-                        <div class="flex justify-between items-center">
-                            <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle">{{
-                                $t('wasm_sandbox.resize') }}</Label>
-                            <div class="flex items-center gap-2">
-                                <button type="button"
-                                    class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                    :class="enableResize ? 'bg-primary' : 'bg-surface-2 border-hairline'"
-                                    :disabled="items.length === 0"
-                                    @click="enableResize = !enableResize; onParameterChange()">
-                                    <span
-                                        class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
-                                        :class="enableResize ? 'translate-x-4' : 'translate-x-0'" />
-                                </button>
-                                <span class="text-xs font-bold text-ink-subtle uppercase">{{
-                                    $t('wasm_sandbox.limit_max_dimension') }}</span>
-                            </div>
-                        </div>
-
-                        <!-- Collapsible resize parameters -->
-                        <div v-if="enableResize" class="space-y-4 pt-1 animate-fade-in duration-200">
-                            <!-- Aspect Ratio Lock -->
-                            <div class="flex justify-between items-center">
-                                <span class="text-xs text-ink-subtle font-medium">{{
-                                    $t('wasm_sandbox.max_dimension_constraint') }}</span>
-                                <div class="flex items-center gap-1 cursor-pointer select-none"
-                                    @click="aspectLocked = !aspectLocked">
-                                    <component :is="aspectLocked ? Link : Link2Off" class="w-3 h-3"
-                                        :class="aspectLocked ? 'text-primary' : 'text-ink-subtle'" />
-                                    <span class="text-xs font-bold"
-                                        :class="aspectLocked ? 'text-primary' : 'text-ink-subtle'">
-                                        {{ aspectLocked ? $t('wasm_sandbox.lock_ratio') :
-                                            $t('wasm_sandbox.unlock_ratio') }}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <!-- Dimensions Inputs -->
-                            <div class="grid grid-cols-2 gap-3">
-                                <div class="space-y-1">
-                                    <span class="text-xs font-bold text-ink-subtle uppercase">{{
-                                        $t('wasm_sandbox.width') }}</span>
-                                    <Input v-model.number="resizeWidth" type="number"
-                                        class="h-9 font-mono text-xs border-hairline focus:ring-1 focus:ring-primary/20 bg-canvas"
-                                        :disabled="items.length === 0" @input="handleWidthInput" />
-                                </div>
-                                <div class="space-y-1">
-                                    <span class="text-xs font-bold text-ink-subtle uppercase">{{
-                                        $t('wasm_sandbox.height') }}</span>
-                                    <Input v-model.number="resizeHeight" type="number"
-                                        class="h-9 font-mono text-xs border-hairline focus:ring-1 focus:ring-primary/20 bg-canvas"
-                                        :disabled="items.length === 0" @input="handleHeightInput" />
-                                </div>
-                            </div>
-
-                            <!-- Scaling Filter Selection -->
-                            <div class="space-y-1.5">
-                                <span class="text-xs font-bold text-ink-subtle uppercase">{{
-                                    $t('wasm_sandbox.scaling_filter') }}</span>
-                                <Select v-model="resizeFilter" @update:modelValue="onParameterChange">
-                                    <SelectTrigger
-                                        class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
-                                        <SelectValue placeholder="Select filter" />
-                                    </SelectTrigger>
-                                    <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                        <SelectItem value="nearest">Nearest (Fastest)</SelectItem>
-                                        <SelectItem value="triangle">Triangle (Linear)</SelectItem>
-                                        <SelectItem value="catmull-rom">Catmull-Rom (Smooth)</SelectItem>
-                                        <SelectItem value="gaussian">Gaussian (Soft)</SelectItem>
-                                        <SelectItem value="lanczos3">Lanczos3 (Sharpest / Recommended)</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <!-- Explanatory note when disabled -->
-                        <span v-else class="text-xs text-ink-subtle leading-normal block pt-1 select-none font-medium">
-                            {{ $t('wasm_sandbox.resize_hint') }}
-                        </span>
-                    </div>
-
-                    <Separator class="bg-hairline" />
-
-                    <!-- Color & Dynamic Range Pipeline -->
-                    <div class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <div class="flex flex-col gap-0.5">
-                                <Label class="text-xs font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5">
-                                    <Sparkles class="w-3.5 h-3.5 text-primary" />
-                                    色彩与动态范围管线
-                                </Label>
-                                <span class="text-xs text-ink-subtle">按源图色彩空间转换到 sRGB，支持色深保护、色调映射与抗色带抖动</span>
-                            </div>
-                            <button type="button"
-                                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                :class="enableColorPipeline ? 'bg-primary' : 'bg-surface-2 border-hairline'"
-                                :disabled="!originalFile"
-                                @click="enableColorPipeline = !enableColorPipeline; onParameterChange()">
-                                <span
-                                    class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
-                                    :class="enableColorPipeline ? 'translate-x-4' : 'translate-x-0'" />
-                            </button>
-                        </div>
-
-                        <div v-if="enableColorPipeline" class="space-y-3 pt-1 animate-fade-in duration-200">
-                            <div class="space-y-1.5">
-                                <span class="text-xs font-bold text-ink-subtle uppercase">源图色彩空间 (Color Space)</span>
-                                <Select v-model="colorEncoding.color_space" @update:modelValue="onParameterChange">
-                                    <SelectTrigger
-                                        class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                        <SelectItem v-for="option in sourceColorSpaceOptions" :key="option.value"
-                                            :value="option.value">{{ option.label }}</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <span class="block text-[11px] text-ink-subtle">
-                                    此处仅声明源图色彩空间用于正确解析；像素不做色域转换
-                                </span>
-                                <span v-if="isWideGamutSource"
-                                    class="block text-[11px] text-amber-600 dark:text-amber-400">
-                                    浏览器端编码器无法写入 ICC，广色域原色将以无标识输出，颜色可能偏饱和；需要保留请用服务端转码
-                                </span>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <div class="space-y-1.5">
-                                    <span class="text-xs font-bold text-ink-subtle uppercase">输出色深 (Depth)</span>
-                                    <Select
-                                        :model-value="String(colorEncoding.nominal_bit_depth)"
-                                        @update:model-value="val => { colorEncoding.nominal_bit_depth = Number(val); onParameterChange() }">
-                                        <SelectTrigger
-                                            class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                            <SelectItem value="8">8-bit (抖动降深)</SelectItem>
-                                            <SelectItem value="10">10-bit (保留高位深)</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div class="space-y-1.5">
-                                    <span class="text-xs font-bold text-ink-subtle uppercase">色调映射 (Tone)</span>
-                                    <Select v-model="colorEncoding.tone_mapping" @update:modelValue="onParameterChange">
-                                        <SelectTrigger
-                                            class="h-9 border-hairline bg-canvas text-xs focus:ring-primary/20 focus:ring-1 cursor-pointer">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent class="bg-surface-1 border border-hairline shadow-sm text-xs">
-                                            <SelectItem value="none">None</SelectItem>
-                                            <SelectItem value="aces_filmic">ACES Filmic</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <span v-if="isHdrSource && colorEncoding.tone_mapping === 'none'"
-                                        class="block text-[11px] text-amber-600 dark:text-amber-400">
-                                        HDR 源图未开启色调映射，输出可能过暗或过曝
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div class="flex items-center justify-between">
-                                <span class="text-xs font-bold text-ink-subtle uppercase">抖动 (Dither)</span>
-                                <Switch
-                                    :checked="colorEncoding.dither ?? false"
-                                    :disabled="Number(colorEncoding.nominal_bit_depth) >= 10"
-                                    @update:checked="(val: boolean) => { colorEncoding.dither = val; onParameterChange() }"
-                                />
-                            </div>
-                        </div>
-                    </div>
+                    <ImageOptionsForm v-model="options" :disabled="isProcessing" />
 
                 </div>
 
@@ -704,26 +474,24 @@
 
         <!-- Hidden input for file selection (always present in DOM to support dynamic image replacement) -->
         <input ref="fileInput" type="file" class="hidden"
-            accept="image/png, image/jpeg, image/webp, image/jxl" @change="handleFileChange" />
+            accept="image/png, image/jpeg, image/webp, image/jxl, image/avif" @change="handleFileChange" />
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useComputeWasm } from '~/composables/useComputeWasm'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
+import { useVips } from '~/composables/useVips'
+import ImageOptionsForm from '@/components/ImageOptionsForm.vue'
+import type { ImageOptions } from '~/lib/types/image-options'
+import { sanitize } from '~/lib/image-options'
 import {
-    Upload, Image, AlertTriangle, AlertCircle, Zap, Cpu, XCircle, X, Loader2,
-    Download, SlidersHorizontal, RotateCw, RotateCcw, Link, Link2Off,
-    FlipHorizontal, FlipVertical, Info, ArrowLeftRight, Trash2, Play, Sparkles, Check, GripVertical
+    Upload, Image, AlertTriangle, AlertCircle, Zap, Cpu, XCircle, X, Download, SlidersHorizontal, Info, ArrowLeftRight, Trash2, Play, Sparkles, Check
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import Switch from '@/components/ui/switch/Switch.vue'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 export type BatchImageItem = {
@@ -741,7 +509,7 @@ export type BatchImageItem = {
     processedFormat?: string
 }
 
-const { initWasm, getMetadata, editImage, isReady, error: wasmError } = useComputeWasm()
+const { probe, process, error: wasmError } = useVips()
 const { t } = useI18n()
 
 useHead({
@@ -751,7 +519,6 @@ useHead({
 // Original & Batch states
 const items = ref<BatchImageItem[]>([])
 const selectedItemId = ref<string | null>(null)
-const enableResize = ref<boolean>(false)
 const isReplacingActiveItem = ref<boolean>(false)
 const isProcessing = ref<boolean>(false)
 
@@ -844,42 +611,9 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 // Workbench Controls & Views
 const viewMode = ref<'side-by-side' | 'slider'>('slider')
-const targetFormat = ref<string>('webp')
-const compressionQuality = ref<number>(80)
-const resizeWidth = ref<number>(0)
-const resizeHeight = ref<number>(0)
-const aspectLocked = ref<boolean>(true)
-const originalAspectRatio = ref<number>(1)
-const resizeFilter = ref<string>('lanczos3')
-
-// Color & Dynamic Range pipeline (local WASM)
-type SourceColorSpace = 'srgb' | 'display_p3' | 'bt2020_pq' | 'bt2020_hlg' | 'linear'
-const sourceColorSpaceOptions: Array<{ value: SourceColorSpace; label: string }> = [
-    { value: 'srgb', label: 'sRGB (普通屏幕 / 网络)' },
-    { value: 'display_p3', label: 'Display P3 (苹果广色域)' },
-    { value: 'bt2020_pq', label: 'HDR10 (BT.2020 + PQ)' },
-    { value: 'bt2020_hlg', label: 'HLG (BT.2020 广播 HDR)' },
-    { value: 'linear', label: 'Linear (线性光素材)' },
-]
-
-const enableColorPipeline = ref<boolean>(false)
-const colorEncoding = ref<{
-    color_space: SourceColorSpace
-    nominal_bit_depth: number
-    tone_mapping: string
-    dither: boolean
-}>({
-    color_space: 'srgb',
-    nominal_bit_depth: 8,
-    tone_mapping: 'none',
-    dither: true,
-})
-const isHdrSource = computed(
-    () => colorEncoding.value.color_space === 'bt2020_pq' || colorEncoding.value.color_space === 'bt2020_hlg',
-)
-// Display P3 is the only wide-gamut space whose pixel values would render
-// oversaturated if the browser-side encoder drops the ICC tag.
-const isWideGamutSource = computed(() => colorEncoding.value.color_space === 'display_p3')
+const defaultSandboxOptions = (): ImageOptions => ({ format: 'webp' })
+const options = ref<ImageOptions>(defaultSandboxOptions())
+watch(options, () => onParameterChange(), { deep: true })
 
 // Manual Apply & Trigger States
 const autoApply = ref<boolean>(false)
@@ -893,14 +627,6 @@ const sliderPos = ref<number>(50)
 const isDragging = ref<boolean>(false)
 
 let processDebounceTimeout: any = null
-
-onMounted(async () => {
-    try {
-        await initWasm()
-    } catch (e) {
-        console.error('WASM load error in page:', e)
-    }
-})
 
 onBeforeUnmount(() => {
     clearDebounce()
@@ -932,22 +658,10 @@ const resetSandbox = () => {
     // Reset controls & view mode
     viewMode.value = 'slider'
     sliderPos.value = 50
-    targetFormat.value = 'webp'
-    compressionQuality.value = 80
-    resizeWidth.value = 0
-    resizeHeight.value = 0
-    aspectLocked.value = true
-    enableColorPipeline.value = false
-    colorEncoding.value = {
-        color_space: 'srgb',
-        nominal_bit_depth: 8,
-        tone_mapping: 'none',
-        dither: true,
-    }
+    options.value = defaultSandboxOptions()
     autoApply.value = false
     hasPendingChanges.value = false
     dragCounter.value = 0
-    enableResize.value = false
 }
 
 // Trigger browser file select
@@ -1064,30 +778,12 @@ const loadAndProcessItem = async (item: BatchImageItem) => {
         }
     }
 
-    if (!item.metadata) {
+    if (!item.metadata && item.originalBuffer) {
         try {
-            await initWasm()
-            if (isReady.value && item.originalBuffer) {
-                const metaJsonStr = await getMetadata(item.originalBuffer)
-                const meta = JSON.parse(metaJsonStr)
-                item.metadata = {
-                    width: meta.width,
-                    height: meta.height,
-                    format: meta.format,
-                    size: item.file.size
-                }
-
-                // If this item is currently selected, update aspect ratio guidelines
-                if (selectedItemId.value === item.id) {
-                    originalAspectRatio.value = meta.width / meta.height
-                    if (!enableResize.value) {
-                        resizeWidth.value = meta.width
-                        resizeHeight.value = meta.height
-                    }
-                }
-            }
+            const meta = await probe(item.originalBuffer)
+            item.metadata = { width: meta.width, height: meta.height, format: meta.format, size: item.file.size }
         } catch (e: any) {
-            console.error('WASM metadata extract failed:', e)
+            console.error('wasm-vips probe failed:', e)
             item.error = t('wasm_sandbox.parse_meta_failed', { error: e.message || String(e) })
             item.status = 'failed'
             return
@@ -1132,70 +828,24 @@ const triggerQueueProcessing = async () => {
 }
 
 const processSingleItem = async (item: BatchImageItem) => {
-    if (!item.originalBuffer || !isReady.value) return
-
-    // Brief tick to allow UI threads to update
-    await new Promise((resolve) => setTimeout(resolve, 10))
-
-    // Proportional dimensions calculations under max constraint box
-    let targetW = item.metadata ? item.metadata.width : 0
-    let targetH = item.metadata ? item.metadata.height : 0
-
-    if (enableResize.value && resizeWidth.value > 0 && resizeHeight.value > 0 && item.metadata) {
-        const scale = Math.min(resizeWidth.value / item.metadata.width, resizeHeight.value / item.metadata.height)
-        targetW = Math.round(item.metadata.width * scale)
-        targetH = Math.round(item.metadata.height * scale)
-    }
-
-    const ops: any[] = []
-
-    // Resize (optional boundary constraint)
-    if (item.metadata && targetW > 0 && targetH > 0 && (targetW !== item.metadata.width || targetH !== item.metadata.height)) {
-        ops.push({
-            type: 'resize',
-            width: targetW,
-            height: targetH,
-            filter: resizeFilter.value
-        })
-    }
-
+    if (!item.originalBuffer) return
     const startTime = performance.now()
-    const opsJson = JSON.stringify(ops)
-
-    const color = enableColorPipeline.value
-        ? {
-            ...colorEncoding.value,
-            nominal_bit_depth: Number(colorEncoding.value.nominal_bit_depth),
-        }
-        : undefined
-
-    const resultBytes = await editImage(
-        item.originalBuffer,
-        opsJson,
-        targetFormat.value,
-        compressionQuality.value,
-        color
-    )
-
+    const requested = sanitize(options.value)
+    const result = await process(item.originalBuffer, requested)
     const duration = performance.now() - startTime
 
-    // Revoke old processed URL if existing
     if (item.processedUrl) {
         URL.revokeObjectURL(item.processedUrl)
     }
-
-    const mime = getMimeType(targetFormat.value)
-    item.processedBlob = new Blob([resultBytes as BlobPart], { type: mime })
+    item.processedBlob = new Blob([result.bytes as BlobPart], { type: result.mime })
     item.processedUrl = URL.createObjectURL(item.processedBlob)
-    item.processedFormat = targetFormat.value
+    item.processedFormat = requested.format
 
     const origSize = item.metadata ? item.metadata.size : item.file.size
-    const savings = ((resultBytes.length - origSize) / origSize) * 100
-
     item.metrics = {
         duration,
-        size: resultBytes.length,
-        savings
+        size: result.bytes.length,
+        savings: ((result.bytes.length - origSize) / origSize) * 100,
     }
 }
 
@@ -1222,10 +872,6 @@ const removeItem = (id: string) => {
                     if (fallbackItem) {
                         selectedItemId.value = fallbackItem.id
                     }
-                    const newActive = selectedItem.value
-                    if (newActive && newActive.metadata) {
-                        originalAspectRatio.value = newActive.metadata.width / newActive.metadata.height
-                    }
                 } else {
                     selectedItemId.value = null
                 }
@@ -1236,14 +882,6 @@ const removeItem = (id: string) => {
 
 const selectItem = (id: string) => {
     selectedItemId.value = id
-    const active = selectedItem.value
-    if (active && active.metadata) {
-        originalAspectRatio.value = active.metadata.width / active.metadata.height
-        if (!enableResize.value) {
-            resizeWidth.value = active.metadata.width
-            resizeHeight.value = active.metadata.height
-        }
-    }
 }
 
 // Drag & Slide comparison logic
@@ -1298,11 +936,6 @@ const onParameterChange = () => {
     }
 }
 
-const selectQualityPreset = (preset: number) => {
-    compressionQuality.value = preset
-    onParameterChange()
-}
-
 const reprocessAllItems = () => {
     items.value.forEach(item => {
         item.status = 'pending'
@@ -1314,21 +947,6 @@ const runManualProcess = async () => {
     if (isQueueProcessing) return
     reprocessAllItems()
     hasPendingChanges.value = false
-}
-
-// Dynamic Aspect Ratio Resizing
-const handleWidthInput = () => {
-    if (aspectLocked.value && originalAspectRatio.value && resizeWidth.value > 0) {
-        resizeHeight.value = Math.round(resizeWidth.value / originalAspectRatio.value)
-    }
-    onParameterChange()
-}
-
-const handleHeightInput = () => {
-    if (aspectLocked.value && originalAspectRatio.value && resizeHeight.value > 0) {
-        resizeWidth.value = Math.round(resizeHeight.value * originalAspectRatio.value)
-    }
-    onParameterChange()
 }
 
 const debouncedProcess = () => {
@@ -1361,7 +979,7 @@ const getMimeType = (format: string): string => {
 const downloadImage = () => {
     if (!processedBlob.value || !selectedItem.value) return
 
-    const fmt = selectedItem.value.processedFormat || targetFormat.value
+    const fmt = selectedItem.value.processedFormat || options.value.format
     const ext = fmt.toLowerCase() === 'jpeg' ? 'jpg' : fmt.toLowerCase()
     const filename = `${customFilename.value || 'processed-image'}.${ext}`
 
@@ -1380,7 +998,7 @@ const downloadAll = async () => {
     for (const item of items.value) {
         if (item.processedBlob && item.status === 'done') {
             const buffer = new Uint8Array(await item.processedBlob.arrayBuffer())
-            const fmt = item.processedFormat || targetFormat.value
+            const fmt = item.processedFormat || options.value.format
             const ext = fmt.toLowerCase() === 'jpeg' ? 'jpg' : fmt.toLowerCase()
             const filename = `${item.customFilename || 'processed'}.${ext}`
             files[filename] = buffer

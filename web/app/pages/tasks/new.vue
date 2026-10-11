@@ -17,13 +17,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import Switch from "@/components/ui/switch/Switch.vue";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import TranscodeSettings from "@/components/TranscodeSettings.vue";
-import type { SourceProbeSummary } from "@/components/TranscodeSettings.vue";
+import ImageOptionsForm from "@/components/ImageOptionsForm.vue";
+import type { SourceProbeSummary } from "@/components/ImageOptionsForm.vue";
+import type { ImageOptions } from "~/lib/types/image-options";
+import { defaultOptions, describe, sanitize } from "~/lib/image-options";
 import {
     Plus,
     X,
@@ -34,20 +34,10 @@ import {
     FileCode,
     UploadCloud,
     AlertCircle,
-    AlertTriangle,
-    Sliders,
     Settings,
     Layers,
-    Zap,
-    Gauge,
     HardDrive,
     Trash2,
-    RotateCcw,
-    ChevronDown,
-    ChevronUp,
-    Sparkles,
-    ShieldAlert,
-    Lock,
 } from "@lucide/vue";
 
 useHead({
@@ -57,263 +47,11 @@ useHead({
 const router = useRouter();
 const api = useApi();
 
-// Form state
-const targetFormat = ref("avif");
+// Output options for every file in the task.
+const options = ref<ImageOptions>(defaultOptions());
 
-const defaultEngines: Record<string, string> = {
-    avif: "libavif:avif",
-    heic: "libheif:heic",
-    webp: "libwebp:webp",
-    jpeg: "libjpeg:jpeg",
-    png: "libpng:png",
-    jxl: "libjxl:jxl",
-};
-
-const selectedEngine = ref("libavif:avif");
-
-const templates: Record<string, Record<string, Record<string, any>>> = {
-    "libavif:avif": {
-        size: { quality: 65, speed: 4, sharp_yuv: true },
-        balanced: { quality: 75, speed: 6, sharp_yuv: true },
-        speed: { quality: 75, speed: 8, sharp_yuv: false },
-    },
-    "libheif:heic": {
-        size: { quality: 65, lossless: false },
-        balanced: { quality: 75, lossless: false },
-        speed: { quality: 80, lossless: false },
-    },
-    "libwebp:webp": {
-        size: { quality: 75, lossless: false, method: 6 },
-        balanced: { quality: 80, lossless: false, method: 4 },
-        speed: { quality: 80, lossless: false, method: 2 },
-    },
-    "libjpeg:jpeg": {
-        size: { quality: 75 },
-        balanced: { quality: 85 },
-        speed: { quality: 85 },
-    },
-    "libpng:png": {
-        size: {},
-        balanced: {},
-        speed: {},
-    },
-    "libjxl:jxl": {
-        size: {
-            lossless: false,
-            distance: 1.5,
-            effort: 7,
-            progressive: true,
-            jpeg_reconstruction: true,
-            sub_mode: "distance",
-        },
-        balanced: {
-            lossless: false,
-            distance: 1.0,
-            effort: 5,
-            progressive: true,
-            jpeg_reconstruction: true,
-            sub_mode: "distance",
-        },
-        speed: {
-            lossless: false,
-            distance: 1.0,
-            effort: 3,
-            progressive: false,
-            jpeg_reconstruction: true,
-            sub_mode: "distance",
-        },
-    },
-};
-
-const expertMode = ref(false);
-const selectedProfile = ref<"size" | "balanced" | "speed" | "custom">("balanced");
-const engineParams = ref<Record<string, any>>({ quality: 75, speed: 6, sharp_yuv: true });
-
-// Color & Dynamic Range Pipeline state
-type ColorSpaceValue = "srgb" | "display_p3" | "bt2020_pq" | "bt2020_hlg" | "linear";
-const colorSpaceOptions: Array<{ value: ColorSpaceValue; label: string; hdr?: boolean }> = [
-    { value: "srgb", label: "sRGB — 网络与普通显示器 (SDR)" },
-    { value: "display_p3", label: "Display P3 — 苹果设备广色域 (SDR)" },
-    { value: "bt2020_pq", label: "HDR10 — BT.2020 + PQ (需 10-bit)", hdr: true },
-    { value: "bt2020_hlg", label: "HLG — BT.2020 广播 HDR (需 10-bit)", hdr: true },
-    { value: "linear", label: "Linear — 线性光中间素材" },
-];
-
-const colorEncoding = ref<{
-    color_space?: ColorSpaceValue;
-    chroma?: string;
-    nominal_bit_depth?: number;
-    tone_mapping?: string;
-    dither?: boolean;
-}>({
-    chroma: "auto",
-    nominal_bit_depth: 10,
-    tone_mapping: "none",
-    dither: true,
-});
-const profilePolicy = ref<string>("preserve_source");
-const strictMode = ref(false);
-
-// Wide-gamut tags and YUV controls only exist for AVIF/JXL outputs.
-const supportsWideColor = computed(
-    () => targetFormat.value === "avif" || targetFormat.value === "jxl" || targetFormat.value === "heic",
-);
-const supportsChromaControl = computed(() => targetFormat.value === "avif");
-const hdrOutput = computed(
-    () =>
-        supportsWideColor.value &&
-        ["bt2020_pq", "bt2020_hlg"].includes(colorEncoding.value.color_space ?? "srgb"),
-);
-
-// Maps the legacy standalone primaries/transfer pair onto a coupled color space.
-const deriveColorSpace = (primaries?: string, transfer?: string): ColorSpaceValue => {
-    if (primaries === "bt2020" && transfer === "pq") return "bt2020_pq";
-    if (primaries === "bt2020" && transfer === "hlg") return "bt2020_hlg";
-    if (primaries === "display_p3") return "display_p3";
-    if (transfer === "linear") return "linear";
-    return "srgb";
-};
-
-// Color pipeline intent state
-const colorIntent = ref<"auto" | "sdr">("auto");
-const showAdvancedColor = ref(false);
-
-type ColorPreset = {
-    key: "preserve" | "compat";
-    label: string;
-    desc: string;
-    policy: string;
-    values: {
-        color_space: ColorSpaceValue;
-        chroma: string;
-        nominal_bit_depth: number;
-        tone_mapping: string;
-        dither: boolean;
-    };
-};
-
-const colorPresets = computed<ColorPreset[]>(() => [
-    {
-        key: "preserve",
-        label: $t("new_task.color_pipeline.mode_auto"),
-        desc: $t("new_task.color_pipeline.mode_auto_desc"),
-        policy: "preserve_source",
-        values: {
-            color_space: "srgb",
-            chroma: "auto",
-            nominal_bit_depth: 10,
-            tone_mapping: "none",
-            dither: true,
-        },
-    },
-    {
-        key: "compat",
-        label: $t("new_task.color_pipeline.mode_sdr"),
-        desc: $t("new_task.color_pipeline.mode_sdr_desc"),
-        policy: "preserve_source",
-        values: {
-            color_space: "srgb",
-            chroma: "yuv420",
-            nominal_bit_depth: 8,
-            tone_mapping: "aces_filmic",
-            dither: true,
-        },
-    },
-]);
-
-const activeColorPreset = computed(() => {
-    const cur = colorEncoding.value;
-    const matched = colorPresets.value.find(
-        (preset) =>
-            (cur.color_space ?? "srgb") === preset.values.color_space &&
-            (cur.chroma ?? "auto") === preset.values.chroma &&
-            Number(cur.nominal_bit_depth ?? 10) === preset.values.nominal_bit_depth &&
-            (cur.tone_mapping ?? "none") === preset.values.tone_mapping &&
-            (cur.dither ?? false) === preset.values.dither &&
-            profilePolicy.value === preset.policy,
-    );
-    return matched?.key ?? "custom";
-});
-
-const isCustomColorOverridden = computed(() => activeColorPreset.value === "custom");
-
-const selectColorIntent = (intent: "auto" | "sdr") => {
-    colorIntent.value = intent;
-    const targetPresetKey = intent === "auto" ? "preserve" : "compat";
-    const preset = colorPresets.value.find((p) => p.key === targetPresetKey);
-    if (preset) {
-        applyColorPreset(preset);
-    }
-};
-
-const resetColorToRecommended = () => {
-    selectColorIntent(colorIntent.value);
-};
-
-const applyColorPreset = (preset: ColorPreset) => {
-    colorEncoding.value = { ...colorEncoding.value, ...preset.values };
-    profilePolicy.value = preset.policy;
-};
-
-const profilePolicyHint = computed(() =>
-    profilePolicy.value === "strip"
-        ? "不转换像素、剥离 ICC，仅按所选色彩空间写入标签（高级用法）"
-        : "不转换像素，保留原图 ICC；无 ICC 时按所选色彩空间写入标签",
-);
-
-watch(
-    () => colorEncoding.value.color_space,
-    (space) => {
-        if (space !== "bt2020_pq" && space !== "bt2020_hlg") return;
-        if (Number(colorEncoding.value.nominal_bit_depth) < 10) {
-            colorEncoding.value.nominal_bit_depth = 10;
-        }
-        colorEncoding.value.tone_mapping = "none";
-    },
-);
-
-const colorSpaceHint = computed(() =>
-    profilePolicy.value === "strip"
-        ? "不转换像素；剥离 ICC 后仅按所选色彩空间写入标签"
-        : "不转换像素；色域与传递函数已成对绑定，原图 ICC / CICP 原样透传",
-);
-
-// Drops values that are no longer offered (12-bit, yuv400, legacy standalone
-// primaries/transfer, legacy policies) when a saved preset is loaded.
-const normalizeLoadedColorParams = (legacy?: {
-    color_space?: string;
-    primaries?: string;
-    transfer?: string;
-    chroma?: string;
-    nominal_bit_depth?: number;
-    tone_mapping?: string;
-    dither?: boolean | string;
-}) => {
-    const space = legacy?.color_space ?? deriveColorSpace(legacy?.primaries, legacy?.transfer);
-    colorEncoding.value.color_space = colorSpaceOptions.some((o) => o.value === space)
-        ? (space as ColorSpaceValue)
-        : "srgb";
-
-    const depth = Number(legacy?.nominal_bit_depth ?? colorEncoding.value.nominal_bit_depth ?? 10);
-    colorEncoding.value.nominal_bit_depth = depth >= 10 ? 10 : 8;
-
-    const chroma = legacy?.chroma ?? colorEncoding.value.chroma ?? "auto";
-    colorEncoding.value.chroma = ["auto", "yuv444", "yuv422", "yuv420"].includes(chroma)
-        ? chroma
-        : "auto";
-
-    // Legacy payloads chose a dither algorithm; anything but "none" means on.
-    colorEncoding.value.tone_mapping =
-        legacy?.tone_mapping && legacy.tone_mapping !== "none" ? "aces_filmic" : "none";
-    colorEncoding.value.dither =
-        typeof legacy?.dither === "boolean" ? legacy.dither : legacy?.dither !== "none";
-
-    if (!["preserve_source", "strip"].includes(profilePolicy.value)) {
-        profilePolicy.value = "preserve_source";
-    }
-};
-
-// Workflow presets state
+// Saved option sets (workflows). While the form still matches the applied
+// workflow the task references it; any edit submits explicit options instead.
 const workflows = ref<Workflow[]>([]);
 const selectedWorkflowId = ref("none");
 const workflowDirty = ref(false);
@@ -321,269 +59,6 @@ const isApplyingWorkflow = ref(false);
 const showPresetSave = ref(false);
 const presetName = ref("");
 const isSavingPreset = ref(false);
-
-// Auto-switch engine when target format changes
-watch(targetFormat, (newFormat) => {
-    if (isApplyingWorkflow.value) return;
-    const defaultEngine = defaultEngines[newFormat] || "libavif:avif";
-    selectedEngine.value = defaultEngine;
-    resetParamsToProfile();
-});
-
-// Reset params when engine changes
-watch(selectedEngine, () => {
-    if (isApplyingWorkflow.value) return;
-    resetParamsToProfile();
-});
-
-const isApplyingTemplate = ref(false);
-const resetParamsToProfile = () => {
-    isApplyingTemplate.value = true;
-    const engineTemplates = templates[selectedEngine.value];
-    if (engineTemplates && selectedProfile.value !== "custom") {
-        const profileData = engineTemplates[selectedProfile.value];
-        if (profileData) {
-            engineParams.value = JSON.parse(JSON.stringify(profileData));
-        }
-    }
-    // Initialize helper modes
-    if (selectedEngine.value === "libjxl:jxl") {
-        if (engineParams.value.lossless === undefined) {
-            engineParams.value.lossless = false;
-        }
-        if (engineParams.value.jpeg_reconstruction === undefined) {
-            engineParams.value.jpeg_reconstruction = true;
-        }
-        if (engineParams.value.sub_mode === undefined) {
-            if (engineParams.value.quality !== undefined) {
-                engineParams.value.sub_mode = "quality";
-            } else {
-                engineParams.value.sub_mode = "distance";
-            }
-        }
-    }
-    isApplyingTemplate.value = false;
-};
-
-const handleJxlMainModeChange = (losslessVal: boolean) => {
-    if (selectedEngine.value !== "libjxl:jxl") return;
-    engineParams.value.lossless = losslessVal;
-    if (losslessVal) {
-        delete engineParams.value.distance;
-        delete engineParams.value.quality;
-    } else {
-        if (engineParams.value.sub_mode === "quality") {
-            delete engineParams.value.distance;
-            if (engineParams.value.quality === undefined) {
-                engineParams.value.quality = 85;
-            }
-        } else {
-            engineParams.value.sub_mode = "distance";
-            delete engineParams.value.quality;
-            if (engineParams.value.distance === undefined) {
-                engineParams.value.distance = 1.0;
-            }
-        }
-    }
-};
-
-const handleJxlSubModeChange = (newSubMode: string | number) => {
-    if (selectedEngine.value !== "libjxl:jxl") return;
-    const subModeStr = String(newSubMode);
-    engineParams.value.sub_mode = subModeStr;
-    if (subModeStr === "quality") {
-        delete engineParams.value.distance;
-        if (engineParams.value.quality === undefined) {
-            engineParams.value.quality = 85;
-        }
-    } else {
-        delete engineParams.value.quality;
-        if (engineParams.value.distance === undefined) {
-            engineParams.value.distance = 1.0;
-        }
-    }
-};
-
-const preparedEngineParams = computed(() => {
-    const params = JSON.parse(JSON.stringify(engineParams.value));
-
-    // For libavif:avif
-    if (selectedEngine.value === "libavif:avif") {
-        const advanced: Record<string, number> = {};
-        let hasAdvanced = false;
-
-        if (
-            params.sharpness !== undefined &&
-            params.sharpness !== null &&
-            params.sharpness !== ""
-        ) {
-            advanced.sharpness = Number(params.sharpness);
-            hasAdvanced = true;
-        }
-        if (
-            params.color_sharpness !== undefined &&
-            params.color_sharpness !== null &&
-            params.color_sharpness !== ""
-        ) {
-            advanced.color_sharpness = Number(params.color_sharpness);
-            hasAdvanced = true;
-        }
-        if (
-            params.alpha_sharpness !== undefined &&
-            params.alpha_sharpness !== null &&
-            params.alpha_sharpness !== ""
-        ) {
-            advanced.alpha_sharpness = Number(params.alpha_sharpness);
-            hasAdvanced = true;
-        }
-
-        delete params.sharpness;
-        delete params.color_sharpness;
-        delete params.alpha_sharpness;
-
-        if (hasAdvanced) {
-            params.advanced = advanced;
-        }
-
-        if (params.jobs !== undefined && params.jobs !== null && params.jobs !== "") {
-            params.jobs = Number(params.jobs);
-        } else {
-            delete params.jobs;
-        }
-
-        if (!params.use_custom_alpha_quality) {
-            delete params.alpha_quality;
-        } else if (
-            params.alpha_quality !== undefined &&
-            params.alpha_quality !== null &&
-            params.alpha_quality !== ""
-        ) {
-            params.alpha_quality = Number(params.alpha_quality);
-        }
-        delete params.use_custom_alpha_quality;
-
-        if (params.speed !== undefined && params.speed !== null && params.speed !== "") {
-            params.speed = Number(params.speed);
-        }
-
-        if (params.depth === "auto" || params.depth === undefined || params.depth === null || params.depth === "") {
-            delete params.depth;
-        } else {
-            params.depth = Number(params.depth);
-        }
-
-        if (
-            params.color_range === "auto" ||
-            params.color_range === undefined ||
-            params.color_range === null ||
-            params.color_range === ""
-        ) {
-            delete params.color_range;
-        }
-    }
-
-    // For libjxl:jxl
-    if (selectedEngine.value === "libjxl:jxl") {
-        delete params.sub_mode;
-
-        if (params.lossless) {
-            delete params.quality;
-            delete params.distance;
-            delete params.jpeg_reconstruction;
-        } else {
-            if (params.quality !== undefined && params.quality !== null && params.quality !== "") {
-                params.quality = Number(params.quality);
-            }
-            if (
-                params.distance !== undefined &&
-                params.distance !== null &&
-                params.distance !== ""
-            ) {
-                params.distance = Number(params.distance);
-            }
-            params.jpeg_reconstruction = !!params.jpeg_reconstruction;
-        }
-        if (params.effort !== undefined && params.effort !== null && params.effort !== "") {
-            params.effort = Number(params.effort);
-        }
-        params.lossless = !!params.lossless;
-    }
-
-    // Global clean up
-    for (const key in params) {
-        if (params[key] === undefined || params[key] === null || params[key] === "") {
-            delete params[key];
-        }
-    }
-
-    return params;
-});
-
-// Reset params when profile changes
-watch(selectedProfile, (newProfile) => {
-    if (newProfile !== "custom") {
-        resetParamsToProfile();
-    }
-});
-
-// Check if manually modified params match any template profile
-const checkProfileMatch = () => {
-    if (isApplyingTemplate.value) return;
-    const engineTemplates = templates[selectedEngine.value];
-    if (!engineTemplates) return;
-
-    let matchedProfile: "size" | "balanced" | "speed" | "custom" = "custom";
-    for (const profile of ["size", "balanced", "speed"] as const) {
-        const templateData = engineTemplates[profile];
-        if (!templateData) continue;
-
-        let match = true;
-        for (const key in templateData) {
-            if (engineParams.value[key] !== templateData[key]) {
-                match = false;
-                break;
-            }
-        }
-
-        // Also check if any additional configured key has a non-default/active value
-        if (match) {
-            for (const key in engineParams.value) {
-                if (key === "mode" || key === "use_custom_alpha_quality") continue;
-                if (templateData[key] === undefined) {
-                    const val = engineParams.value[key];
-                    if (val !== undefined && val !== null && val !== "") {
-                        // Check if it represents an active setting (like jobs set, sharpness set, yuv not auto, etc.)
-                        if (key === "yuv" && val === "auto") continue;
-                        if (
-                            (key === "sharpness" ||
-                                key === "color_sharpness" ||
-                                key === "alpha_sharpness") &&
-                            Number(val) === 0
-                        )
-                            continue;
-                        match = false;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (match) {
-            matchedProfile = profile;
-            break;
-        }
-    }
-    selectedProfile.value = matchedProfile;
-};
-
-// Deep watch engineParams for manual changes
-watch(
-    engineParams,
-    () => {
-        checkProfileMatch();
-    },
-    { deep: true },
-);
 
 // QueueItem type
 type QueueItem = {
@@ -645,7 +120,7 @@ const checkAuthBeforeAction = (): boolean => {
 // Draft Box handling
 const getDraftKey = () => {
     const uId = user.value?.id || "anonymous";
-    return `task_new_draft:${uId}:v1`;
+    return `task_new_draft:${uId}:v2`;
 };
 
 const pendingSubmission = ref<{ idempotencyKey: string; requestBody: string } | null>(null);
@@ -658,9 +133,7 @@ const saveDraft = () => {
 
     const draft = {
         selectedServerFileIds,
-        targetFormat: targetFormat.value,
-        engine: selectedEngine.value,
-        engineParams: engineParams.value,
+        options: options.value,
         updatedAt: Date.now(),
         pendingSubmission: pendingSubmission.value,
     };
@@ -680,13 +153,7 @@ const loadAndReconcileDraft = async () => {
     try {
         const draft = JSON.parse(stored);
         if (!draft) return;
-        if (draft.targetFormat) targetFormat.value = draft.targetFormat;
-        if (draft.selectedEngine && defaultEngines[targetFormat.value] === draft.selectedEngine) {
-            selectedEngine.value = draft.selectedEngine;
-        }
-        if (draft.engineParams) {
-            Object.assign(engineParams.value, draft.engineParams);
-        }
+        if (draft.options?.format) options.value = sanitize(draft.options);
         if (draft.pendingSubmission) {
             pendingSubmission.value = draft.pendingSubmission;
             idempotencyKey.value = draft.pendingSubmission.idempotencyKey;
@@ -740,7 +207,7 @@ const loadAndReconcileDraft = async () => {
 
 // Watchers for draft box
 watch(
-    [targetFormat, selectedEngine, files, engineParams],
+    [files, options],
     () => {
         saveDraft();
     },
@@ -986,11 +453,6 @@ const probeImageFile = (file: File): Promise<SourceProbeSummary> => {
         const ext = file.name.split(".").pop()?.toLowerCase() || "";
         const summary: SourceProbeSummary = {
             format: ext || file.type.split("/")[1] || "unknown",
-            colorSpace: "sRGB",
-            bitDepth: 8,
-            isHdr: false,
-            hasAlpha: file.type.includes("png") || file.type.includes("webp") || file.type.includes("avif"),
-            hasIcc: false,
         };
 
         if (typeof window === "undefined" || !file.type.startsWith("image/")) {
@@ -1112,28 +574,6 @@ const removeFile = async (id: string) => {
     saveDraft();
 };
 
-const buildParamsPayload = () => {
-    const paramsPayload: Record<string, any> = {
-        engine: selectedEngine.value,
-        engine_params: preparedEngineParams.value,
-    };
-
-    paramsPayload.color = {
-        color_space: colorEncoding.value.color_space,
-        chroma: colorEncoding.value.chroma,
-        nominal_bit_depth: Number(colorEncoding.value.nominal_bit_depth),
-        tone_mapping: colorEncoding.value.tone_mapping,
-        dither: colorEncoding.value.dither,
-    };
-    paramsPayload.profile_policy = profilePolicy.value;
-
-    if (strictMode.value) {
-        paramsPayload.strict = true;
-    }
-
-    return paramsPayload;
-};
-
 const generateRequestSnapshot = () => {
     const sortedIds = files.value
         .filter((f) => f.status === "uploaded" && f.serverFileId)
@@ -1150,8 +590,7 @@ const generateRequestSnapshot = () => {
 
     return JSON.stringify({
         items,
-        target_format: targetFormat.value.toUpperCase(),
-        params: buildParamsPayload(),
+        options: sanitize(options.value),
     });
 };
 
@@ -1174,33 +613,10 @@ const applyWorkflow = async (id: string) => {
     }
     isApplyingWorkflow.value = true;
     try {
-        const fmt = (wf.target_format || "avif").toLowerCase();
-        if (defaultEngines[fmt]) {
-            targetFormat.value = fmt;
-            selectedEngine.value = defaultEngines[fmt];
-        }
-        selectedProfile.value = "custom";
-
-        const params = (wf.params || {}) as Record<string, any>;
-        engineParams.value = JSON.parse(JSON.stringify(params.engine_params || {}));
-
-        if (selectedEngine.value === "libjxl:jxl" && engineParams.value.quality !== undefined) {
-            engineParams.value.sub_mode = "quality";
-        }
-        if (engineParams.value.alpha_quality !== undefined) {
-            engineParams.value.use_custom_alpha_quality = true;
-        }
-
-        if (params.color) {
-            normalizeLoadedColorParams(params.color);
-        }
-        profilePolicy.value = params.profile_policy || "preserve_source";
-        strictMode.value = !!params.strict;
+        options.value = sanitize(wf.options);
         selectedWorkflowId.value = wf.id;
         workflowDirty.value = false;
         toast.success(`已应用预设「${wf.name}」`);
-    } catch (err) {
-        console.error("Failed to apply workflow:", err);
     } finally {
         await nextTick();
         isApplyingWorkflow.value = false;
@@ -1218,11 +634,7 @@ const savePreset = async () => {
     try {
         await api("/workflows", {
             method: "POST",
-            body: {
-                name,
-                targetFormat: targetFormat.value.toUpperCase(),
-                params: buildParamsPayload(),
-            },
+            body: { name, options: sanitize(options.value) },
         });
         toast.success(`预设「${name}」已保存`);
         presetName.value = "";
@@ -1244,11 +656,7 @@ const updatePreset = async () => {
     try {
         await api(`/workflows/${wf.id}`, {
             method: "PUT",
-            body: {
-                name: wf.name,
-                targetFormat: targetFormat.value.toUpperCase(),
-                params: buildParamsPayload(),
-            },
+            body: { name: wf.name, options: sanitize(options.value) },
         });
         workflowDirty.value = false;
         toast.success(`预设「${wf.name}」已更新为当前参数`);
@@ -1285,14 +693,7 @@ const deletePreset = async () => {
 // The task still submits explicit params in that case; the link only survives
 // while the form matches the stored preset.
 watch(
-    [
-        targetFormat,
-        selectedEngine,
-        profilePolicy,
-        strictMode,
-        engineParams,
-        colorEncoding,
-    ],
+    options,
     () => {
         if (isApplyingWorkflow.value) return;
         if (selectedWorkflowId.value !== "none") {
@@ -1433,20 +834,7 @@ const handleDrop = (e: DragEvent) => {
                             {{ $t("new_task.params_subtitle") }}
                         </p>
                     </div>
-                    <button
-                        @click="expertMode = !expertMode"
-                        :disabled="isParamsDisabled"
-                        class="flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                        :class="
-                            expertMode
-                                ? 'bg-primary/10 text-primary dark:text-primary-hover border-primary/20 dark:border-primary/30'
-                                : 'bg-surface-2 text-ink-subtle border-hairline hover:bg-surface-3'
-                        "
-                    >
-                        <Sliders class="w-3 h-3" />
-                        {{ $t("new_task.expert_mode") }}
-                    </button>
-                </CardHeader>
+</CardHeader>
                 <CardContent class="p-5 space-y-6">
                     <!-- Workflow Presets -->
                     <div
@@ -1487,7 +875,7 @@ const handleDrop = (e: DragEvent) => {
                                 <SelectContent class="bg-surface-3 border-hairline rounded-lg">
                                     <SelectItem value="none">不使用预设（手动参数）</SelectItem>
                                     <SelectItem v-for="wf in workflows" :key="wf.id" :value="wf.id">
-                                        {{ wf.name }} · {{ wf.target_format }}
+                                        {{ wf.name }} · {{ describe(wf.options) }}
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
@@ -1542,17 +930,9 @@ const handleDrop = (e: DragEvent) => {
                         </div>
                     </div>
 
-                    <!-- Transcode Settings Form Component -->
-                    <TranscodeSettings
-                        v-model:targetFormat="targetFormat"
-                        v-model:selectedEngine="selectedEngine"
-                        v-model:selectedProfile="selectedProfile"
-                        v-model:engineParams="engineParams"
-                        v-model:colorEncoding="colorEncoding"
-                        v-model:profilePolicy="profilePolicy"
-                        v-model:strictMode="strictMode"
-                        v-model:expertMode="expertMode"
-                        :sourceProbe="firstFileProbe"
+                    <ImageOptionsForm
+                        v-model="options"
+                        :source-probe="firstFileProbe"
                         :disabled="isParamsDisabled"
                     />
                 </CardContent>

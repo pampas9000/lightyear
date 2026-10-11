@@ -398,5 +398,46 @@
         "resize_hint": "Tip: Images maintain original size by default. When enabled, width & height act as maximum constraints to scale proportionally.",
         "read_file_failed": "Failed to read file: {error}",
         "parse_meta_failed": "Failed to parse metadata: {error}"
+    },
+    "image_options": {
+        "source": "Source",
+        "format": "Output format",
+        "formats": {
+            "avif": "Smallest files",
+            "jxl": "High fidelity",
+            "webp": "Widest support",
+            "jpeg": "Universal",
+            "png": "Lossless",
+            "heic": "Apple devices"
+        },
+        "lossless": "Lossless",
+        "jxl_lossless_hint": "JPEG sources are repacked losslessly (the original JPEG can be restored bit for bit) when metadata is kept.",
+        "quality": "Quality",
+        "effort": "Effort",
+        "effort_hint": "Higher effort produces smaller files but takes longer.",
+        "resize": "Resize",
+        "width": "Max width (px)",
+        "height": "Max height (px)",
+        "fit": {
+            "inside": "Fit inside",
+            "cover": "Crop to fill",
+            "fill": "Stretch"
+        },
+        "enlarge": "Allow upscaling",
+        "color": "Color profile",
+        "color_keep": "Keep source",
+        "color_srgb": "Convert to sRGB",
+        "dynamic_range": "HDR",
+        "dynamic_range_keep": "Keep",
+        "dynamic_range_sdr": "Convert to SDR",
+        "metadata": "EXIF / XMP",
+        "metadata_strip": "Remove",
+        "metadata_keep": "Keep",
+        "hdr_hint": "Orientation is always applied to the pixels. PQ/HLG HDR sources are not supported yet; UltraHDR JPEG gain maps are kept for JPEG output.",
+        "advanced": "Advanced",
+        "chroma": "Chroma subsampling",
+        "bit_depth": "Bit depth",
+        "auto": "Auto",
+        "follow_source": "Source"
     }
 }

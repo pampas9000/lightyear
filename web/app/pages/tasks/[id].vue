@@ -33,6 +33,7 @@ import {
     DialogClose
 } from '@/components/ui/dialog'
 import TaskRetryDrawer from '~/components/TaskRetryDrawer.vue'
+import type { ImageOptions } from '~/lib/types/image-options'
 import JobErrorDialog from '~/components/JobErrorDialog.vue'
 import { getErrorDiagnostic } from '~/lib/utils/error-codes'
 
@@ -165,7 +166,7 @@ const getTotalSavings = computed(() => {
     
     task.value.jobs.forEach(job => {
         if (job.status === 'COMPLETED') {
-            totalInput += job.input_file?.size || 0
+            totalInput += job.source_file?.size || 0
             totalOutput += job.output_file?.size || 0
             hasCompleted = true
         }
@@ -247,18 +248,22 @@ const formatFilename = (name: string | undefined) => {
     return name
 }
 
-const formatParamKey = (key: string) => {
-    return key.replace(/_/g, ' ')
-}
-
-const formatParamValue = (key: string, val: any) => {
-    if (typeof val === 'boolean') {
-        return val ? $t('common.enabled') : $t('common.disabled')
-    }
-    if (key === 'quality' || key === 'alpha_quality') {
-        return `${val}%`
-    }
-    return String(val)
+// Label/value pairs for the parameters card.
+const optionEntries = (o?: ImageOptions) => {
+    if (!o) return []
+    const r = o.resize
+    const resize = r ? (r.width && r.height ? `${r.width}×${r.height} ${r.fit ?? 'inside'}` : `≤${r.width ?? r.height}px`) + (r.enlarge ? ' ↑' : '') : '—'
+    return [
+        ['format', o.format.toUpperCase()],
+        ['quality', o.lossless ? $t('image_options.lossless') : String(o.quality ?? '—')],
+        ['effort', String(o.effort ?? '—')],
+        ['resize', resize],
+        ['color', $t(`image_options.color_${o.color ?? 'keep'}`)],
+        ['dynamic_range', $t(`image_options.dynamic_range_${o.dynamic_range ?? 'keep'}`)],
+        ['metadata', $t(`image_options.metadata_${o.metadata ?? 'strip'}`)],
+        ['chroma', o.chroma ? `4:${o.chroma.slice(1, 2)}:${o.chroma.slice(2)}` : $t('image_options.auto')],
+        ['bit_depth', o.bit_depth ? `${o.bit_depth}-bit` : $t('image_options.follow_source')],
+    ] as const
 }
 
 const copyUuid = () => {
@@ -439,14 +444,11 @@ const handleDirectRetry = async (jobIds?: string[]) => {
     }
 }
 
-const handleRetryFromDrawer = async (payload: { targetFormat: string; params: any; retryAll: boolean; jobIds?: string[] }) => {
+const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll: boolean; jobIds?: string[] }) => {
     isRetrying.value = true
     try {
-        const body: any = {
-            target_format: payload.targetFormat,
-            params: payload.params,
-            retry_all: payload.retryAll,
-        }
+        const body: Record<string, unknown> = { retry_all: payload.retryAll }
+        if (payload.options) body.options = payload.options
         if (payload.jobIds && payload.jobIds.length > 0) {
             body.job_ids = payload.jobIds
             body.retry_all = false
@@ -708,10 +710,7 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                         <Layers class="w-4 h-4 text-ink-subtle opacity-50" stroke-width="1.5" />
                     </div>
                     <div class="flex items-baseline gap-2 mt-2">
-                        <span class="text-xl font-bold tracking-tight text-ink uppercase">{{ task.jobs?.[0]?.target_format || 'AVIF' }}</span>
-                        <span class="text-[11px] font-mono font-medium text-ink-subtle bg-surface-2 px-1.5 py-0.5 rounded border border-hairline" v-if="task.jobs?.[0]?.params?.engine">
-                            {{ task.jobs[0].params.engine.split(':')[0] }}
-                        </span>
+                        <span class="text-xl font-bold tracking-tight text-ink uppercase">{{ task.jobs?.[0]?.options?.format || '—' }}</span>
                     </div>
                 </div>
 
@@ -764,7 +763,7 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
             </div>
 
             <!-- Parameters Card with JSON Inspection Toggle -->
-            <div v-if="task.jobs?.[0]?.params" class="border border-hairline rounded-xl bg-surface-1 overflow-hidden flex flex-col">
+            <div v-if="task.jobs?.[0]?.options" class="border border-hairline rounded-xl bg-surface-1 overflow-hidden flex flex-col">
                 <div class="flex items-center justify-between border-b border-hairline px-5 py-3.5 bg-surface-1">
                     <h3 class="font-semibold text-xs text-ink uppercase tracking-wider flex items-center gap-2">
                         <Settings class="w-4 h-4 text-ink-subtle" stroke-width="1.5" />
@@ -784,20 +783,15 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                 <div class="p-5">
                     <!-- Standard Structured Key-Value Capsules -->
                     <div v-if="!showRawJson" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-                        <div class="space-y-1 bg-surface-2/60 p-2.5 rounded-lg border border-hairline">
-                            <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider">{{ $t('task_detail.engine') }}</div>
-                            <div class="text-xs font-mono font-semibold text-primary truncate">{{ task.jobs[0].params.engine }}</div>
-                        </div>
-
-                        <div v-for="(val, key) in task.jobs[0].params.engine_params" :key="key" class="space-y-1 bg-surface-2/60 p-2.5 rounded-lg border border-hairline">
-                            <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider truncate">{{ formatParamKey(key) }}</div>
-                            <div class="text-xs font-semibold text-ink truncate">{{ formatParamValue(key, val) }}</div>
+                        <div v-for="[key, val] in optionEntries(task.jobs[0].options)" :key="key" class="space-y-1 bg-surface-2/60 p-2.5 rounded-lg border border-hairline">
+                            <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider truncate">{{ $t(`image_options.${key}`) }}</div>
+                            <div class="text-xs font-semibold text-ink truncate">{{ val }}</div>
                         </div>
                     </div>
 
                     <!-- Raw JSON Code Inspector -->
                     <div v-else class="space-y-2">
-                        <pre class="p-4 rounded-lg bg-surface-2 border border-hairline text-xs font-mono text-ink overflow-x-auto selection:bg-primary/20 leading-relaxed">{{ JSON.stringify(task.jobs[0].params, null, 2) }}</pre>
+                        <pre class="p-4 rounded-lg bg-surface-2 border border-hairline text-xs font-mono text-ink overflow-x-auto selection:bg-primary/20 leading-relaxed">{{ JSON.stringify(task.jobs[0].options, null, 2) }}</pre>
                     </div>
                 </div>
             </div>
@@ -874,11 +868,11 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                             <div class="min-w-0 flex-1 space-y-0.5">
                                 <!-- Line 1: Filename, Format Badge & Status Badge -->
                                 <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="text-sm font-semibold text-ink truncate max-w-[280px] sm:max-w-[440px]" :title="job.input_file?.name || job.input_path">
-                                        {{ formatFilename(job.input_file?.name || job.input_path.split('/').pop()) }}
+                                    <span class="text-sm font-semibold text-ink truncate max-w-[280px] sm:max-w-[440px]" :title="job.source_file?.name">
+                                        {{ formatFilename(job.source_file?.name) }}
                                     </span>
                                     <span class="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.2 rounded bg-surface-2 text-ink-subtle border border-hairline">
-                                        {{ job.target_format }}
+                                        {{ job.options?.format }}
                                     </span>
                                     <Badge variant="secondary" class="rounded font-medium text-[10px] px-1.5 py-0.2 border capitalize tracking-normal" :class="getJobStatusStyle(job.status)">
                                         {{ $t('status.' + job.status) }}
@@ -887,13 +881,13 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
 
                                 <!-- Line 2: Size, Retries & Error Detail (Inline) -->
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium flex-wrap">
-                                    <span class="font-mono">{{ formatBytes(job.input_file?.size || 0) }}</span>
+                                    <span class="font-mono">{{ formatBytes(job.source_file?.size || 0) }}</span>
 
                                     <!-- Completed Output Size -->
                                     <template v-if="job.status === 'COMPLETED' && job.output_file?.size">
                                         <span>·</span>
                                         <span class="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-                                            {{ formatBytes(job.output_file.size) }} (-{{ getSavingsRatio(job.input_file?.size, job.output_file.size) }}%)
+                                            {{ formatBytes(job.output_file.size) }} (-{{ getSavingsRatio(job.source_file?.size, job.output_file.size) }}%)
                                         </span>
                                     </template>
 
@@ -903,12 +897,11 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                                         <span class="text-primary font-medium animate-pulse">{{ $t('task_detail.job_processing') }}</span>
                                     </template>
 
-                                    <!-- Retry Count Badge if any -->
-                                    <!-- Retry Count Badge if any -->
-                                    <template v-if="job.retry_count && job.retry_count > 0">
+                                    <!-- Attempts badge once a job has run more than once -->
+                                    <template v-if="job.attempts > 1">
                                         <span>·</span>
                                         <span class="text-[10.5px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
-                                            重试 {{ job.retry_count }}/{{ job.max_retries || 3 }} 次
+                                            执行 {{ job.attempts }}/{{ job.max_attempts || 3 }} 次
                                         </span>
                                     </template>
 
@@ -944,7 +937,7 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                         <div class="flex items-center gap-2 shrink-0">
                             <!-- Image Preview Trigger -->
                             <button
-                                v-if="job.status === 'COMPLETED' && job.output_file_id && isImageFile(job.input_file?.name || job.input_path)"
+                                v-if="job.status === 'COMPLETED' && job.output_file_id && isImageFile(job.source_file?.name)"
                                 @click="openPreview(job)"
                                 class="h-8 px-3 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
                                 :title="$t('task_detail.preview')"
@@ -1026,7 +1019,7 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
                             <img :src="previewImageUrl" :alt="selectedJobForPreview?.output_file?.name || 'Preview'" class="max-h-[380px] w-auto max-w-full object-contain rounded" />
                         </div>
                         <div class="flex items-center justify-between w-full text-xs font-medium text-ink-subtle px-1">
-                            <span>Format: {{ selectedJobForPreview?.target_format }}</span>
+                            <span>Format: {{ selectedJobForPreview?.options?.format }}</span>
                             <span>Output Size: {{ formatBytes(selectedJobForPreview?.output_file?.size) }}</span>
                         </div>
                     </template>
@@ -1054,8 +1047,7 @@ const handleRetryFromDrawer = async (payload: { targetFormat: string; params: an
             v-model:open="showRetryDrawer"
             :task-id="taskId"
             :target-job-id="selectedJobForRetry || undefined"
-            :initial-format="task?.jobs?.[0]?.target_format"
-            :initial-params="task?.jobs?.[0]?.params"
+            :initial-options="(task?.jobs?.find(j => j.id === selectedJobForRetry) ?? task?.jobs?.[0])?.options"
             :failed-count="failedJobsCount"
             :is-retrying="isRetrying"
             @submit="handleRetryFromDrawer"

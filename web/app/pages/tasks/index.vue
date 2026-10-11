@@ -2,6 +2,7 @@
 import { useAuth } from '~/composables/useAuth'
 import { useApi } from '~/composables/useApi'
 import { ref, onMounted, watch } from 'vue'
+import { describe } from '~/lib/image-options'
 import type { Task, TaskStatus, ListTasksData } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
 import {
@@ -139,13 +140,7 @@ const formatTimeAgo = (date: string) => {
 
 const getTaskSummaryLabel = (task: Task) => {
     if (!task.jobs || task.jobs.length === 0 || !task.jobs[0]) return 'UNKNOWN'
-    const job = task.jobs[0]
-    const engine = job.params?.engine
-    if (engine) {
-        const cleanEngine = engine.split(':')[0]
-        return `${job.target_format} (${cleanEngine})`
-    }
-    return job.target_format
+    return describe(task.jobs[0].options)
 }
 
 const getTaskProgress = (task: Task) => {
@@ -180,11 +175,11 @@ const getMediaFlow = (task: Task) => {
     let hasVideoOutput = false
     
     task.jobs.forEach(job => {
-        const inputExt = job.input_path?.split('.').pop() || ''
+        const inputExt = job.source_file?.name?.split('.').pop() || ''
         if (isImageExt(inputExt)) hasImageInput = true
         if (isVideoExt(inputExt)) hasVideoInput = true
         
-        const targetFmt = job.target_format?.toLowerCase() || ''
+        const targetFmt = job.options?.format || ''
         if (isImageExt(targetFmt)) hasImageOutput = true
         if (isVideoExt(targetFmt)) hasVideoOutput = true
     })

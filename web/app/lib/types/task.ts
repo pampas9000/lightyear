@@ -1,3 +1,5 @@
+import type { ImageOptions } from './image-options';
+
 export const enum TaskStatus {
     PENDING = "PENDING",
     PROCESSING = "PROCESSING",
@@ -13,37 +15,6 @@ export interface Base {
     updated_at: string;
 }
 
-export type ColorPrimaries = 'srgb' | 'display_p3' | 'bt2020' | 'unspecified';
-export type TransferCharacteristics = 'srgb' | 'linear' | 'pq' | 'hlg' | 'bt709' | 'unspecified';
-export type ColorSpace = 'srgb' | 'display_p3' | 'bt2020_pq' | 'bt2020_hlg' | 'linear';
-export type MatrixCoefficients = 'identity' | 'bt709' | 'bt601' | 'bt2020_ncl' | 'unspecified';
-export type ColorRange = 'full' | 'limited';
-export type ChromaSubsampling = 'yuv420' | 'yuv422' | 'yuv444' | 'yuv400' | 'auto';
-export type ToneMappingOperator = 'none' | 'aces_filmic';
-export type ProfilePolicy = 'preserve_source' | 'strip';
-
-export interface ColorEncoding {
-    color_space?: ColorSpace;
-    /** @deprecated Legacy standalone fields; `color_space` overrides them. */
-    primaries?: ColorPrimaries;
-    /** @deprecated Legacy standalone fields; `color_space` overrides them. */
-    transfer?: TransferCharacteristics;
-    matrix?: MatrixCoefficients;
-    range?: ColorRange;
-    nominal_bit_depth?: number;
-    chroma?: ChromaSubsampling;
-    tone_mapping?: ToneMappingOperator;
-    dither?: boolean;
-}
-
-export interface TranscodeParams {
-    engine: string;
-    engine_params: Record<string, any>;
-    color?: ColorEncoding;
-    profile_policy?: ProfilePolicy;
-    strict?: boolean;
-}
-
 export interface File extends Base {
     name: string;
     path: string;
@@ -55,20 +26,18 @@ export interface File extends Base {
 
 export interface Job extends Base {
     status: TaskStatus;
-    input_path: string;
-    output_path: string;
-    target_format: string;
-    params: TranscodeParams;
+    operation: string;
+    options: ImageOptions;
     progress: number;
+    attempts: number;
+    max_attempts: number;
     error_message?: string;
     error_code?: string;
-    retry_count?: number;
-    max_retries?: number;
     owner_id: string;
-    task_id?: string;
+    task_id: string;
     workflow_id?: string;
-    input_file_id?: string;
-    input_file?: File;
+    source_file_id: string;
+    source_file?: File;
     output_file_id?: string;
     output_file?: File;
 }
@@ -82,8 +51,7 @@ export interface Task extends Base {
 
 export interface Workflow extends Base {
     name: string;
-    target_format: string;
-    params: TranscodeParams;
+    options: ImageOptions;
     owner_id: string;
 }
 

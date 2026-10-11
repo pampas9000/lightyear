@@ -325,5 +325,46 @@
         "resize_hint": "Astuce : Les images conservent leur taille d'origine par défaut. Si activé, la largeur et la hauteur servent de limites maximales pour un redimensionnement proportionnel.",
         "read_file_failed": "Échec de la lecture du fichier : {error}",
         "parse_meta_failed": "Échec de l'analyse des métadonnées : {error}"
+    },
+    "image_options": {
+        "source": "Source",
+        "format": "Format de sortie",
+        "formats": {
+            "avif": "Fichiers les plus légers",
+            "jxl": "Haute fidélité",
+            "webp": "Large compatibilité",
+            "jpeg": "Universel",
+            "png": "Sans perte",
+            "heic": "Appareils Apple"
+        },
+        "lossless": "Sans perte",
+        "jxl_lossless_hint": "Les sources JPEG sont réempaquetées sans perte (le JPEG d'origine est restituable à l'octet près) lorsque les métadonnées sont conservées.",
+        "quality": "Qualité",
+        "effort": "Effort",
+        "effort_hint": "Un effort plus élevé produit des fichiers plus petits mais prend plus de temps.",
+        "resize": "Redimensionner",
+        "width": "Largeur max. (px)",
+        "height": "Hauteur max. (px)",
+        "fit": {
+            "inside": "Contenir",
+            "cover": "Recadrer",
+            "fill": "Étirer"
+        },
+        "enlarge": "Autoriser l'agrandissement",
+        "color": "Profil couleur",
+        "color_keep": "Conserver la source",
+        "color_srgb": "Convertir en sRGB",
+        "dynamic_range": "HDR",
+        "dynamic_range_keep": "Conserver",
+        "dynamic_range_sdr": "Convertir en SDR",
+        "metadata": "EXIF / XMP",
+        "metadata_strip": "Supprimer",
+        "metadata_keep": "Conserver",
+        "hdr_hint": "L'orientation est toujours appliquée aux pixels. Les sources HDR PQ/HLG ne sont pas encore prises en charge ; les gain maps UltraHDR JPEG sont conservées en sortie JPEG.",
+        "advanced": "Avancé",
+        "chroma": "Sous-échantillonnage chroma",
+        "bit_depth": "Profondeur de bits",
+        "auto": "Auto",
+        "follow_source": "Comme la source"
     }
 }

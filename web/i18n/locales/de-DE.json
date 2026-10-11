@@ -325,5 +325,46 @@
         "resize_hint": "Tipp: Bilder behalten standardmäßig ihre Originalgröße. Wenn aktiviert, dienen Breite und Höhe als maximale Grenzen für eine proportionale Skalierung.",
         "read_file_failed": "Fehler beim Lesen der Datei: {error}",
         "parse_meta_failed": "Fehler beim Analysieren der Metadaten: {error}"
+    },
+    "image_options": {
+        "source": "Quelle",
+        "format": "Ausgabeformat",
+        "formats": {
+            "avif": "Kleinste Dateien",
+            "jxl": "Hohe Treue",
+            "webp": "Breite Unterstützung",
+            "jpeg": "Universell",
+            "png": "Verlustfrei",
+            "heic": "Apple-Geräte"
+        },
+        "lossless": "Verlustfrei",
+        "jxl_lossless_hint": "JPEG-Quellen werden verlustfrei umverpackt (das Original-JPEG ist bitgenau wiederherstellbar), wenn Metadaten erhalten bleiben.",
+        "quality": "Qualität",
+        "effort": "Aufwand",
+        "effort_hint": "Mehr Aufwand ergibt kleinere Dateien, dauert aber länger.",
+        "resize": "Größe ändern",
+        "width": "Max. Breite (px)",
+        "height": "Max. Höhe (px)",
+        "fit": {
+            "inside": "Einpassen",
+            "cover": "Zuschneiden",
+            "fill": "Strecken"
+        },
+        "enlarge": "Vergrößern erlauben",
+        "color": "Farbprofil",
+        "color_keep": "Quelle behalten",
+        "color_srgb": "In sRGB umwandeln",
+        "dynamic_range": "HDR",
+        "dynamic_range_keep": "Behalten",
+        "dynamic_range_sdr": "In SDR umwandeln",
+        "metadata": "EXIF / XMP",
+        "metadata_strip": "Entfernen",
+        "metadata_keep": "Behalten",
+        "hdr_hint": "Die Ausrichtung wird immer auf die Pixel angewendet. PQ/HLG-HDR-Quellen werden noch nicht unterstützt; UltraHDR-JPEG-Gain-Maps bleiben bei JPEG-Ausgabe erhalten.",
+        "advanced": "Erweitert",
+        "chroma": "Chroma-Subsampling",
+        "bit_depth": "Bittiefe",
+        "auto": "Automatisch",
+        "follow_source": "Wie Quelle"
     }
 }

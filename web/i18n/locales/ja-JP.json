@@ -325,5 +325,46 @@
         "resize_hint": "ヒント：各画像はデフォルトで元のサイズを維持します。この機能を有効にすると、幅と高さが最大制限として機能し、アスペクト比を維持したまま縮小されます。",
         "read_file_failed": "ファイルの読み込みに失敗しました: {error}",
         "parse_meta_failed": "メタデータの解析に失敗しました: {error}"
+    },
+    "image_options": {
+        "source": "ソース",
+        "format": "出力形式",
+        "formats": {
+            "avif": "最小サイズ",
+            "jxl": "高忠実度",
+            "webp": "幅広い互換性",
+            "jpeg": "汎用",
+            "png": "ロスレス",
+            "heic": "Apple 端末"
+        },
+        "lossless": "ロスレス",
+        "jxl_lossless_hint": "メタデータを保持する場合、JPEG ソースはロスレスで再パッケージされ、元の JPEG をビット単位で復元できます。",
+        "quality": "品質",
+        "effort": "圧縮の強さ",
+        "effort_hint": "強いほどファイルは小さくなりますが、時間がかかります。",
+        "resize": "リサイズ",
+        "width": "最大幅（px）",
+        "height": "最大高さ（px）",
+        "fit": {
+            "inside": "枠内に収める",
+            "cover": "切り抜いて埋める",
+            "fill": "引き伸ばす"
+        },
+        "enlarge": "拡大を許可",
+        "color": "カラープロファイル",
+        "color_keep": "ソースを保持",
+        "color_srgb": "sRGB に変換",
+        "dynamic_range": "HDR",
+        "dynamic_range_keep": "保持",
+        "dynamic_range_sdr": "SDR に変換",
+        "metadata": "EXIF / XMP",
+        "metadata_strip": "削除",
+        "metadata_keep": "保持",
+        "hdr_hint": "向きは常にピクセルに反映されます。PQ/HLG の HDR ソースはまだ非対応です。UltraHDR JPEG のゲインマップは JPEG 出力時に保持されます。",
+        "advanced": "詳細設定",
+        "chroma": "クロマサブサンプリング",
+        "bit_depth": "ビット深度",
+        "auto": "自動",
+        "follow_source": "ソースに合わせる"
     }
 }
