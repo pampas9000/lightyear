@@ -153,6 +153,16 @@ tasks:
       - echo "==> Running Rust compute unit tests..."
       - cargo test --workspace
 
+  test:fixtures:
+    desc: "全部素材 × 六种输出格式扫描（只有带 PQ/HLG 标记的 HDR 素材应被拒绝）"
+    cmds:
+      - cargo test -q --release -p compute-imageops fixture_sweep -- --ignored
+
+  test:consistency:
+    desc: "服务端（compute-imageops）与浏览器（wasm-vips）同素材同参数的产物一致性"
+    cmds:
+      - node scripts/consistency.ts
+
   test:web:
     desc: "运行 Web 前端类型与集成检查"
     dir: web
@@ -197,9 +207,10 @@ tasks:
       - go version
       - cargo --version
       - task --version
+      - node --version
       - pkg-config --modversion vips
-      - cmd: cjxl --version | head -1 || echo "cjxl not installed; lossless JPEG -> JXL falls back to pixel encoding."
-        silent: false
+      - cjxl --version | head -1
+      - djxl --version | head -1
 
   # ==========================================
   # 单个长寿命服务运行任务

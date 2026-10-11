@@ -3,7 +3,7 @@ import Vips from 'wasm-vips'
 import vipsWasm from 'wasm-vips/vips.wasm?url'
 import heifWasm from 'wasm-vips/vips-heif.wasm?url'
 import jxlWasm from 'wasm-vips/vips-jxl.wasm?url'
-import { probe, process } from '~/lib/vips-ops'
+import { errorMessage, probe, process } from '~/lib/vips-ops'
 import type { ImageOptions } from '~/lib/types/image-options'
 
 type Request =
@@ -45,6 +45,6 @@ self.onmessage = async (e: MessageEvent<Request>) => {
             self.postMessage({ id: req.id, ok: true, result }, { transfer: [result.bytes.buffer] })
         }
     } catch (err) {
-        self.postMessage({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) })
+        self.postMessage({ id: req.id, ok: false, error: errorMessage(err) })
     }
 }

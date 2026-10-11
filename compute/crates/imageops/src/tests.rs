@@ -56,7 +56,7 @@ fn inside_resize_keeps_aspect_and_never_upscales_by_default() {
         "heifload_buffer"
     );
 
-    let small = fixture("quality/checker.png"); // 512 × 512
+    let small = fixture("quality/checker_rb_444.png"); // 512 × 512
     assert_eq!(
         run(&small, r#"{"format":"png","resize":{"width":1024}}"#).width,
         512
@@ -179,8 +179,7 @@ fn alpha_survives_and_jpeg_flattens_onto_white() {
 
 #[test]
 fn jpeg_chroma_and_quality_are_applied() {
-    // `quality/jpeg_420_90.jpg` is single-channel grayscale, so it has no chroma.
-    let photo = fixture("external/webkit_rose_srgb.jpg");
+    let photo = fixture("quality/jpeg_420_90.jpg");
     let full = reload(&run(&photo, r#"{"format":"jpeg","chroma":"444"}"#));
     assert_eq!(full.get_string("jpeg-chroma-subsample").unwrap(), "4:4:4");
     let sub = reload(&run(&photo, r#"{"format":"jpeg","chroma":"420"}"#));
@@ -225,7 +224,8 @@ fn untrusted_loaders_are_blocked() {
 #[test]
 fn hdr_transfer_sources_are_rejected_instead_of_mislabeled() {
     for path in [
-        "quality/hdr_10bit_p3_pq_444.avif",
+        "quality/hdr_pq_10bit.avif",
+        "quality/hdr_hlg_10bit.avif",
         "external/aom_seine_hdr_rec2020.avif",
     ] {
         let err = process(
@@ -251,7 +251,7 @@ fn ultrahdr_gain_map_is_kept_for_jpeg_and_dropped_for_sdr() {
 
 #[test]
 fn oversized_and_unreadable_inputs_are_unsupported() {
-    let photo = fixture("quality/checker.png");
+    let photo = fixture("quality/checker_rb_444.png");
     let tiny = Limits { max_pixels: 1000 };
     assert!(matches!(
         process(&photo, &opts(r#"{"format":"png"}"#), &tiny),
@@ -276,7 +276,7 @@ fn oversized_and_unreadable_inputs_are_unsupported() {
 }
 
 #[test]
-fn jpeg_to_jxl_lossless_is_bit_exact_when_cjxl_and_djxl_exist() {
+fn jpeg_to_jxl_lossless_is_bit_exact() {
     let jpeg = fixture("quality/jpeg_420_90.jpg");
     let out = run(
         &jpeg,
@@ -286,46 +286,60 @@ fn jpeg_to_jxl_lossless_is_bit_exact_when_cjxl_and_djxl_exist() {
     let dir = tempfile::tempdir().unwrap();
     let (jxl, back) = (dir.path().join("a.jxl"), dir.path().join("back.jpg"));
     std::fs::write(&jxl, &out.bytes).unwrap();
-    match std::process::Command::new("djxl")
+    // cjxl and djxl are development dependencies: a missing tool fails here
+    // rather than quietly testing the pixel fallback.
+    let djxl = std::process::Command::new("djxl")
         .arg(&jxl)
         .arg(&back)
         .output()
-    {
-        Ok(status) if status.status.success() => {
-            assert_eq!(
-                std::fs::read(&back).unwrap(),
-                jpeg,
-                "JPEG not reconstructed bit-exactly"
-            );
-        }
-        _ => eprintln!("djxl unavailable; skipped reconstruction check"),
-    }
+        .expect("djxl (libjxl tools) is required");
+    assert!(
+        djxl.status.success(),
+        "djxl: {}",
+        String::from_utf8_lossy(&djxl.stderr)
+    );
+    assert_eq!(
+        std::fs::read(&back).unwrap(),
+        jpeg,
+        "JPEG not reconstructed bit-exactly (is cjxl installed?)"
+    );
 }
 
-/// Every fixture × every format. Run with `cargo test -p compute-imageops
-/// fixture_sweep -- --ignored --nocapture`; prints one line per failure.
+/// Every fixture × every format; only CICP-tagged HDR sources may fail. Slow in
+/// debug builds, so run with `task test:fixtures`.
 #[test]
 #[ignore]
 fn fixture_sweep() {
+    const REJECTED: [&str; 4] = [
+        "quality/hdr_pq_10bit.avif",
+        "quality/hdr_hlg_10bit.avif",
+        "external/aom_seine_hdr_rec2020.avif",
+        // PQ base image (sRGB primaries) with an SDR gain map alternate.
+        "external/aom_seine_hdr_gainmap_srgb.avif",
+    ];
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../scripts/fixtures");
-    let mut failures = 0;
+    let mut unexpected = Vec::new();
     for dir in ["quality", "external", "hd_benchmark"] {
         let mut entries: Vec<_> = std::fs::read_dir(format!("{root}/{dir}"))
             .unwrap()
             .flatten()
+            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
             .collect();
         entries.sort_by_key(|e| e.path());
         for entry in entries {
+            let name = format!("{dir}/{}", entry.file_name().to_string_lossy());
             let input = std::fs::read(entry.path()).unwrap();
             for format in ["avif", "heic", "jxl", "webp", "jpeg", "png"] {
                 let json = format!(r#"{{"format":"{format}","resize":{{"width":1024}}}}"#);
-                if let Err(e) = process(&input, &opts(&json), &Limits::default()) {
-                    failures += 1;
-                    let name = entry.file_name();
-                    eprintln!("{dir}/{} -> {format}: {e}", name.to_string_lossy());
+                let result = process(&input, &opts(&json), &Limits::default());
+                match (REJECTED.contains(&name.as_str()), result) {
+                    (false, Ok(_)) | (true, Err(Error::Unsupported(_))) => {}
+                    (_, result) => {
+                        unexpected.push(format!("{name} -> {format}: {:?}", result.err()))
+                    }
                 }
             }
         }
     }
-    eprintln!("{failures} failures");
+    assert!(unexpected.is_empty(), "{}", unexpected.join("\n"));
 }

@@ -29,6 +29,8 @@ const props = defineProps<{
     modelValue: ImageOptions;
     sourceProbe?: SourceProbeSummary | null;
     disabled?: boolean;
+    /** Output formats to offer; defaults to all. */
+    formats?: OutputFormat[];
 }>();
 const emit = defineEmits<{ (e: "update:modelValue", value: ImageOptions): void }>();
 
@@ -79,7 +81,7 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
             <Label class="text-xs font-bold text-ink uppercase tracking-wider">{{ $t("image_options.format") }}</Label>
             <div class="grid grid-cols-3 @lg:grid-cols-6 gap-2">
                 <button
-                    v-for="fmt in FORMATS"
+                    v-for="fmt in formats ?? FORMATS"
                     :key="fmt"
                     type="button"
                     :disabled="disabled"

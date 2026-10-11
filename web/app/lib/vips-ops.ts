@@ -1,10 +1,13 @@
 // Browser twin of compute/crates/imageops: applies ImageOptions with
 // wasm-vips. Keep the two in step; both follow docs/contracts/image-options.md.
-// Differences: there is no cjxl here, so lossless JPEG -> JXL re-encodes
-// pixels instead of repacking the JPEG.
+// Differences (checked by scripts/consistency.ts):
+// - there is no cjxl here, so lossless JPEG -> JXL re-encodes pixels instead of
+//   repacking the JPEG;
+// - wasm-vips has no HEVC codec: HEIC can be neither read nor written;
+// - its JPEG XL decoder rejects files carrying an Exif or XMP box.
 import type VipsModule from 'wasm-vips'
 import type { ImageOptions, OutputFormat } from '~/lib/types/image-options'
-import { DEFAULT_EFFORT, DEFAULT_QUALITY } from '~/lib/image-options'
+import { DEFAULT_EFFORT, DEFAULT_QUALITY, FORMATS } from '~/lib/image-options'
 
 type Vips = Awaited<ReturnType<typeof VipsModule>>
 type Image = InstanceType<Vips['Image']>
@@ -23,6 +26,7 @@ export interface Probe {
 }
 
 export const MAX_PIXELS = 100_000_000
+export const BROWSER_FORMATS = FORMATS.filter((f) => f !== 'heic')
 const UNBOUNDED = 10_000_000
 const KEEP = { exif: 1, xmp: 2, iptc: 4, icc: 8, gainmap: 32 }
 
@@ -33,6 +37,13 @@ const MIME: Record<OutputFormat, string> = {
     webp: 'image/webp',
     jpeg: 'image/jpeg',
     png: 'image/png',
+}
+
+/** libvips errors arrive as `WebAssembly.Exception` with `message: [type, text]`. */
+export function errorMessage(err: unknown): string {
+    const message = (err as { message?: unknown } | null)?.message
+    if (Array.isArray(message)) return String(message[1] ?? message[0]).trim()
+    return typeof message === 'string' ? message : String(err)
 }
 
 /** CICP transfer 16 (PQ) / 18 (HLG): libvips would write these as sRGB. */

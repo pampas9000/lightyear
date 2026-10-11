@@ -11,7 +11,6 @@
         "test:web": "cd web && bunx nuxt typecheck",
         "test:server": "go test ./server/...",
         "test:compute": "cargo test --workspace",
-        "benchmark": "bun run ./scripts/benchmark.ts",
         "docs:dev": "vitepress dev docs",
         "docs:build": "vitepress build docs",
         "docs:preview": "vitepress preview docs",

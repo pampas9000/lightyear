@@ -446,7 +446,7 @@
                         </span>
                     </div>
 
-                    <ImageOptionsForm v-model="options" :disabled="isProcessing" />
+                    <ImageOptionsForm v-model="options" :formats="BROWSER_FORMATS" :disabled="isProcessing" />
 
                 </div>
 
@@ -484,6 +484,7 @@ import { useVips } from '~/composables/useVips'
 import ImageOptionsForm from '@/components/ImageOptionsForm.vue'
 import type { ImageOptions } from '~/lib/types/image-options'
 import { sanitize } from '~/lib/image-options'
+import { BROWSER_FORMATS } from '~/lib/vips-ops'
 import {
     Upload, Image, AlertTriangle, AlertCircle, Zap, Cpu, XCircle, X, Download, SlidersHorizontal, Info, ArrowLeftRight, Trash2, Play, Sparkles, Check
 } from '@lucide/vue'

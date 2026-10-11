@@ -74,7 +74,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 3.3 | 资源上限：解码前按像素数拒绝；`fail_on=error`；拦截 libvips 标记为 untrusted 的加载器（PDF、SVG、OpenEXR、FITS 等），单独放行 JXL | ✅ |
 | 3.4 | `cjxl` JPEG→JXL 无损旁路（逐字节可还原，已用 `djxl` 验证）；缺 `cjxl` 时退回像素级无损 | ✅ |
 | 3.5 | HDR 保护：PQ/HLG 源图（HEIF/AVIF `nclx`、PNG `cICP`）明确拒绝；UltraHDR JPEG 的 gain map 在 JPEG 输出时保留，`sdr` 或其他格式输出基础 SDR 图 | ✅ |
-| 3.6 | 全部素材 × 六种格式扫描（`fixture_sweep`）：只有 PQ 源图与一个损坏素材被拒绝 | ✅ |
+| 3.6 | 全部素材 × 六种格式扫描（`task test:fixtures`）：只有带 PQ/HLG 标记的 4 个 HDR 素材被拒绝，其余全部成功 | ✅ |
 | 3.7 | PQ/HLG 源图转 SDR（色调映射）与 AVIF/HEIC gain map 保留 | ⬜ 归入以后的 HDR 通道 |
 
 实现中确认的 libvips 行为（8.18）：
@@ -84,7 +84,6 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 - libjxl 被 libvips 标记为 untrusted，启用 untrusted 拦截后需显式放行 JXL。
 - 选项名写错时 libvips 只打 warning 不报错，每个编码选项都需要测试验证效果。
 
-素材问题（第 7 步整理素材时处理）：`quality/jpeg_420_90.jpg` 实为单通道灰度 JPEG；`quality/ultra_hdr_dual_jpeg.jpg` 已损坏（Bogus marker length）。
 
 ### 第 4 步：数据模型与 Orchestrator（Go）
 
@@ -119,8 +118,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 6.3 | 沙盒改用 wasm-vips（Web Worker、首次使用时加载）；全站 COOP `same-origin` + COEP `credentialless`，保证客户端路由进入沙盒时仍是跨源隔离状态 | ✅ |
 | 6.4 | `lib/vips-ops.ts` 与 `compute-imageops` 逐条对应；在浏览器中验证 AVIF/JXL/WebP/JPEG/PNG 编码与缩放 | ✅ |
 | 6.5 | 删除 `compute-wasm`、`@jsquash/jxl`、wasm-pack 构建任务 | ✅ |
-| 6.6 | 已知限制：Safari 不支持 COEP `credentialless`，页面无法跨源隔离，沙盒会提示不可用；浏览器端没有 cjxl，JPEG→JXL 无损会重新编码像素 | — |
-| 6.7 | 服务端与浏览器的自动化一致性测试（同一素材、同一参数比较产物） | ⬜ |
+| 6.6 | 已知限制：Safari 不支持 COEP `credentialless`，页面无法跨源隔离，沙盒会提示不可用；浏览器端没有 cjxl，JPEG→JXL 无损会重新编码像素；wasm-vips 没有 HEVC，HEIC 既不能读也不能写（沙盒已不提供 HEIC 输出）；wasm-vips 的 JXL 解码器读不了带 Exif/XMP box 的文件 | — |
+| 6.7 | 服务端与浏览器的自动化一致性测试 `task test:consistency`：22 组素材 × 参数，比较格式、尺寸、通道、位深、ICC/Exif/gain map 与像素平均差；上述浏览器缺口作为预期失败登记，wasm-vips 补上后测试会提示更新 | ✅ |
 
 ### 第 7 步：删除旧代码与工具链
 
@@ -129,8 +128,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 7.1 | 删除 `compute-engine`、`compute-server-adapter`、`compute-wasm` 与 `compute-types` 旧参数类型；工作区只剩 `types`、`imageops`、`worker` | ✅ |
 | 7.2 | 开发环境依赖改为 libvips ≥ 8.17（含 libjxl、libheif、libultrahdr）+ `cjxl`；去掉 `avifenc`/`avifdec`/`heif-enc`/`heif-dec`/`cwebp`、`wasm-pack`（`task doctor` 已更新，文档待第 8 步） | 🚧 |
 | 7.3 | Taskfile / `package.json`：去掉 wasm 与 gorm/gen 任务，`build:server` 产出 `migrate` | ✅ |
-| 7.4 | `scripts/benchmark.ts` 改为产物级一致性测试；缺工具算失败 | ⬜ |
-| 7.5 | 修正过期的素材：`jpeg_420_90.jpg` 实为灰度图，`ultra_hdr_dual_jpeg.jpg` 已损坏 | ⬜ |
+| 7.4 | 删除只读文件头的 `scripts/benchmark.ts`；产物级检查由 `compute-imageops` 测试、`test:fixtures`、`test:consistency` 承担；`cjxl`/`djxl` 缺失时测试失败而不是跳过 | ✅ |
+| 7.5 | 重写素材生成脚本（magick + vips + avifenc）：根源是 `checker_rb_444.png` 生成成了灰度图，连带 JPEG/AVIF/WebP/JXL/HEIC 衍生素材都没有色度；删除与新管线无关或名不副实的素材（limited range、矩阵、"4000 nits" 白图、损坏的双层 JPEG 等），HDR 拒绝新增 HLG 素材 | ✅ |
 
 ### 第 8 步：文档
 
