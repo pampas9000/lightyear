@@ -1,10 +1,12 @@
 pub mod edit;
 pub mod format;
+pub mod image_options;
 pub mod protocol;
 pub mod transcode;
 
 pub use edit::ImageEditOp;
 pub use format::Format;
+pub use image_options::ImageOptions;
 pub use protocol::{
     COMPUTE_GROUP_NAME, COMPUTE_STREAM_KEY, ComputePayload, RESULTS_STREAM_KEY, ResultPayload,
     SCHEMA_VERSION,

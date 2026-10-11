@@ -114,6 +114,7 @@ tasks:
       - task: check:server
       - task: check:compute
       - task: check:web
+      - task: check:contracts
 
   check:server:
     desc: "检查 Go 代码编译与语法正确性"
@@ -127,6 +128,21 @@ tasks:
     cmds:
       - echo "==> Checking Rust workspace..."
       - cargo check --workspace
+
+  gen:types:
+    desc: "由 ImageOptions JSON Schema 生成 Web 端 TS 类型"
+    cmds:
+      - UPDATE_SCHEMAS=1 cargo test -q -p compute-types json_schema_is_up_to_date
+      - 'bunx json-schema-to-typescript@16.0.0 -i docs/contracts/schemas/image-options.schema.json -o web/app/lib/types/image-options.ts --bannerComment "/* Generated from docs/contracts/schemas/image-options.schema.json by: task gen:types. Do not edit. */"'
+
+  check:contracts:
+    desc: "检查 ImageOptions 的 JSON Schema 与 TS 类型是否为最新"
+    cmds:
+      - cargo test -q -p compute-types json_schema_is_up_to_date
+      - |
+        tmp=$(mktemp -d)
+        bunx json-schema-to-typescript@16.0.0 -i docs/contracts/schemas/image-options.schema.json -o "$tmp/image-options.ts" --bannerComment "/* Generated from docs/contracts/schemas/image-options.schema.json by: task gen:types. Do not edit. */"
+        diff -u web/app/lib/types/image-options.ts "$tmp/image-options.ts" || { echo "TS types are stale; run: task gen:types"; exit 1; }
 
   check:web:
     desc: "运行 Web 前端 Nuxt / Vue 静态类型检查"

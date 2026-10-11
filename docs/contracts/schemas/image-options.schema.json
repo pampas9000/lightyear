@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ImageOptions",
+  "type": "object",
+  "properties": {
+    "bit_depth": {
+      "description": "8 or 10, AVIF and HEIC only; absent means follow the source.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint8",
+      "maximum": 10,
+      "minimum": 8
+    },
+    "chroma": {
+      "description": "AVIF, HEIC and JPEG only; absent means chosen automatically.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Chroma"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "color": {
+      "$ref": "#/$defs/ColorIntent",
+      "default": "keep"
+    },
+    "dynamic_range": {
+      "$ref": "#/$defs/DynamicRange",
+      "default": "keep"
+    },
+    "effort": {
+      "description": "1 (fastest) – 10 (smallest). Not available for JPEG.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint8",
+      "maximum": 10,
+      "minimum": 1
+    },
+    "format": {
+      "$ref": "#/$defs/OutputFormat"
+    },
+    "lossless": {
+      "description": "Not available for JPEG.",
+      "type": "boolean",
+      "default": false
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata",
+      "default": "strip"
+    },
+    "quality": {
+      "description": "1–100. Not used with `lossless` or for PNG.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint8",
+      "maximum": 100,
+      "minimum": 1
+    },
+    "resize": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Resize"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format"
+  ],
+  "$defs": {
+    "Chroma": {
+      "type": "string",
+      "enum": [
+        "420",
+        "444"
+      ]
+    },
+    "ColorIntent": {
+      "description": "What happens to the source's color profile.",
+      "oneOf": [
+        {
+          "description": "Keep the source profile; pixels are not converted.",
+          "type": "string",
+          "const": "keep"
+        },
+        {
+          "description": "Convert to sRGB and tag the result as sRGB.",
+          "type": "string",
+          "const": "srgb"
+        }
+      ]
+    },
+    "DynamicRange": {
+      "oneOf": [
+        {
+          "description": "Keep HDR content as HDR; rejected where it cannot be preserved.",
+          "type": "string",
+          "const": "keep"
+        },
+        {
+          "description": "Deliver standard dynamic range.",
+          "type": "string",
+          "const": "sdr"
+        }
+      ]
+    },
+    "Fit": {
+      "description": "How the image is fitted into `width` × `height`.",
+      "oneOf": [
+        {
+          "description": "Scale down to fit inside the box, keeping the aspect ratio.",
+          "type": "string",
+          "const": "inside"
+        },
+        {
+          "description": "Fill the box, keeping the aspect ratio and cropping the overflow.",
+          "type": "string",
+          "const": "cover"
+        },
+        {
+          "description": "Stretch to exactly the box.",
+          "type": "string",
+          "const": "fill"
+        }
+      ]
+    },
+    "Metadata": {
+      "description": "EXIF and XMP handling; the ICC profile is governed by `color`.",
+      "type": "string",
+      "enum": [
+        "keep",
+        "strip"
+      ]
+    },
+    "OutputFormat": {
+      "type": "string",
+      "enum": [
+        "avif",
+        "jxl",
+        "webp",
+        "jpeg",
+        "png",
+        "heic"
+      ]
+    },
+    "Resize": {
+      "type": "object",
+      "properties": {
+        "enlarge": {
+          "description": "Allow upscaling when the source is smaller than the box.",
+          "type": "boolean",
+          "default": false
+        },
+        "fit": {
+          "$ref": "#/$defs/Fit",
+          "default": "inside"
+        },
+        "height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "maximum": 16384,
+          "minimum": 1
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "maximum": 16384,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,91 @@
+[
+  {
+    "name": "minimal avif fills defaults",
+    "input": { "format": "avif" },
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "minimal jxl",
+    "input": { "format": "jxl" },
+    "canonical": { "format": "jxl", "quality": 80, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "minimal webp",
+    "input": { "format": "webp" },
+    "canonical": { "format": "webp", "quality": 80, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "jpeg has quality but no effort",
+    "input": { "format": "jpeg" },
+    "canonical": { "format": "jpeg", "quality": 82, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "png has effort but no quality",
+    "input": { "format": "png" },
+    "canonical": { "format": "png", "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "heic default quality",
+    "input": { "format": "heic" },
+    "canonical": { "format": "heic", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "lossless leaves quality unset",
+    "input": { "format": "jxl", "lossless": true, "effort": 9 },
+    "canonical": { "format": "jxl", "lossless": true, "effort": 9, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "explicit values survive and resize gets its defaults",
+    "input": {
+      "format": "avif", "quality": 70, "effort": 8, "resize": { "width": 1600 },
+      "color": "srgb", "dynamic_range": "sdr", "metadata": "keep", "chroma": "444", "bit_depth": 10
+    },
+    "canonical": {
+      "format": "avif", "quality": 70, "lossless": false, "effort": 8,
+      "resize": { "width": 1600, "fit": "inside", "enlarge": false },
+      "color": "srgb", "dynamic_range": "sdr", "metadata": "keep", "chroma": "444", "bit_depth": 10
+    }
+  },
+  {
+    "name": "cover with both dimensions",
+    "input": { "format": "webp", "resize": { "width": 400, "height": 300, "fit": "cover", "enlarge": true } },
+    "canonical": {
+      "format": "webp", "quality": 80, "lossless": false, "effort": 5,
+      "resize": { "width": 400, "height": 300, "fit": "cover", "enlarge": true },
+      "color": "keep", "dynamic_range": "keep", "metadata": "strip"
+    }
+  },
+  {
+    "name": "jpeg chroma 420",
+    "input": { "format": "jpeg", "chroma": "420", "quality": 90 },
+    "canonical": { "format": "jpeg", "quality": 90, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "chroma": "420" }
+  },
+  {
+    "name": "null optional field means unset",
+    "input": { "format": "avif", "quality": null, "chroma": null },
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  { "name": "format is required", "input": { "quality": 80 } },
+  { "name": "null for a defaulted field is rejected", "input": { "format": "avif", "color": null } },
+  { "name": "null fit is rejected", "input": { "format": "avif", "resize": { "width": 10, "fit": null } } },
+  { "name": "unknown format", "input": { "format": "gif" } },
+  { "name": "unknown field is rejected", "input": { "format": "avif", "icc_path": "/proc/self/environ" } },
+  { "name": "legacy engine field is rejected", "input": { "format": "avif", "engine": "libavif:avif" } },
+  { "name": "unknown resize field is rejected", "input": { "format": "avif", "resize": { "width": 10, "gravity": "north" } } },
+  { "name": "quality below range", "input": { "format": "avif", "quality": 0 } },
+  { "name": "quality above range", "input": { "format": "avif", "quality": 101 } },
+  { "name": "quality with lossless", "input": { "format": "webp", "quality": 80, "lossless": true } },
+  { "name": "png quality", "input": { "format": "png", "quality": 80 } },
+  { "name": "jpeg lossless", "input": { "format": "jpeg", "lossless": true } },
+  { "name": "jpeg effort", "input": { "format": "jpeg", "effort": 5 } },
+  { "name": "effort above range", "input": { "format": "avif", "effort": 11 } },
+  { "name": "empty resize", "input": { "format": "avif", "resize": {} } },
+  { "name": "zero width", "input": { "format": "avif", "resize": { "width": 0 } } },
+  { "name": "width above limit", "input": { "format": "avif", "resize": { "width": 20000 } } },
+  { "name": "cover needs both dimensions", "input": { "format": "avif", "resize": { "width": 400, "fit": "cover" } } },
+  { "name": "chroma on webp", "input": { "format": "webp", "chroma": "444" } },
+  { "name": "chroma with lossless", "input": { "format": "avif", "lossless": true, "chroma": "444" } },
+  { "name": "unknown chroma", "input": { "format": "avif", "chroma": "422" } },
+  { "name": "bit depth 12", "input": { "format": "avif", "bit_depth": 12 } },
+  { "name": "bit depth on jxl", "input": { "format": "jxl", "bit_depth": 10 } }
+]

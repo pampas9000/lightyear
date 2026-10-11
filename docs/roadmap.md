@@ -56,12 +56,14 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 ### 第 2 步：参数规范 `ImageOptions`
 
+契约见 [ImageOptions](/contracts/image-options)。
+
 | # | 项目 | 状态 |
 |---|---|---|
-| 2.1 | 确定字段与默认值：`format`、`quality`、`lossless`、`effort`、`resize{width,height,fit,enlarge}`、`color: keep\|srgb`、`dynamic_range: keep\|sdr`、`metadata: keep\|strip`、`advanced{chroma,bit_depth}` | ⬜ |
-| 2.2 | Rust 类型（`compute-types`）导出 JSON Schema，作为唯一定义；TS 类型由 Schema 生成 | ⬜ |
-| 2.3 | Go 类型与校验，用共享 fixtures 保证与 Rust 解析一致 | ⬜ |
-| 2.4 | Go 侧规范化与产物键 | ⬜ |
+| 2.1 | 字段与默认值：`format`、`quality`、`lossless`、`effort`、`resize{width,height,fit,enlarge}`、`color`、`dynamic_range`、`metadata`、`chroma`、`bit_depth`（平铺，不嵌套 `advanced`） | ✅ |
+| 2.2 | Rust 类型为唯一定义，生成 JSON Schema；TS 类型由 Schema 生成（`task gen:types`），`task check` 检查是否最新 | ✅ |
+| 2.3 | Go 类型与校验，与 Rust 跑同一份 fixtures（34 个用例） | ✅ |
+| 2.4 | Go 侧规范化与产物键 | ✅ |
 
 ### 第 3 步：处理核心 `compute-imageops`（Rust + rs-vips）
 
