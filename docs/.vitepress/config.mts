@@ -3,7 +3,7 @@ import { defineConfig } from 'vitepress'
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'Lightyear',
-  description: 'Media transcoding platform — Go orchestration, Rust compute core, Nuxt web console and WASM sandbox',
+  description: 'Image processing platform — Go orchestration, Rust + libvips worker, Nuxt console with a wasm-vips sandbox',
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     nav: [
@@ -11,8 +11,8 @@ export default defineConfig({
       { text: '快速开始', link: '/getting-started' },
       { text: '架构', link: '/architecture/overview' },
       { text: '契约', link: '/contracts/' },
-      { text: '计算引擎', link: '/compute/color-pipeline' },
-      { text: '质量基准', link: '/quality/fidelity-benchmark' },
+      { text: '处理核心', link: '/compute/imageops' },
+      { text: '测试', link: '/quality/fixtures' },
       { text: '工程笔记', link: '/engineering-notes/' },
       { text: '路线图', link: '/roadmap' }
     ],
@@ -39,34 +39,24 @@ export default defineConfig({
           { text: '总览与兼容规则', link: '/contracts/' },
           { text: 'ImageOptions', link: '/contracts/image-options' },
           { text: 'HTTP API', link: '/contracts/http-api' },
-          { text: '队列（Redis Streams）', link: '/contracts/queue' },
-          { text: 'WASM', link: '/contracts/wasm' }
+          { text: '队列（Redis Streams）', link: '/contracts/queue' }
         ]
       },
       {
-        text: '计算引擎',
+        text: '处理核心',
         items: [
-          { text: '编解码器与架构', link: '/compute/codec-engines' },
-          { text: '色彩管线', link: '/compute/color-pipeline' },
-          { text: '元数据与 Alpha', link: '/compute/metadata' },
-          { text: 'HDR Gain Map', link: '/compute/gain-map' },
-          { text: '实现审查与取舍', link: '/compute/engineering-review' },
-          { text: '路线图', link: '/compute/color-roadmap' },
-          { text: '已知限制', link: '/compute/limitations' }
+          { text: 'compute-imageops', link: '/compute/imageops' },
+          { text: 'HDR 与已知限制', link: '/compute/limitations' }
         ]
       },
       {
-        text: '质量基准',
-        items: [{ text: '保真度基准', link: '/quality/fidelity-benchmark' }]
+        text: '测试',
+        items: [{ text: '素材与测试', link: '/quality/fixtures' }]
       },
       {
         text: '工程笔记',
         items: [
           { text: '索引', link: '/engineering-notes/' },
-          { text: '输入格式探测', link: '/engineering-notes/input-detection' },
-          { text: 'ICC 容器读写', link: '/engineering-notes/icc-containers' },
-          { text: '重采样', link: '/engineering-notes/resampling' },
-          { text: 'EXIF 元数据', link: '/engineering-notes/exif-metadata' },
           { text: 'HDR Gain Map 调研', link: '/engineering-notes/gain-map-research' }
         ]
       }

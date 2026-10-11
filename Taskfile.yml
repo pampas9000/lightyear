@@ -209,8 +209,9 @@ tasks:
       - task --version
       - node --version
       - pkg-config --modversion vips
-      - cjxl --version | head -1
-      - djxl --version | head -1
+      - pkg-config --atleast-version=8.17 vips || { echo "libvips >= 8.17 is required"; exit 1; }
+      - cjxl --version
+      - djxl --version
 
   # ==========================================
   # 单个长寿命服务运行任务

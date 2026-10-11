@@ -105,12 +105,12 @@
     "DynamicRange": {
       "oneOf": [
         {
-          "description": "Keep HDR content as HDR; rejected where it cannot be preserved.",
+          "description": "Keep a gain map where the output can carry it (UltraHDR JPEG to\nJPEG); other outputs get the SDR base image. Sources with a PQ or HLG\ntransfer are rejected, as no tone mapping exists yet.",
           "type": "string",
           "const": "keep"
         },
         {
-          "description": "Deliver standard dynamic range.",
+          "description": "Deliver standard dynamic range: gain maps are dropped.",
           "type": "string",
           "const": "sdr"
         }

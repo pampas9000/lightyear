@@ -1,176 +1,135 @@
 # HTTP API 契约
 
-权威实现：`server/internal/api`（路由、handlers、middleware、响应封装）。所有路由挂在 `/api` 前缀下，**没有版本号**。
+权威实现：`server/internal/api`。所有路由挂在 `/api` 下，**没有版本号**；这是 Web 控制台使用的内部接口。对外的 `/v1` API 与 MCP 计划在[路线图第 9 步](/roadmap#第-9-步-对外-api-与-mcp-只做异步)。
 
 ## 认证
 
-基于 Fiber session（存储于 Redis），支持两种等价凭据：
+Fiber session，存储在 Redis。两种等价凭据：
 
-- Cookie：`session_id`（HttpOnly、SameSite=Lax、生产环境 Secure、空闲 7 天过期）
+- Cookie `session_id`（HttpOnly、SameSite=Lax、生产环境 Secure、空闲 7 天过期）
 - `Authorization: Bearer <session_id>`（登录/注册返回的 `token` 即 session ID）
 
-未认证请求返回 `401` 与 `error.auth.unauthorized`。
+未认证返回 `401 error.auth.unauthorized`。
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/register` | `{username, email, password}`；成功建会话并返回 `token` 与用户信息 |
+| `POST` | `/api/register` | `{username, email, password}`；成功即登录 |
 | `POST` | `/api/login` | `{username, password}` |
 | `POST` | `/api/logout` | 销毁会话 |
-| `GET` | `/api/auth/:provider` | OAuth 登录跳转（`github`/`google`） |
-| `GET` | `/api/auth/:provider/callback` | OAuth 回调（兼容 `/api/auth/callback/:provider`），成功后重定向 `FRONTEND_URL` |
+| `GET` | `/api/auth/:provider` | OAuth 跳转（`github` / `google`，配置后启用） |
+| `GET` | `/api/auth/:provider/callback` | OAuth 回调（也接受 `/api/auth/callback/:provider`），成功后重定向到 `FRONTEND_URL` |
 | `GET` | `/api/me` | 当前用户 |
 
 ## 响应封装
 
-除少数历史端点外，统一包裹为：
-
 ```json
-{
-  "success": true,
-  "code": "ok",
-  "message": "Task fetched.",
-  "data": { },
-  "details": null
-}
+{ "success": true, "code": "ok", "message": "Task fetched.", "data": { }, "details": null }
 ```
 
-错误时 `success=false`、`data=null`，`details` 承载机器可读上下文（如 `{"field":"items","reason":"empty"}`）。
-
-### 响应码
-
-成功：`ok`、`ok.job.created`、`ok.job.fetched`、`ok.job.created_partial`、`ok.user.registered`、`ok.user.logged_in`。
-
-失败：
+失败时 `success=false`、`data=null`，`details` 为机器可读上下文（如 `{"field":"items","reason":"empty"}`）。响应码定义在 `server/internal/api/response/codes.go`：
 
 | 类别 | 码 |
 | :--- | :--- |
-| 请求/校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
+| 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
+| 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials` |
-| 资源 | `error.job.not_found`、`error.user.already_exists`、`error.queue.enqueue_failed` |
+| 资源 | `error.job.not_found`、`error.user.already_exists` |
 | 基础设施 | `error.database.unavailable`、`error.queue.unavailable`、`error.internal` |
 
-完整定义：`server/internal/api/response/codes.go`。
-
-## 任务（Tasks）
+## 任务
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/tasks` | 创建任务 |
+| `POST` | `/api/tasks` | 创建任务，返回 `201` 与任务 |
 | `GET` | `/api/tasks` | 分页列表：`?page=1&count=20&status=FAILED` |
-| `GET` | `/api/tasks/stats` | 统计（任务数、活跃 Worker 等） |
-| `GET` | `/api/tasks/:id` | 任务详情（含 jobs 与文件） |
-| `POST` | `/api/tasks/:id/retry` | 重试失败作业，可覆盖参数 |
-| `POST` | `/api/tasks/:id/cancel` | 取消任务 |
+| `GET` | `/api/tasks/stats` | 各状态任务数、存储用量、活跃 worker 数、近 7 天趋势 |
+| `GET` | `/api/tasks/:id` | 详情，含 jobs 及其 `source_file`、`output_file` |
+| `POST` | `/api/tasks/:id/retry` | 重试 |
+| `POST` | `/api/tasks/:id/cancel` | 取消未结束的 job |
 
-### 创建任务
-
-新接口支持通用 `jobs`；`items` 是转码兼容写法。一个 job 的 `operation` 可以是 `transcode`、`image.generate`、`image.upscale` 或 `image.edit`。
+### 创建
 
 ```json
 {
-  "workflow_id": "0198...",          // 可选，复用预设参数
-  "items": [{ "file_id": "0198...", "target_format": "avif", "params": { } }],
-  "target_format": "avif",           // 可选，作为 items 的默认值
-  "params": {                        // 可选，作为 items 的默认参数
-    "engine": "libavif:avif",
-    "engine_params": { "quality": 80 },
-    "color": { "color_space": "display_p3", "chroma": "auto", "nominal_bit_depth": 10 }
-  },
-  "idempotency_key": "..."           // 可选；同 key 不同负载返回 409
+  "items": [{ "file_id": "0198…" }, { "file_id": "0198…" }],
+  "options": { "format": "avif", "quality": 60, "resize": { "width": 1600 } },
+  "idempotency_key": "upload-batch-42"
 }
 ```
 
-通用写法示例：
+- `options` 与 `workflow_id` **二选一**；`options` 按 [ImageOptions](/contracts/image-options) 严格解析并规范化后存入每个 job。
+- 每个 item 生成一个 job；文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
+- 已有相同产物（同一源文件、同一规范化参数）的 job 直接完成。
+- `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、`options`、文件集合）不同则 `409`。
+
+| 情况 | 响应 |
+| :--- | :--- |
+| `items` 为空 | `400 error.param.required` |
+| 超过 100 个 item | `400 error.param.invalid` |
+| `options` 与 `workflow_id` 都给或都没给；`options` 非法；`idempotency_key` 过长 | `400 error.param.invalid` |
+| 文件不存在或未上传完成 | `400 error.param.invalid` |
+| `workflow_id` 不存在 | `400 error.param.invalid` |
+| 同 key 不同内容 | `409 error.param.invalid` |
+
+### 重试
+
+```json
+{ "job_ids": ["0198…"], "retry_all": false, "options": { "format": "webp" } }
+```
+
+- 都不给：重试所有 `FAILED` 的 job。
+- `job_ids`：重试指定的 job；`retry_all: true`：重试所有已结束的 job（完成、失败、取消）。
+- `options` 可选，给出时替换这些 job 的参数。
+- 有未结束的 job 被点名时返回 `409`；没有可重试的 job 返回 `400`。
+
+### Job 字段
 
 ```json
 {
-  "jobs": [{
-    "operation": "image.edit",
-    "executor": "provider:example",
-    "operation_params": {
-      "model": "example-edit-v1",
-      "prompt": "replace the background"
-    },
-    "inputs": [
-      {"file_id": "0198...", "role": "source"},
-      {"file_id": "0198...", "role": "mask"}
-    ],
-    "target_format": "png",
-    "output_count": 1
-  }]
+  "id": "…", "task_id": "…", "operation": "image.convert",
+  "options": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" },
+  "source_file_id": "…", "source_file": { "name": "a.jpg", "size": 123, "width": 4000, "height": 3000 },
+  "output_file_id": "…", "output_file": { "name": "a.avif", "size": 45, "mime_type": "image/avif" },
+  "status": "COMPLETED", "progress": 100, "attempts": 1, "max_attempts": 3,
+  "error_code": "", "error_message": ""
 }
 ```
 
-`executor` 必须是服务端已安装并启用的执行器。当前默认只安装本地 `compute` 转码执行器，因此未配置 AI Provider 时，AI job 返回 `422 error.param.invalid`（details 表示 executor unavailable），不会进入队列。
+`options` 总是规范化后的完整形式。`error_code` 取值见[队列契约 §错误码](/contracts/queue#错误码)，另有 `execution_timeout` 与 `cancelled`。
 
-规则与错误：
-
-- `items` 为空 → `400 error.param.required`
-- 输入文件不存在或未完成上传 → `400 error.param.invalid`
-- `workflow_id` 不存在 → `400 error.param.invalid`
-- 未安装的 `executor` → `422 error.param.invalid`（details 标识 executor unavailable）
-- 相同 `idempotency_key` 但请求指纹不同 → `409 error.param.invalid`
-
-### 重试任务
-
-```json
-{
-  "target_format": "webp",
-  "params": { "engine": "libwebp:webp", "engine_params": { "quality": 75 } },
-  "job_ids": ["0198..."],
-  "retry_all": false
-}
-```
-
-未指定 `job_ids` 且 `retry_all=false` 时返回 `400`（无失败作业可重试）。
-
-## 工作流（Workflows）
+## 预设（Workflows）
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/workflows` | 创建预设 |
-| `GET` | `/api/workflows` | 当前用户预设列表 |
-| `GET` | `/api/workflows/:id` | 预设详情 |
-| `PUT` | `/api/workflows/:id` | 更新 |
+| `POST` | `/api/workflows` | `{name, options}` |
+| `GET` | `/api/workflows` | 当前用户的预设 |
+| `GET` | `/api/workflows/:id` | 详情 |
+| `PUT` | `/api/workflows/:id` | `{name, options}` |
 | `DELETE` | `/api/workflows/:id` | 删除 |
 
-> ⚠️ 已知不一致：工作流请求体使用 `targetFormat`（camelCase），而任务接口使用 `target_format`（snake_case）。
+`options` 与任务中的规则相同。
 
 ## 上传（S3 分片预签名）
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/upload/multipart/init` | `{filename, type, hash}`；`hash` 命中已上传文件时返回 `fastUpload: true` 秒传 |
+| `POST` | `/api/upload/multipart/init` | `{filename, type, hash}`；`hash`（SHA-256）命中本人已上传的文件时返回 `fastUpload: true` |
 | `GET` | `/api/upload/multipart/:uploadId/list-parts` | 已上传分片 |
 | `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber` | 分片预签名 URL |
-| `POST` | `/api/upload/multipart/:uploadId/complete` | `{key, parts:[{PartNumber, ETag}]}` 合并并置文件为 `UPLOADED` |
-| `POST` | `/api/upload/multipart/:uploadId/abort` | 中止分片上传并置文件为 `ABORTED` |
+| `POST` | `/api/upload/multipart/:uploadId/complete` | `{key, parts:[{PartNumber, ETag}]}`，文件变为 `UPLOADED` |
+| `POST` | `/api/upload/multipart/:uploadId/abort` | 中止，文件变为 `ABORTED` |
 
-> ⚠️ 已知不一致：该组端点直接返回裸 `fiber.Map`（`uploadId`/`fileId`/`fastUpload` 等 camelCase），未使用统一响应封装。路径必须以前缀 `uploads/<user_id>/` 开头，否则 `403`。
-
-## 文件与草稿
+## 文件、草稿与 Job
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件） |
-| `GET` | `/api/drafts/list` | 草稿列表（游标分页 `?cursor=`） |
-| `POST` | `/api/drafts/:id/delete` | 删除草稿（含存储对象清理） |
+| `GET` | `/api/drafts/list` | 草稿（游标分页 `?cursor=`） |
+| `POST` | `/api/drafts/:id/delete` | 删除草稿及其存储对象 |
+| `GET` | `/api/jobs/:id` | 单个 job |
 
-## 作业（Jobs）
+## 已知不一致
 
-仅保留 `GET /api/jobs/:id`。`POST /api/jobs` 已从路由移除（统一由任务接口创建），handler 代码仍存在但不可达。
-
-作业详情返回当前 attempt 的状态与 generalized inputs/outputs；下载引用只在对应 attempt 的 artifact manifest 校验通过后更新。
-
-## 参数校验规则
-
-`transcode.Params` 的校验由 `server/internal/transcode/validation.go` 执行：
-
-- 提供 `color` 时按结构体 tag 校验所有枚举与数值范围（`color_space`、`primaries`、`transfer`、`matrix`、`range`、`nominal_bit_depth`、`chroma`、`tone_mapping`、`dither`）
-- `AVIF` 要求 `engine == "libavif:avif"`，并校验 `engine_params`（quality/alpha_quality 0–100、speed 0–10、depth 8–12、yuv 444/420/422/auto 等）
-- `JXL` 要求 `engine == "libjxl:jxl"`，`distance` 与 `quality` 互斥
-- 其他格式暂不做 `engine_params` 级校验；`profile_policy` 与 `strict` 由下游执行层消费
-
-## 契约演进
-
-新增可选字段属于兼容变更；重命名、改枚举值或改变必填性属于破坏性变更。迁移前请先更新本页与 [契约总览](/contracts/)。
+- 上传端点直接返回 camelCase 的裸对象（`uploadId`、`fileId`、`fastUpload`），没有使用统一封装（Uppy 的约定）；key 必须以 `uploads/<user_id>/` 开头，否则 `403`。
+- 任务不存在时 `GET /api/tasks/:id` 返回 `404` 但 `code` 为 `ok`；重试与取消的 `404` 使用 `error.param.invalid`。应改为专用的 `error.task.not_found`。
+- `JWT_SECRET` 配置与 JWT 中间件仍在代码中，但没有使用（实际是 session 认证）。

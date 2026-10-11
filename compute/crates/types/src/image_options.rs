@@ -79,10 +79,12 @@ pub enum ColorIntent {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum DynamicRange {
-    /// Keep HDR content as HDR; rejected where it cannot be preserved.
+    /// Keep a gain map where the output can carry it (UltraHDR JPEG to
+    /// JPEG); other outputs get the SDR base image. Sources with a PQ or HLG
+    /// transfer are rejected, as no tone mapping exists yet.
     #[default]
     Keep,
-    /// Deliver standard dynamic range.
+    /// Deliver standard dynamic range: gain maps are dropped.
     Sdr,
 }
 

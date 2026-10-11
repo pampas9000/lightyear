@@ -1,8 +1,12 @@
 # HDR Gain Map 直通调研（研究笔记）
 
-> 结论先行：Lightyear 当前**不支持** HDR Gain Map（Apple / Google / ISO 21496-1）。本笔记记录“用通用工具链直通 Gain Map”的调研结论与如果未来要支持时的正确架构定位。现状与移除决策见[元数据与 Alpha](/compute/metadata)与[色彩管线路线图 §已删除](/compute/color-roadmap#已删除-surface-narrowing)。
+> **2026-10 更新**：本笔记写于自研 Rust 引擎时期，下面几处已过时，以此为准：
 >
-> ⚠️ **勘误（2026-10）**：初稿中“`cjxl` 会自动识别 UltraHDR JPEG 的 MPF/XMP 并把 Gain Map 封装进 JXL（`jhgm`）”的结论**不成立**——libjxl 至今没有该能力（源码核查与上游 issue #4588），带 MPF 的 JPEG 按普通 JPEG 直通会静默丢失 Gain Map 与 HDR 信息。正确解法见下文“针对 JXL 目标”一节。
+> - **libvips 8.17+ 已支持 UltraHDR JPEG**：`uhdrload` 把 gain map 读进 `gainmap-data` 及 `gainmap-*` 元数据，`thumbnail` 按同样比例缩放它（实测 192×256 → 48×64），`uhdrsave` 能写回。Lightyear 换用 libvips 后，UltraHDR JPEG → JPEG 已保留 gain map。
+> - libvips 仍**不**读写 AVIF/HEIC 的 gain map（`tmap`、Apple `auxC`），也不保留 HEIF/AVIF/PNG 的 CICP；因此 PQ/HLG 源图被明确拒绝，现状见[HDR 与已知限制](/compute/limitations#hdr)。
+> - 第三节里的 `compute-engine` / `compute-server-adapter`、Y4M 管线均已删除。以后的 HDR 通道应作为 `compute-imageops` 旁的一条容器层路径，元数据对齐 libvips 的 `gainmap-data`，libvips 支持 AVIF gain map 后整体删除。
+>
+> 勘误（2026-10 初）：初稿中"`cjxl` 会自动识别 UltraHDR JPEG 的 MPF/XMP 并把 Gain Map 封装进 JXL（`jhgm`）"的结论**不成立**——libjxl 没有该能力（上游 issue #4588），带 MPF 的 JPEG 按普通 JPEG 重新打包会静默丢失 Gain Map。正确解法见下文"针对 JXL 目标"一节。
 
 ## 问题
 
@@ -24,13 +28,9 @@
 ### 一、 为什么 vips / ImageMagick / FFmpeg 在 Gain Map 直通上做不到？
 
 #### 1. libvips
-- **现状**：libvips 的内存模型是单图/单平面图像流（`VipsImage` 带 bands 通道）。
-- **解码行为**：
-  - 对 HEIC（基于 `libheif`）：只读主图像（Primary Item）。auxiliary 图（Gain Map）被直接忽略。
-  - 对 AVIF（基于 `libavif`）：libvips 底层调用并未开启 gain map 解码支持。
-  - 对 Ultra HDR JPEG：只当成普通 JPEG 解码，APP2（MPF）引用的次级图像与 XMP 里的 metadata 根本不进图像流。
-- **写出行为**：libvips 的 `heifsave` / `jxlsave` 根本没有向容器写入 auxiliary image、`tmap` box 或 `jhgm` box 的接口。
-- **结论**：**libvips 会毫无感知地把 Gain Map 剥离丢弃**，只剩基础 SDR。
+- **调研时（8.16 及以前）**：单图像流模型，HEIC 只读主图像，AVIF 不解 gain map，UltraHDR JPEG 当普通 JPEG，`heifsave`/`jxlsave` 无法写 gain map——gain map 被静默丢弃。
+- **8.17 起**：新增 `uhdrload`/`uhdrsave`（libultrahdr），UltraHDR JPEG 的 gain map 作为 `gainmap-data` 随图像流转，缩放时同步处理。HEIF/AVIF/JXL 的 gain map 仍不支持。
+- **结论**：JPEG → JPEG 可以交给 libvips；其他容器的 gain map 仍需要专用工具链。
 
 #### 2. ImageMagick (v7)
 - **现状**：ImageMagick 支持读取多图层/多帧（`image[0]`, `image[1]`），但在 Gain Map 上是灾难：
@@ -84,7 +84,7 @@
 
 ### 三、 implementation 里的设计与细节该如何落地？
 
-如果你的目标是**“在 lightyear 架构下，以最低失真、且符合[‘存在调用方才算完成’](/compute/color-roadmap#已删除-surface-narrowing)的标准来落地”**，必须把这套方案切分成具体的 implementation 细节：
+如果你的目标是**“在 lightyear 架构下，以最低失真、且只在存在调用方时才算完成的标准来落地”**，必须把这套方案切分成具体的 implementation 细节：
 
 #### 1. 架构定位修正：Gain Map 属于“容器管道（L2/L3）”，绝不属于“像素管道（L1）”
 现在的 `compute-engine` 核心是基于像素的（`apply_pipeline_with_transfer`），如果走 RGB 线性光浮点，Gain Map 的概念就彻底碎了（因为被强行烘焙成了 PQ/HLG）。
@@ -149,7 +149,7 @@
 ### 四、 总结与决策建议
 
 1. **千万别指望 ImageMagick/vips/ffmpeg**：它们不是为多层元数据绑定图像（Gain Map HDR）设计的，盲目引入不仅保不住 Gain Map，还会引入极大的动态库体积和内存损耗，且最终依然是“静默丢失”。
-2. **坚持 lightyear 既有的决定**：[删除 Gain Map 探测](/compute/color-roadmap#已删除-surface-narrowing)是非常清醒的架构决策。如果你们业务目前**没有端到端输出 Gain Map 的硬性指标**（即消费端并不严格依赖手机屏幕点亮 HDR 高光），那么维持现状——“将 SDR 基础图以极高保真度（10-bit / Blue noise / 444 / 正确 CICP）透传”，是工程收益最高、最不容易出 Bug 的方案。
+2. **坚持 lightyear 既有的决定**：在没有端到端需求前不实现 Gain Map 处理。如果你们业务目前**没有端到端输出 Gain Map 的硬性指标**（即消费端并不严格依赖手机屏幕点亮 HDR 高光），那么维持现状——“将 SDR 基础图以极高保真度（10-bit / Blue noise / 444 / 正确 CICP）透传”，是工程收益最高、最不容易出 Bug 的方案。
 3. **如果要支持，优先只做 `JPEG -> JXL`（保留 Gain Map）**：
    - 这**不是零代码**：上游没有 CLI 路径，必须在 `compute-server-adapter` 解析 UltraHDR（base / gain map / 元数据），并用 libjxl C API 组装 `jhgm`（两次图像编码、一个文件，详见 §二-2）。
    - 反面警示：**不要**把带 MPF 的 JPEG 当普通 JPEG 走直通——`cjxl` 会静默丢弃 Gain Map，产出“成功但已无 HDR”的文件。

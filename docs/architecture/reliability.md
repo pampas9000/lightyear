@@ -1,75 +1,62 @@
 # 可靠性设计
 
-分布式队列的重复投递、Worker 崩溃、节点扩缩容都会造成同一作业被多次处理。系统在 Redis Streams 之上叠加了：**事务 Outbox**、**原子抢占**、**Attempt ID 幂等**、**Attempt 产物隔离**、**数据库与 PEL 双租约**、**PEL 自动认领**。
+目标：消息会丢、会重复，worker 会崩溃，但任务状态始终正确，且每个 job 最多发布一个产物。
 
-这些机制提供 at-least-once 消息投递和业务结果幂等，不宣称本地执行 exactly-once；外部付费 Provider 也不宣称 exactly-once 提交。
+做法只有一条：**执行所有权只看数据库**。Redis Stream 只负责投递；谁在执行、是否超时、结果算不算数，都由 PostgreSQL 中 job 的当前 attempt 与租约决定。系统保证投递至少一次、结果幂等，不宣称执行恰好一次——同一 attempt 可能被执行多次，但产物按 attempt 隔离，重复执行无害。
 
-## 1. 原子抢占与 Attempt ID
+## Attempt：派发记录兼 outbox
 
-- API 创建 `Job` 时状态为 `PENDING`，并在同一事务写入 Outbox。
-- Orchestrator 派发前锁定父任务和 Job，创建持久化 `JobAttempt`，每个 generation 生成 UUID 作为 `attempt_id`：
+orchestrator 领取 job 时，在同一个事务中：
 
-```sql
-UPDATE jobs
-SET status = 'PROCESSING', attempt_id = $1, updated_at = now()
-WHERE id = $2 AND status = 'PENDING';
-```
+1. 锁定 task 与 job（固定顺序 task → job，避免死锁），确认 job 仍为 `PENDING` 且已到 `next_run_at`；
+2. 创建 attempt（`QUEUED`），保存完整派发负载与产物 key `outputs/<owner>/<job>/<attempt>.<ext>`；
+3. job 置为 `PROCESSING`，`current_attempt_id` 指向新 attempt，`attempts + 1`，租约设为 `StartTimeout`（10 分钟）。
 
-- 受影响行数为 0 表示已被其他实例处理，直接跳过并 `XACK`。
-- `ComputePayload` 与 `ResultPayload` 都携带 `attempt_id`（见[队列契约](/contracts/queue)）。
+提交后才 `XADD q:image`。发送失败时 attempt 保持未发送状态，由恢复流程补发——attempt 行本身就是 outbox，不需要单独的 outbox 表。
 
-## 2. 结果幂等校验
+## 结果只认当前 attempt
 
-Orchestrator 收到结果时先比对结果中的 `attempt_id` 与数据库当前值：
+orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `current_attempt_id` 等于结果中的 `attempt_id` 时生效，否则忽略。因此：
 
-- 不一致（旧尝试姗姗来迟）→ 丢弃并 `XACK`，防止历史结果覆盖最新状态。
-- 一致 → 更新 `Job`/`File`，锁定父 `Task` 行重算聚合状态。
-- 心跳（`PROCESSING`）同样校验 `attempt_id`，只用于续租，不改业务状态。
+- 重试或取消之后才到达的旧结果不会覆盖新状态；
+- `COMPLETED` 必须带产物，且产物 key 与 attempt 记录的 key 完全一致，否则视为无效结果丢弃；
+- 重复的同一结果在第一次生效后 job 已不再是 `PROCESSING`，第二次自然被忽略。
 
-Worker 只能写入 `attempts/<attempt-id>/...`。Orchestrator 只接受当前 attempt manifest 中精确匹配的 artifact，旧 attempt 的结果和路径不会更新文件引用。
+## 恢复
 
-## 3. 租约超时恢复（Stale Recovery）
+orchestrator 每 15 秒运行一次恢复：
 
-Orchestrator 内常驻 `runStaleJobRecovery`，每 **30 秒**扫描一次：
-
-| 场景 | 判定 | 动作 |
+| 情况 | 判定 | 处理 |
 | :--- | :--- | :--- |
-| `PENDING` 长时间未派发 | 超过 **2 分钟** | 重新写入任务流 |
-| `PROCESSING` 排队未开始且 lease 过期 | 超过 **5 分钟** | 重发同一 attempt，不增加重试次数 |
-| `PROCESSING` 已开始但 lease 过期 | lease 到期 | 取消旧 attempt，生成新 `attempt_id`，`retry_count + 1` |
-| 重试耗尽 | `retry_count >= max_retries` | 标记 `FAILED`（`error_code=max_retries_exceeded`），产物文件标记 `FAILED` |
+| attempt 从未发出 | `QUEUED`、无 `dispatched_at`、创建超过 30 秒 | 补发同一 attempt |
+| 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 原样重发同一 attempt，不消耗重试次数，租约再延 10 分钟 |
+| worker 执行中失联 | `RUNNING` 后租约（每次心跳续到 2 分钟后）到期 | attempt 置 `EXPIRED` 并发取消标记；按 `execution_timeout`（可重试）进入重试 |
 
-Worker 心跳同时续 Redis PEL 所有权和数据库 lease；结果流心跳只用于更新进度和服务端租约。
+worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍几次心跳丢失。
 
-## 4. PEL 自动认领（XAUTOCLAIM）
+## 重试
 
-- Orchestrator 与 Worker 启动时用 `hostname + pid + random` 生成唯一消费者名，支持随时扩缩容。
-- 消费循环**先 `XAUTOCLAIM` 再 `XREADGROUP`**：
-  - Go Orchestrator：认领空闲超过 **30 秒**的 PEL 消息
-  - Rust Worker：认领空闲超过 **60 秒**的 PEL 消息
-- 崩溃节点遗留的未 `XACK` 消息会被存活节点接管，不会死锁。
+- worker 的错误带 `retryable`。目前只有 `storage_failed`（对象存储读写失败）和租约超时可重试；参数非法、输入不支持、处理失败都直接失败。
+- 每个 job 最多 3 次 attempt（`max_attempts`）。重试时 job 回到 `PENDING`，`next_run_at` 按 5 秒起、每次翻倍、上限 5 分钟的间隔推迟。
+- 用户可在任务页对失败或取消的 job 手动重试，并可换一份参数。
 
-Worker 心跳通过 Lua 校验 lock token 与当前 PEL consumer，并用 `XCLAIM` 将消息续回当前 consumer；旧 consumer 无法续租或完成。即使重复投递，同一 attempt 也只有一个 Redis lock 持有者。
+## 取消
 
-## 5. 失败重试与取消
+1. API 在事务中把未结束的 job 置为 `CANCELLED`，当前 attempt 置为 `CANCELLED`，然后重新聚合 task。
+2. 提交后尽力写入 `cancel:attempt:<attempt_id>`（24 小时过期）。
+3. worker 在开始前检查一次，执行中每 3 秒检查一次，发现后放弃执行，不上传、不回报。
+4. 即使取消标记没写成功或 worker 没看到，迟到的结果也会因 job 已不是 `PROCESSING` 被忽略。
 
-- Worker 结果携带 `retryable`；Orchestrator 对可重试失败自动重新入队，`retry_count` 默认上限 3。
-- 错误分类（`compute/worker/src/error.rs`）：`invalid_request`、`source_unavailable`、`encode_failed`、`storage_failed`、`internal_error`。
-- 新任务取消使用 `transcoder:cancel:attempt:<attempt-id>`，旧协议仍兼容 job key。这样重试不会被上一 attempt 的取消标记误伤。
-- Worker 在执行前、心跳与完成前检查取消，并每 3 秒轮询以放弃正在等待的工作；外部 Provider 取消不会伪造远端未提交事实。
+取消标记按 attempt 而不是 job 设置，因此重试出的新 attempt 不会被旧的取消标记误伤。
 
-## 6. 外部 Provider
+## worker 侧
 
-生图、放大和编辑图的 Provider 提交由 `ProviderInvocation` 记录：
+- `XREADGROUP … NOACK`：收到即确认，Redis 中没有待确认列表需要认领；消息丢失由数据库租约兜底。
+- 回报结果失败时，worker 会重连并持续重试最多 90 秒；仍失败则放弃，由租约超时处理。
+- worker 本身无状态，可以随时增减实例；多个实例同属消费组 `workers`，每条派发只交给其中一个。
 
-- `(job_id, generation)` 唯一；
-- 提交前先把 `PREPARED` 原子切换为 `SUBMITTING`；
-- 超时或连接断开进入 `UNKNOWN`，必须通过 Provider `Lookup` 对账；
-- 只有权威确认“未接受”才能回到 `PREPARED`；
-- 已提交或未知状态不会被自动 retry/manual retry 绕过。
+## Redis 侧
 
-## 7. 配套的运维细节
-
-- 流长度近似裁剪（`MAXLEN ~ 100000`），避免无限增长。
-- S3 上传支持 SHA-256 秒传；未完成分片与陈旧草稿由 API 侧每小时清理，清理前会保护所有旧字段和 generalized input/output 引用。
-- Worker 出错时结果仍会写回；Redis 发布失败时保留 attempt lock、缓存结果和 PEL，恢复后继续完成。
+- `q:image` 与 `q:results` 写入时近似裁剪为 10 万条。
+- `q:results` 由 orchestrator 在处理后 `XACK`；某个 orchestrator 崩溃后，其他实例会认领空闲超过 30 秒的未确认结果。
+- Redis 数据全部丢失时：未完成的 job 由恢复流程按上表重新派发，已完成的 job 不受影响。

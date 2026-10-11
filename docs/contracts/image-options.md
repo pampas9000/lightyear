@@ -22,10 +22,10 @@
 | `effort` | 1–10 | 5 | 1 最快，10 体积最小；JPEG 没有该项 |
 | `resize` | `{width?, height?, fit, enlarge}` | 不缩放 | 宽高 1–16384，至少给一个；`fit` 为 `inside`（默认）/`cover`/`fill`，后两者需同时给宽高；`enlarge` 默认 `false` |
 | `color` | `keep` `srgb` | `keep` | `keep` 保留源 ICC、不转换像素；`srgb` 转换并标记为 sRGB |
-| `dynamic_range` | `keep` `sdr` | `keep` | HDR 无法保留时 `keep` 会明确报错 |
-| `metadata` | `keep` `strip` | `strip` | EXIF 与 XMP；ICC 由 `color` 决定。方向一律烘焙进像素 |
+| `dynamic_range` | `keep` `sdr` | `keep` | `keep`：输出格式能携带 gain map 时保留（目前是 UltraHDR JPEG → JPEG），否则输出 SDR 基础图；`sdr`：总是去掉 gain map。PQ/HLG 源图两种取值都会被拒绝，见[已知限制](/compute/limitations#hdr) |
+| `metadata` | `keep` `strip` | `strip` | EXIF、XMP 与 IPTC；ICC 由 `color` 决定。方向一律烘焙进像素 |
 | `chroma` | `420` `444` | 自动 | 仅 AVIF/HEIC/JPEG，不能与 `lossless` 同用 |
-| `bit_depth` | 8 `10` | 跟随源图 | 仅 AVIF/HEIC |
+| `bit_depth` | `8` `10` | 跟随源图（8-bit 源 → 8，更高位深 → 10） | 仅 AVIF/HEIC |
 
 未知字段、默认字段写成 `null` 都会被拒绝；可选字段（`quality`、`effort`、`resize`、`chroma`、`bit_depth`）写 `null` 等同于未填写。
 

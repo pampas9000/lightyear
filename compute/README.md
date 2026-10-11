@@ -1,78 +1,45 @@
 # Compute
 
-Rust workspace for `lightyear`. It owns all media processing: portable codecs, color pipeline, host adapters, the browser binding, and the async worker.
-
-Current pipeline behavior is documented in the docs site: [Color pipeline](../docs/compute/color-pipeline.md), [Metadata & alpha](../docs/compute/metadata.md), [Limitations](../docs/compute/limitations.md). Queue payloads are mirrored in [Queue](../docs/contracts/queue.md).
-
-Note: the Cargo workspace root lives at `../Cargo.toml`.
-
-## Directory layout
+Rust workspace for image processing. The Cargo workspace root is `../Cargo.toml`; the toolchain is nightly (`../rust-toolchain.toml`).
 
 ```text
 compute/
 ├── crates/
-│   ├── types/            # compute-types: shared domain types + Redis Streams protocol
-│   ├── engine/           # compute-engine: portable codec/color/edit core (WASM-safe)
-│   └── server-adapter/   # compute-server-adapter: run_transcode host pipeline
-├── bindings/
-│   └── wasm/             # compute-wasm: browser exports (wasm-bindgen)
-└── worker/               # compute-worker: stateless Redis/S3 consumer
+│   ├── types/      # compute-types: ImageOptions (single source of truth) + queue protocol v2
+│   └── imageops/   # compute-imageops: ImageOptions → libvips, input guards, cjxl bypass
+└── worker/         # compute-worker: stateless Redis/S3 consumer
 ```
 
-## Crate responsibilities
+Dependency direction: `compute-types` ← `compute-imageops` ← `compute-worker`.
 
-### `compute-types`
+## `compute-types`
 
-Shared schemas and transport-safe models: `Format`, `Params` / `LibavifParams` / `LibjxlParams`, the color model (`ColorEncoding`, `ColorSpace`, `ProfilePolicy`, `ToneMappingOperator`, `ChromaSubsampling`), `ImageEditOp`, and `protocol.rs` (stream keys + `ComputePayload` / `ResultPayload`). Native YUV layout matching is private to the server adapter.
+- `image_options.rs`: `ImageOptions` with validation and canonicalization. The JSON Schema in `docs/contracts/schemas/` is generated from it (`UPDATE_SCHEMAS=1 cargo test -p compute-types`, or `task gen:types` which also regenerates the TS types); `docs/contracts/fixtures/image-options.json` is shared with the Go mirror.
+- `protocol.rs`: `Dispatch` / `JobResult`, stream and group names, cancel key prefix. Mirrored by `server/internal/task/queue.go`; both round-trip `docs/contracts/fixtures/{dispatch,results}-v2.json`.
 
-### `compute-engine`
+## `compute-imageops`
 
-Portable codec and transformation logic. Stays usable from WASM and native targets; no server-only dependencies and no C linkage.
+`process(input, &options, &limits) -> Output` runs one conversion with libvips (via `rs-vips`, linked through pkg-config, libvips ≥ 8.17). It rejects oversized inputs before decoding, blocks libvips' untrusted loaders (re-allowing JPEG XL), refuses PQ/HLG sources that libvips would mislabel as sRGB, keeps UltraHDR gain maps for JPEG output, and repacks JPEG → lossless JXL with `cjxl` so `djxl` restores the original bytes. Design and libvips behaviors: [docs/compute/imageops.md](../docs/compute/imageops.md).
 
-- `color/`: transfer functions (sRGB/BT.709/HLG/PQ + HLG OOTF), YUV planes + Y4M/PAM serialization, chroma detection, ICC containers, EXIF orientation, output pipeline
-- `edit.rs`: transfer-aware linear-light edit pipeline with `fast_image_resize`
-- `dither.rs` / `tonemap.rs`: Blue Noise dithering and ACES Filmic tone mapping
-- `lib.rs`: `load_from_memory` / `encode`; JXL and HEIC encoding are intentionally unavailable here
+`examples/process.rs` runs one conversion from the command line; `scripts/consistency.ts` uses it to compare against the browser implementation.
 
-### `compute-server-adapter`
+## `compute-worker`
 
-Host-only pipeline. `run_transcode` caches tool availability for the process lifetime, detects input format by magic bytes, then chooses JPEG→JXL bypass, native YUV passthrough, or the pixel path (decode → resolve output color → edits → tone map/dither → encode). Restart the worker after changing installed tools.
+- Reads `q:image` (group `workers`) with `XREADGROUP … NOACK`: delivery is the acknowledgement; database leases in the orchestrator handle lost work.
+- Downloads the source (limit `WORKER_MAX_SOURCE_BYTES`, default 200 MB), runs `compute-imageops` on a blocking thread (pixel limit `WORKER_MAX_PIXELS`), uploads to the dispatch's `output_key`, and reports to `q:results`.
+- Sends `RUNNING` at start and every 20 s, checks `cancel:attempt:<id>` every 3 s, retries publishing a result for up to 90 s.
+- Never connects to the database. Configuration: `REDIS_URL`, `S3_ENDPOINT`, `S3_ACCESS_ID`, `S3_ACCESS_KEY`, `S3_REGION`, `S3_BUCKET`.
 
-- Pixel transforms, AVIF CICP and JXL hints share one output-color decision; conflicting explicit CICP is rejected.
-- Source ICC stays in memory and is written to a temporary file only for CLIs that need a pathname. Tone-mapped pixels never reuse the source ICC.
-- Tone-mapped wide-gamut output currently requires AVIF or JXL. Other targets fail instead of emitting an incorrectly tagged image.
-
-- Host CLIs: `cjxl`, `avifenc`, `avifdec`, `heif-dec`, `cwebp` (`djxl` is probed/tests only)
-- Falls back to the portable engine when CLIs are absent (`strict=true` fails instead)
-- Not WASM-safe and not used by the browser bindings
-
-### `compute-wasm`
-
-Thin browser binding layer. Exposes six functions (`browser_convert`, `browser_convert_advanced`, `browser_edit_image`, `browser_edit_to_raw_rgba`, `browser_decode_raw_pixels`, `browser_get_metadata`); JXL encoding is delegated to `@jsquash/jxl` in the web worker. See the [WASM contract](../docs/contracts/wasm.md).
-
-### `compute-worker`
-
-Runtime boundary for asynchronous jobs. It is stateless with respect to the database.
-
-- [x] Consumes `transcoder:compute:stream` (`transcoder:compute:group`) with XAUTOCLAIM first, claiming one job per execution slot
-- [x] Downloads input from S3/R2, uploads output, writes `transcoder:results:stream`
-- [x] Validates payloads, resolves target format and color params, calls `run_transcode`
-- [x] Sends `PROCESSING` heartbeats every 30s and honors cancellation keys
-- [x] Reports output size, dimensions, mime type in result metadata
-
-## Dependency direction
-
-`compute-types` ← `compute-engine` ← `compute-wasm` / `compute-server-adapter` / `compute-worker`.
+Queue contract: [docs/contracts/queue.md](../docs/contracts/queue.md).
 
 ## Commands
 
-Run from the repository root:
+From the repository root:
 
 ```bash
-task test:compute          # or: cargo test --workspace
-task build:compute         # or: cargo build --workspace --release
-task build:compute:wasm    # wasm-pack -> web/public/wasm
-task worker                # cargo run -p compute-worker
+task test:compute       # cargo test --workspace (needs cjxl and djxl)
+task test:fixtures      # every fixture × every format, release build
+task test:consistency   # compare with the browser implementation (Node ≥ 23.6)
+task worker             # cargo run -p compute-worker
+task build:worker       # release binary
 ```
-
-External CLI tools unlock the full-fidelity paths (10-bit, ICC, native passthrough, Brunsli bypass). Without them the adapter degrades gracefully, and CLI-gated e2e tests print a skip.

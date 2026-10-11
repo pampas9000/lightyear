@@ -1,106 +1,64 @@
 # lightyear
 
-lightyear is a multi-language monorepo for a media transcoding platform: a Go orchestration server, a portable Rust compute core, and a Nuxt web console with an in-browser WebAssembly sandbox.
+lightyear is an image processing platform: upload images, describe the output you want once (`ImageOptions`: format, quality, resize, color, metadata), and get the results asynchronously. A Go service orchestrates, a Rust worker processes with libvips, and the Nuxt console has an in-browser sandbox running the same libvips through wasm-vips.
 
-Architecture, contracts and engineering notes live in the [documentation site](docs/index.md).
+Architecture, contracts and design notes live in the [documentation site](docs/index.md) (Chinese).
 
 ## Architecture at a glance
 
 ```text
-web ──HTTP──▶ server ──Redis Streams──▶ compute-worker ──▶ compute-server-adapter
-                │                                              │
-                ├── PostgreSQL (GORM)                           ├── compute-engine (portable Rust core)
-                └── S3 / R2 (uploads, artifacts)                └── host CLIs (cjxl/avifenc/avifdec/heif-dec/cwebp)
+web ──HTTP──▶ API (Go) ──▶ PostgreSQL (source of truth) ◀── orchestrator (Go)
+                │                                            │ XADD q:image   ▲ q:results
+                └── S3 / R2 (uploads, outputs)               ▼                │
+                                                 image worker (Rust + libvips, no DB access)
 
-browser ──Web Worker──▶ compute-wasm ──▶ compute-engine
+browser ──Web Worker──▶ wasm-vips (same libvips; AVIF/HEIF and JXL modules loaded on demand)
 ```
 
-- `server`: Go 1.26 + Fiber v3 HTTP API, GORM/PostgreSQL persistence, Redis Streams orchestration (`cmd/api` + `cmd/worker` orchestrator), S3/R2 storage integration. It never implements codecs.
-- `compute`: Rust workspace (edition 2024). `compute-engine` owns the portable pipeline, `compute-server-adapter` owns `run_transcode` (host CLI composition, magic-byte detection, native YUV passthrough), `compute-worker` is a stateless Redis/S3 consumer, `compute-wasm` is a thin browser binding.
-- `web`: Nuxt 4 thin client. All business requests are proxied to the Go API; the WASM sandbox runs locally in a Web Worker.
+- `server`: Fiber v3 HTTP API and the orchestrator. PostgreSQL owns all state; the orchestrator claims due jobs from the database, writes an attempt (which doubles as the outbox), and publishes it to Redis. Leases on attempts recover lost messages and dead workers.
+- `compute`: `compute-types` defines `ImageOptions` and the queue protocol; `compute-imageops` maps options onto libvips and guards inputs (pixel limits, untrusted loaders, PQ/HLG rejection); `compute-worker` is a stateless Redis/S3 consumer.
+- `web`: Nuxt 4 console. Business requests are proxied to the API; the sandbox runs `app/lib/vips-ops.ts`, a line-by-line twin of `compute-imageops`, in a Web Worker.
 
-## WASM local transcoding sandbox
+## Browser sandbox
 
-The web console ships a fully client-side sandbox: drag-and-drop queue, per-file settings, draggable quality comparison, batch download — no server work, no uploads.
+Drag-and-drop queue, per-file options, side-by-side comparison and batch download, all local.
 
-![WASM local transcoding sandbox](docs/public/assets/local-wasm-transcoding.avif)
+![Browser sandbox](docs/public/assets/local-wasm-transcoding.avif)
 
-> ⚠️ **Known limitation — wide gamut**: browser-side encoders (`image`/`ravif`, `@jsquash/jxl`) cannot write ICC/CICP metadata, and JPEG XL stores its color encoding in the codestream header, which cannot be patched afterwards. The sandbox does not convert gamut: wide-gamut sources are emitted as untagged pixels and may look oversaturated. Use the server pipeline to preserve wide-gamut profiles. See [Known limitations](docs/compute/limitations.md).
+It needs cross-origin isolation (`SharedArrayBuffer`), which Safari cannot provide with COEP `credentialless`, and wasm-vips has no HEVC, so HEIC is server-only. See [limitations](docs/compute/limitations.md).
+
+## Development
+
+Prerequisites: Bun, Node ≥ 23.6, Go 1.26+, Rust nightly (pinned by `rust-toolchain.toml`), `task`, libvips ≥ 8.17 with libheif/libjxl/libultrahdr, and the libjxl tools (`cjxl`, `djxl`). On macOS: `brew install vips jpeg-xl pkgconf go-task`. `task doctor` checks them.
+
+```bash
+task bootstrap         # bun install + go work sync + cargo fetch
+cp .env.example .env   # DATABASE_URL, REDIS_URL, S3_*
+task dev               # API + orchestrator + worker + web (:3000)
+task check             # Go build, cargo check, vue-tsc, contracts up to date
+task test              # go test + cargo test + vue-tsc
+task test:fixtures     # every fixture × every output format
+task test:consistency  # server vs browser artifacts
+```
+
+After an incompatible schema change, rebuild a development database with `go run ./server/cmd/migrate -reset` (drops all application tables).
 
 ## Repository layout
 
 ```text
-server/
-  cmd/api/         HTTP API bootstrap
-  cmd/worker/      orchestrator daemon (dispatch, result processing, stale recovery)
-  cmd/gen/         gorm/gen code generation
-  internal/api/    routes, handlers, middleware, response envelope
-  internal/services/  auth, job, task, workflow, storage
-  internal/task/   Redis Streams queue contract
-  internal/transcode/  transcode params + validation
-  internal/models/ GORM entities
-  internal/config/ koanf configuration
-compute/
-  crates/types/           shared domain types + wire protocol
-  crates/engine/          portable codec/color/edit core
-  crates/server-adapter/  run_transcode host pipeline
-  bindings/wasm/          browser bindings
-  worker/                 Redis/S3 consumer
-web/                Nuxt 4 app (app/ directory)
-docs/               documentation site (VitePress)
-scripts/            benchmark + quality fixtures
-```
-
-## Development
-
-Prerequisites: Bun 1.0+, Go 1.26+, Rust nightly (pinned by `rust-toolchain.toml`), `task`, `wasm-pack`. Optional server-side tools: `cjxl`, `avifenc`, `avifdec`, `heif-dec`, `cwebp`.
-
-`Taskfile.yml` is the primary entrypoint:
-
-```bash
-task --list
-task bootstrap        # bun install + go work sync + cargo fetch
-task dev              # api + orchestrator + worker + web
-task dev:backend      # api + orchestrator + worker
-task api              # Go HTTP API (default :8080)
-task orchestrator     # Go scheduler/recovery daemon
-task worker           # Rust compute-worker
-task web              # Nuxt dev server (:3000)
-task check            # go build / cargo check / vue-tsc
-task test             # go test + cargo test + vue-tsc
-task build:all        # server binaries + cargo release + wasm + web
-```
-
-Direct fallbacks:
-
-```bash
-go run ./server/cmd/api
-go run ./server/cmd/worker
-cargo run -p compute-worker
-cargo test --workspace
-go test ./server/...
-cd web && bun run dev
-bun run build:compute:wasm
-bun run benchmark             # fixtures + container-header assertions + cargo test
-bun run docs:dev              # docs site
+server/    Go: cmd/{api,worker,migrate}, internal/{api,imageoptions,models,schema,services,task}
+compute/   Rust: crates/types, crates/imageops, worker
+web/       Nuxt 4 app (app/ directory); sandbox on wasm-vips
+docs/      VitePress site; contracts/ holds the JSON Schema and shared fixtures
+scripts/   consistency test and image fixtures
 ```
 
 ## Conventions
 
-- lowercase kebab-case directories; singular names for runtime boundaries (`server`, `web`, `worker`, `api`, `wasm`), plural for collections (`crates`, `bindings`, `components`, `pages`)
-- Rust crates in `compute` are prefixed with `compute-`
-- no physical foreign keys; UUID v7 primary keys; `snake_case` DB fields
-- update the nearest doc when a boundary or subsystem changes
-
-## Documentation map
-
-- [Getting started](docs/getting-started.md) — layout, commands, ports, configuration
-- [Architecture overview](docs/architecture/overview.md) — boundaries, components, data model
-- [Request flows](docs/architecture/request-flows.md) · [Reliability](docs/architecture/reliability.md)
-- [Contracts](docs/contracts/index.md) — HTTP API, Redis Streams queue, WASM
-- [Color pipeline](docs/compute/color-pipeline.md) · [Metadata & alpha](docs/compute/metadata.md) · [Limitations](docs/compute/limitations.md)
-- [Fidelity benchmark](docs/quality/fidelity-benchmark.md)
-- [Engineering notes](docs/engineering-notes/index.md)
+- lowercase kebab-case directories; Rust crates in `compute` are prefixed with `compute-`
+- UUID v7 primary keys, no physical foreign keys, `snake_case` columns and JSON fields
+- `ImageOptions` is defined once in Rust; the JSON Schema and TS types are generated (`task gen:types`), Go runs the shared fixtures
+- update the nearest doc when a boundary changes; plans and known issues go to [the roadmap](docs/roadmap.md)
 
 ## License
 

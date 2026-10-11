@@ -15,7 +15,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 - **Postgres 是唯一事实来源**；Redis Stream 只负责投递，worker 不连数据库，按执行类型分池、独立扩缩容。
 - **执行所有权只看数据库 lease**：worker 收到即 ACK；没收到 RUNNING 心跳就原样重发同一 attempt，lease 过期就新建 attempt。产物按 attempt 隔离，重复执行无害。
-- **一份参数规范 `ImageOptions`**：Web、API、MCP、worker、浏览器共用，只描述输出意图，源图信息由程序探测。规范化与产物键（hash(源 sha256 + 规范化参数)）只在 Go 侧计算，worker 收到的已是规范化参数。
+- **一份参数规范 `ImageOptions`**：Web、API、MCP、worker、浏览器共用，只描述输出意图，源图信息由程序探测。规范化与产物键（hash(源文件 ID + 规范化参数)）只在 Go 侧计算，worker 收到的已是规范化参数。
 - **前期只做异步**：`POST /v1/tasks` 返回 202，下游轮询或接收 webhook。
 - **服务端与浏览器用同一个 libvips**：worker 用 Rust + [`rs-vips`](https://crates.io/crates/rs-vips)，浏览器用 wasm-vips。两端各有一份很薄的 `ImageOptions → libvips` 映射，用同一批素材做一致性测试。
 
@@ -25,10 +25,11 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 |---|---|---|
 | 2026-10 | 处理核心换成 libvips，退役自研 engine / CLI 编排 | 自研部分重写了 libvips 已有能力，且是缺陷集中处 |
 | 2026-10 | worker 保留 Rust，绑定用 `rs-vips` | `libvips` crate 2.3.0 未生成 `jxlsave`、`uhdrload` 等操作；`rs-vips` 0.7（基于 libvips 8.18.1）冒烟测试通过：UltraHDR 缩略图保留 gain map、JXL、10-bit AVIF |
-| 2026-10 | 浏览器用 wasm-vips（0.0.19：核心 2.0 MB，AVIF/HEIF 1.25 MB，JXL 0.8 MB，gzip） | 与服务端同一个 libvips；需要跨源隔离，只在沙盒页启用 COOP/COEP（`credentialless`） |
+| 2026-10 | 浏览器用 wasm-vips（0.0.19：核心 2.0 MB，AVIF/HEIF 1.25 MB，JXL 0.8 MB，gzip） | 与服务端同一个 libvips；需要跨源隔离，全站启用 COOP/COEP（`credentialless`），客户端路由进入沙盒时才是隔离状态 |
 | 2026-10 | 线上无运行：不做灰度、不写数据迁移，直接重建表 | 只有本地开发 |
 | 2026-10 | 前期只做异步任务；CDN 式取图、AI 能力以后再加 | 负担小，结构已预留 |
 | 2026-10 | Rust 工具链保持 nightly | 项目决定 |
+| 2026-10 | `dynamic_range=keep` 在输出格式无法携带 gain map 时输出 SDR 基础图，而不是报错 | 否则最常见的"手机照片转 AVIF"默认会失败；PQ/HLG 源图仍一律拒绝 |
 
 ## 执行步骤
 
@@ -126,7 +127,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | # | 项目 | 状态 |
 |---|---|---|
 | 7.1 | 删除 `compute-engine`、`compute-server-adapter`、`compute-wasm` 与 `compute-types` 旧参数类型；工作区只剩 `types`、`imageops`、`worker` | ✅ |
-| 7.2 | 开发环境依赖改为 libvips ≥ 8.17（含 libjxl、libheif、libultrahdr）+ `cjxl`；去掉 `avifenc`/`avifdec`/`heif-enc`/`heif-dec`/`cwebp`、`wasm-pack`（`task doctor` 已更新，文档待第 8 步） | 🚧 |
+| 7.2 | 开发环境依赖改为 libvips ≥ 8.17（含 libjxl、libheif、libultrahdr）+ `cjxl`/`djxl` + Node ≥ 23.6；去掉 `avifenc`/`avifdec`/`heif-enc`/`heif-dec`/`cwebp`、`wasm-pack`；`task doctor` 检查版本，缺失即失败 | ✅ |
 | 7.3 | Taskfile / `package.json`：去掉 wasm 与 gorm/gen 任务，`build:server` 产出 `migrate` | ✅ |
 | 7.4 | 删除只读文件头的 `scripts/benchmark.ts`；产物级检查由 `compute-imageops` 测试、`test:fixtures`、`test:consistency` 承担；`cjxl`/`djxl` 缺失时测试失败而不是跳过 | ✅ |
 | 7.5 | 重写素材生成脚本（magick + vips + avifenc）：根源是 `checker_rb_444.png` 生成成了灰度图，连带 JPEG/AVIF/WebP/JXL/HEIC 衍生素材都没有色度；删除与新管线无关或名不副实的素材（limited range、矩阵、"4000 nits" 白图、损坏的双层 JPEG 等），HDR 拒绝新增 HLG 素材 | ✅ |
@@ -135,10 +136,12 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 8.1 | 删除随旧实现作废的页面：`codec-engines`、`color-pipeline`、`color-roadmap`、`engineering-review`、`limitations`、`metadata`、`contracts/wasm` | ⬜ |
-| 8.2 | 新写：`ImageOptions` 契约、`compute-imageops` 设计、HDR 与已知限制 | ⬜ |
-| 8.3 | 重写：架构总览、请求链路、可靠性、队列契约、README、快速开始 | ⬜ |
-| 8.4 | 更新 `gain-map-research`：libvips 8.17+ 已支持 UltraHDR JPEG | ⬜ |
+| 8.1 | 删除随旧实现作废的页面：`codec-engines`、`color-pipeline`、`color-roadmap`、`engineering-review`、`metadata`、`gain-map`、`contracts/wasm`、`fidelity-benchmark` 与 4 篇引擎迁移笔记；删除 Web 端 193 个不再使用的翻译条目 | ✅ |
+| 8.2 | 新写：`ImageOptions` 契约、[处理核心](/compute/imageops)、[HDR 与已知限制](/compute/limitations)、[素材与测试](/quality/fixtures)；`dynamic_range` 的说明改为与实现一致 | ✅ |
+| 8.3 | 重写：架构总览、请求链路、可靠性、契约总览、队列契约、HTTP API、快速开始、首页，以及根目录、`compute`、`server`、`web` 的 README | ✅ |
+| 8.4 | 更新 `gain-map-research`：libvips 8.17+ 已支持 UltraHDR JPEG（实测 gain map 随缩放同步缩放） | ✅ |
+| 8.5 | 核对文档时发现并修复：Redis 丢失流或消费组（`NOGROUP`）后，worker 与 orchestrator 不会重建，只会一直报错；现在两侧都会重建（已在本地用清空 Redis 验证） | ✅ |
+| 8.6 | 待办：`GET /api/tasks/:id` 不存在时返回 `404` + `ok`，重试/取消的 `404` 用 `error.param.invalid`，应改为 `error.task.not_found`；de/fr/ja/zh-Hant 缺 35 条任务详情页翻译（回落为英文） | ⬜ |
 
 ### 第 9 步：对外 API 与 MCP（只做异步）
 
