@@ -1,0 +1,16 @@
+[package]
+name = "compute-imageops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+compute-types.workspace = true
+rs-vips = "0.7"
+tempfile.workspace = true
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -69,12 +69,22 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 3.1 | 新 crate，`build.rs` 用 pkg-config 定位 libvips | ⬜ |
-| 3.2 | 解码 + 自动转正、缩放（`thumbnail`）、ICC 保留或转 sRGB、元数据保留/去除、各格式编码 | ⬜ |
-| 3.3 | 资源上限：最大像素数、`fail-on`、禁用 untrusted 加载器 | ⬜ |
-| 3.4 | 保留 `cjxl` JPEG→JXL 无损旁路（唯一保留的外部 CLI） | ⬜ |
-| 3.5 | HDR 保护：libvips 会丢 HDR AVIF 的 CICP，HDR 输入在 `dynamic_range: keep` 下明确报错，`sdr` 下输出 SDR | ⬜ |
-| 3.6 | 用 `scripts/fixtures` 素材验证产物：尺寸、位深、色彩标签、ICC、像素差异 | ⬜ |
+| 3.1 | 新 crate，`build.rs` 用 pkg-config 定位 libvips（≥ 8.17） | ✅ |
+| 3.2 | 解码 + 自动转正、缩放（`inside`/`cover`/`fill`、`enlarge`）、ICC 保留或转 sRGB、元数据保留/去除、六种格式编码 | ✅ |
+| 3.3 | 资源上限：解码前按像素数拒绝；`fail_on=error`；拦截 libvips 标记为 untrusted 的加载器（PDF、SVG、OpenEXR、FITS 等），单独放行 JXL | ✅ |
+| 3.4 | `cjxl` JPEG→JXL 无损旁路（逐字节可还原，已用 `djxl` 验证）；缺 `cjxl` 时退回像素级无损 | ✅ |
+| 3.5 | HDR 保护：PQ/HLG 源图（HEIF/AVIF `nclx`、PNG `cICP`）明确拒绝；UltraHDR JPEG 的 gain map 在 JPEG 输出时保留，`sdr` 或其他格式输出基础 SDR 图 | ✅ |
+| 3.6 | 全部素材 × 六种格式扫描（`fixture_sweep`）：只有 PQ 源图与一个损坏素材被拒绝 | ✅ |
+| 3.7 | PQ/HLG 源图转 SDR（色调映射）与 AVIF/HEIC gain map 保留 | ⬜ 归入以后的 HDR 通道 |
+
+实现中确认的 libvips 行为（8.18）：
+
+- `thumbnail` 总是输出 8-bit，所以 8-bit 源图走 `thumbnail`（可在解码时缩小），更高位深的源图走"加载 → 转正 → 缩放 → ICC 转换"，保持 16-bit。
+- libvips 读取 HEIF/AVIF 与 PNG 时不保留 CICP，PQ/HLG 像素会被当成 sRGB 写出，因此必须在入口拒绝。
+- libjxl 被 libvips 标记为 untrusted，启用 untrusted 拦截后需显式放行 JXL。
+- 选项名写错时 libvips 只打 warning 不报错，每个编码选项都需要测试验证效果。
+
+素材问题（第 7 步整理素材时处理）：`quality/jpeg_420_90.jpg` 实为单通道灰度 JPEG；`quality/ultra_hdr_dual_jpeg.jpg` 已损坏（Bogus marker length）。
 
 ### 第 4 步：数据模型与 Orchestrator（Go）
 

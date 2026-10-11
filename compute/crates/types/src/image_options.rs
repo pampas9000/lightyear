@@ -257,7 +257,11 @@ mod tests {
             match case.get("canonical") {
                 Some(expected) => {
                     let canonical = result.unwrap_or_else(|e| panic!("{name}: {e}"));
-                    assert_eq!(&serde_json::to_value(canonical).unwrap(), expected, "{name}");
+                    assert_eq!(
+                        &serde_json::to_value(canonical).unwrap(),
+                        expected,
+                        "{name}"
+                    );
                 }
                 None => assert!(result.is_err(), "{name}: expected rejection"),
             }

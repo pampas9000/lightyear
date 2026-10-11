@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "compute/crates/types",
+    "compute/crates/imageops",
     "compute/crates/engine",
     "compute/crates/server-adapter",
     "compute/worker",
@@ -15,6 +16,7 @@ license = "MIT"
 
 [workspace.dependencies]
 compute-types = { path = "compute/crates/types" }
+compute-imageops = { path = "compute/crates/imageops" }
 compute-engine = { path = "compute/crates/engine" }
 compute-server-adapter = { path = "compute/crates/server-adapter" }
 
