@@ -3,9 +3,11 @@ package handlers
 import (
 	"errors"
 
+	"encoding/json"
+
 	"transcoder/server/internal/api/response"
+	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/services/workflow"
-	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -32,9 +34,8 @@ func (h *WorkflowHandler) Install(router fiber.Router) {
 }
 
 type CreateWorkflowRequest struct {
-	Name         string           `json:"name"`
-	TargetFormat string           `json:"targetFormat"`
-	Params       transcode.Params `json:"params,omitempty"`
+	Name    string          `json:"name"`
+	Options json.RawMessage `json:"options"`
 }
 
 func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
@@ -54,10 +55,9 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 	}
 
 	wf, err := h.service.CreateWorkflow(c.Context(), workflow.CreateWorkflowInput{
-		OwnerID:      ownerID,
-		Name:         req.Name,
-		TargetFormat: req.TargetFormat,
-		Params:       req.Params,
+		OwnerID: ownerID,
+		Name:    req.Name,
+		Options: req.Options,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Workflow created.", wf)
@@ -66,8 +66,8 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 	switch {
 	case errors.Is(err, workflow.ErrNameRequired):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
-	case errors.Is(err, workflow.ErrTargetFormatRequired):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "targetFormat is required.", response.ValidationDetail{Field: "targetFormat", Reason: "required"})
+	case errors.Is(err, imageoptions.ErrInvalid):
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	}
 
 	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create workflow.", map[string]any{"reason": err.Error()})
@@ -106,9 +106,8 @@ func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 }
 
 type UpdateWorkflowRequest struct {
-	Name         string           `json:"name"`
-	TargetFormat string           `json:"targetFormat"`
-	Params       transcode.Params `json:"params,omitempty"`
+	Name    string          `json:"name"`
+	Options json.RawMessage `json:"options"`
 }
 
 func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
@@ -129,10 +128,9 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 	}
 
 	wf, err := h.service.UpdateWorkflow(c.Context(), ownerID, parsedID, workflow.CreateWorkflowInput{
-		OwnerID:      ownerID,
-		Name:         req.Name,
-		TargetFormat: req.TargetFormat,
-		Params:       req.Params,
+		OwnerID: ownerID,
+		Name:    req.Name,
+		Options: req.Options,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflow updated.", wf)
@@ -141,8 +139,8 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 	switch {
 	case errors.Is(err, workflow.ErrNameRequired):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
-	case errors.Is(err, workflow.ErrTargetFormatRequired):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "targetFormat is required.", response.ValidationDetail{Field: "targetFormat", Reason: "required"})
+	case errors.Is(err, imageoptions.ErrInvalid):
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, workflow.ErrWorkflowNotFound):
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
 	}

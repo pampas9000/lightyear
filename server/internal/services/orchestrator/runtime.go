@@ -11,8 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"transcoder/server/internal/execution"
-	"transcoder/server/internal/services/outbox"
 	taskqueue "transcoder/server/internal/task"
 
 	"github.com/google/uuid"
@@ -21,39 +19,21 @@ import (
 )
 
 func Run(ctx context.Context, db *gorm.DB, kv *redis.Client) error {
-	for stream, group := range map[string]string{
-		taskqueue.JobStreamKey:    "transcoder:jobs:group",
-		taskqueue.ResultStreamKey: "transcoder:results:group",
-	} {
-		if err := kv.XGroupCreateMkStream(ctx, stream, group, "0").Err(); err != nil && !strings.HasPrefix(err.Error(), "BUSYGROUP") {
-			return fmt.Errorf("create consumer group: %w", err)
-		}
+	err := kv.XGroupCreateMkStream(ctx, taskqueue.QueueResults, taskqueue.OrchestratorGroup, "0").Err()
+	if err != nil && !strings.HasPrefix(err.Error(), "BUSYGROUP") {
+		return fmt.Errorf("create consumer group: %w", err)
 	}
 	host, _ := os.Hostname()
 	consumer := fmt.Sprintf("orchestrator-%s-%d-%s", host, os.Getpid(), uuid.NewString())
-	service := NewService(db, execution.DefaultRegistry())
-	relay := outbox.NewService(db, outbox.RedisPublisher{Client: kv})
+	service := NewService(db, taskqueue.RedisQueue{Client: kv})
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		consume(ctx, kv, taskqueue.JobStreamKey, "transcoder:jobs:group", consumer, func(msg redis.XMessage) error {
-			value, ok := msg.Values["job_id"].(string)
-			if !ok {
-				return ErrInvalidResult
-			}
-			id, err := uuid.Parse(value)
-			if err != nil {
-				return ErrInvalidResult
-			}
-			return service.Dispatch(ctx, id)
-		})
-	})
-	wg.Go(func() {
-		consume(ctx, kv, taskqueue.ResultStreamKey, "transcoder:results:group", consumer, func(msg redis.XMessage) error {
+		consume(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup, consumer, func(msg redis.XMessage) error {
 			raw, ok := msg.Values["payload"].(string)
 			if !ok {
 				return ErrInvalidResult
 			}
-			var result taskqueue.ResultPayload
+			var result taskqueue.Result
 			if err := json.Unmarshal([]byte(raw), &result); err != nil {
 				return ErrInvalidResult
 			}
@@ -62,8 +42,8 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client) error {
 	})
 	wg.Go(func() {
 		for {
-			if _, err := relay.Relay(ctx, 100); err != nil && ctx.Err() == nil {
-				slog.Error("outbox relay failed", "error", err)
+			if _, err := service.DispatchDue(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				slog.Error("dispatch failed", "error", err)
 			}
 			if !wait(ctx, 500*time.Millisecond) {
 				return
@@ -75,7 +55,7 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client) error {
 			if err := service.Recover(ctx, time.Now()); err != nil && ctx.Err() == nil {
 				slog.Error("job recovery failed", "error", err)
 			}
-			if !wait(ctx, 30*time.Second) {
+			if !wait(ctx, 15*time.Second) {
 				return
 			}
 		}

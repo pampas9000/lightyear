@@ -4,11 +4,11 @@ import (
 	"errors"
 	"strconv"
 
+	"encoding/json"
+
 	"transcoder/server/internal/api/response"
-	"transcoder/server/internal/execution"
-	"transcoder/server/internal/operation"
+	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/services/task"
-	"transcoder/server/internal/transcode"
 
 	"gorm.io/gorm"
 
@@ -97,10 +97,8 @@ func (h *TaskHandler) GetStats(c fiber.Ctx) error {
 type CreateTaskRequest struct {
 	WorkflowID     *uuid.UUID           `json:"workflow_id,omitempty"`
 	Items          []task.TaskItemInput `json:"items"`
-	TargetFormat   string               `json:"target_format,omitempty"`
-	Params         *transcode.Params    `json:"params,omitempty"`
+	Options        json.RawMessage      `json:"options,omitempty"`
 	IdempotencyKey string               `json:"idempotency_key,omitempty"`
-	Jobs           []task.JobSpec       `json:"jobs,omitempty"`
 }
 
 func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
@@ -108,49 +106,30 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body.", map[string]any{"reason": err.Error()})
 	}
-
-	userIdStr, ok := c.Locals("user_id").(string)
-	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
+	ownerID, err := ownerFromContext(c)
 	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
-	}
-
-	var idempotencyPtr *string
-	if req.IdempotencyKey != "" {
-		idempotencyPtr = &req.IdempotencyKey
-	}
-
-	var transcodeParams transcode.Params
-	if req.Params != nil {
-		transcodeParams = *req.Params
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
 	}
 
 	created, err := h.service.CreateTask(c.Context(), task.CreateTaskInput{
 		OwnerID:        ownerID,
 		WorkflowID:     req.WorkflowID,
 		Items:          req.Items,
-		TargetFormat:   req.TargetFormat,
-		Params:         transcodeParams,
-		IdempotencyKey: idempotencyPtr,
-		Jobs:           req.Jobs,
+		Options:        req.Options,
+		IdempotencyKey: req.IdempotencyKey,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Task created successfully.", created)
 	}
 
 	switch {
-	case errors.Is(err, operation.ErrInvalid):
+	case errors.Is(err, imageoptions.ErrInvalid), errors.Is(err, task.ErrOptionsRequired),
+		errors.Is(err, task.ErrTooManyItems), errors.Is(err, task.ErrIdempotencyKey):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
-	case errors.Is(err, execution.ErrUnavailable):
-		return response.RespondError(c, fiber.StatusUnprocessableEntity, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, task.ErrNoItemsProvided):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
 	case errors.Is(err, task.ErrWorkflowNotFound):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", response.ValidationDetail{Field: "workflowId", Reason: "not found"})
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", response.ValidationDetail{Field: "workflow_id", Reason: "not found"})
 	case errors.Is(err, task.ErrInvalidFileID):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "file_id is required and must not be nil.", response.ValidationDetail{Field: "items", Reason: "file_id is required"})
 	case errors.Is(err, task.ErrFileNotFound):
@@ -191,11 +170,9 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 }
 
 type RetryTaskRequest struct {
-	TargetFormat    string            `json:"target_format,omitempty"`
-	Params          *transcode.Params `json:"params,omitempty"`
-	JobIDs          []uuid.UUID       `json:"job_ids,omitempty"`
-	RetryAll        bool              `json:"retry_all,omitempty"`
-	OperationParams *operation.JSON   `json:"operation_params,omitempty"`
+	JobIDs   []uuid.UUID     `json:"job_ids,omitempty"`
+	RetryAll bool            `json:"retry_all,omitempty"`
+	Options  json.RawMessage `json:"options,omitempty"`
 }
 
 func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
@@ -223,23 +200,19 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 	}
 
 	updatedTask, err := h.service.RetryTask(c.Context(), task.RetryTaskInput{
-		OwnerID:         ownerID,
-		TaskID:          taskID,
-		TargetFormat:    req.TargetFormat,
-		Params:          req.Params,
-		JobIDs:          req.JobIDs,
-		RetryAll:        req.RetryAll,
-		OperationParams: req.OperationParams,
+		OwnerID:  ownerID,
+		TaskID:   taskID,
+		JobIDs:   req.JobIDs,
+		RetryAll: req.RetryAll,
+		Options:  req.Options,
 	})
 
 	if err != nil {
 		switch {
-		case errors.Is(err, operation.ErrInvalid), errors.Is(err, task.ErrInvalidJobID):
+		case errors.Is(err, imageoptions.ErrInvalid), errors.Is(err, task.ErrInvalidJobID):
 			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrJobNotRetryable):
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
-		case errors.Is(err, execution.ErrUnavailable):
-			return response.RespondError(c, fiber.StatusUnprocessableEntity, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrTaskNotFound):
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeParamInvalid, "Task not found.")
 		case errors.Is(err, task.ErrNoJobsToRetry):

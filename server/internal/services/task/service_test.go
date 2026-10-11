@@ -1,15 +1,16 @@
 package task
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"strconv"
 	"sync"
 	"testing"
 
-	"transcoder/server/internal/execution"
+	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
-	"transcoder/server/internal/operation"
 	"transcoder/server/internal/testutil"
-	"transcoder/server/internal/transcode"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -24,74 +25,102 @@ func uploadedFile(t *testing.T, db *gorm.DB, owner uuid.UUID) models.File {
 	return file
 }
 
-func TestLegacyTaskCreationUsesTransactionalOutbox(t *testing.T) {
+func avif(quality int) json.RawMessage {
+	return json.RawMessage(`{"format":"avif","quality":` + strconv.Itoa(quality) + `}`)
+}
+
+func TestCreateTaskStoresCanonicalOptionsAndIsIdempotent(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	owner := uuid.New()
 	file := uploadedFile(t, db, owner)
-	s := NewService(db, nil) // Redis is intentionally unavailable.
-	input := CreateTaskInput{OwnerID: owner, TargetFormat: "png", Items: []TaskItemInput{{FileID: file.ID}}, IdempotencyKey: new("one")}
+	s := NewService(db, nil)
+	input := CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70), IdempotencyKey: "one"}
 	got, err := s.CreateTask(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Jobs) != 1 || len(got.Jobs[0].Inputs) != 1 || len(got.Jobs[0].Outputs) != 1 || got.Jobs[0].Operation != operation.Transcode {
-		t.Fatalf("legacy task was not normalized: %+v", got)
+	job := got.Jobs[0]
+	if len(got.Jobs) != 1 || job.Status != models.JobPending || job.SourceFileID != file.ID || job.Operation != models.OpImageConvert {
+		t.Fatalf("unexpected job: %+v", job)
 	}
-	var count int64
-	db.Model(&models.OutboxEvent{}).Count(&count)
-	if count != 1 {
-		t.Fatalf("expected one committed wakeup, got %d", count)
+	if job.Options.Effort == nil || *job.Options.Effort != 5 || job.Options.Metadata != imageoptions.MetadataStrip {
+		t.Fatalf("options were not canonicalized: %+v", job.Options)
+	}
+	if job.ArtifactKey == "" {
+		t.Fatal("artifact key not set")
 	}
 	repeated, err := s.CreateTask(t.Context(), input)
 	if err != nil || repeated.ID != got.ID {
 		t.Fatalf("idempotent replay failed: %v", err)
 	}
-	input.Params = transcode.Params{Engine: "other"}
+	input.Options = avif(71)
 	if _, err := s.CreateTask(t.Context(), input); !errors.Is(err, ErrIdempotencyConflict) {
-		t.Fatalf("expected conflicting snapshot, got %v", err)
+		t.Fatalf("expected conflict for different options, got %v", err)
 	}
 }
 
-func TestGenerateTaskHasZeroInputsAndMultipleOutputs(t *testing.T) {
+func TestCreateTaskRejectsInvalidRequests(t *testing.T) {
 	db := testutil.OpenDatabase(t)
-	registry := execution.DefaultRegistry()
-	registry["test-ai"] = execution.Executor{Stream: "test:ai:stream", Operations: []operation.Kind{operation.Generate, operation.Edit}}
-	s := NewServiceWithExecutors(db, nil, registry)
-	input := CreateTaskInput{OwnerID: uuid.New(), Jobs: []JobSpec{{
-		Operation: operation.Generate, Executor: "test-ai", TargetFormat: "png",
-		Params: operation.JSON(`{"model":"test","prompt":"sky","width":512,"height":512,"count":3}`),
-	}}}
-	got, err := s.CreateTask(t.Context(), input)
+	owner := uuid.New()
+	file := uploadedFile(t, db, owner)
+	s := NewService(db, nil)
+	items := []TaskItemInput{{FileID: file.ID}}
+	for name, input := range map[string]CreateTaskInput{
+		"no items":         {OwnerID: owner, Options: avif(70)},
+		"no options":       {OwnerID: owner, Items: items},
+		"invalid options":  {OwnerID: owner, Items: items, Options: json.RawMessage(`{"format":"avif","icc_path":"/etc/passwd"}`)},
+		"foreign file":     {OwnerID: uuid.New(), Items: items, Options: avif(70)},
+		"options+workflow": {OwnerID: owner, Items: items, Options: avif(70), WorkflowID: new(uuid.New())},
+		"missing workflow": {OwnerID: owner, Items: items, WorkflowID: new(uuid.New())},
+	} {
+		if _, err := s.CreateTask(t.Context(), input); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestCompletedArtifactIsReusedForSameOwnerOnly(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	owner := uuid.New()
+	file := uploadedFile(t, db, owner)
+	s := NewService(db, nil)
+	first, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Jobs) != 1 || len(got.Jobs[0].Inputs) != 0 || len(got.Jobs[0].Outputs) != 3 || got.Jobs[0].InputFileID != nil {
-		t.Fatalf("unexpected generated task: %+v", got.Jobs)
+	output := models.File{OwnerID: owner, Name: "source.avif", Path: "outputs/x.avif", Status: "UPLOADED"}
+	db.Create(&output)
+	db.Model(&models.Job{}).Where("id = ?", first.Jobs[0].ID).
+		Updates(map[string]any{"status": models.JobCompleted, "output_file_id": output.ID})
+
+	again, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}},
+		Options: json.RawMessage(`{"quality":70,"format":"avif","effort":5}`)})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := NewService(db, nil).CreateTask(t.Context(), input); !errors.Is(err, execution.ErrUnavailable) {
-		t.Fatalf("uninstalled executor must be rejected, got %v", err)
+	job := again.Jobs[0]
+	if job.Status != models.JobCompleted || job.OutputFileID == nil || *job.OutputFileID != output.ID || again.Status != models.TaskCompleted {
+		t.Fatalf("equal intent should reuse the artifact: %+v", job)
+	}
+	other, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(50)})
+	if err != nil || other.Jobs[0].Status != models.JobPending {
+		t.Fatalf("different options must not reuse: %v %+v", err, other)
 	}
 }
 
-func TestEditInputsAreOwnerScopedAndRolesPreserved(t *testing.T) {
+func TestWorkflowOptionsAreUsed(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	owner := uuid.New()
-	source, mask, reference := uploadedFile(t, db, owner), uploadedFile(t, db, owner), uploadedFile(t, db, owner)
-	registry := execution.Registry{"test-ai": {Stream: "test:ai", Operations: []operation.Kind{operation.Edit}}}
-	s := NewServiceWithExecutors(db, nil, registry)
-	input := CreateTaskInput{OwnerID: owner, Jobs: []JobSpec{{
-		Operation: operation.Edit, Executor: "test-ai", TargetFormat: "png",
-		Params: operation.JSON(`{"model":"test","prompt":"replace background"}`),
-		Inputs: []InputSpec{{source.ID, "source"}, {mask.ID, "mask"}, {reference.ID, "reference"}},
-	}}}
-	got, err := s.CreateTask(t.Context(), input)
-	if err != nil || len(got.Jobs[0].Inputs) != 3 {
-		t.Fatalf("edit task: %v", err)
+	file := uploadedFile(t, db, owner)
+	options, _ := imageoptions.Parse([]byte(`{"format":"webp","quality":42}`))
+	wf := models.Workflow{OwnerID: owner, Name: "thumbs", Options: options}
+	db.Create(&wf)
+	got, err := NewService(db, nil).CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, WorkflowID: &wf.ID, Items: []TaskItemInput{{FileID: file.ID}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	foreign := uploadedFile(t, db, uuid.New())
-	input.Jobs[0].Inputs[1].FileID = foreign.ID
-	if _, err := s.CreateTask(t.Context(), input); !errors.Is(err, ErrFileNotFound) {
-		t.Fatalf("foreign input was accepted: %v", err)
+	if got.Jobs[0].Options.Format != imageoptions.FormatWebP || *got.Jobs[0].Options.Quality != 42 {
+		t.Fatalf("workflow options not applied: %+v", got.Jobs[0].Options)
 	}
 }
 
@@ -100,74 +129,89 @@ func TestConcurrentIdempotentCreationCreatesOneTask(t *testing.T) {
 	owner := uuid.New()
 	file := uploadedFile(t, db, owner)
 	s := NewService(db, nil)
-	input := CreateTaskInput{OwnerID: owner, TargetFormat: "png", Items: []TaskItemInput{{file.ID}}, IdempotencyKey: new("concurrent")}
+	input := CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70), IdempotencyKey: "same"}
 	var wg sync.WaitGroup
-	results := make(chan uuid.UUID, 8)
+	ids := make(chan uuid.UUID, 8)
 	for range 8 {
 		wg.Go(func() {
 			got, err := s.CreateTask(t.Context(), input)
-			if err != nil {
-				t.Errorf("create: %v", err)
-				return
+			if err == nil {
+				ids <- got.ID
 			}
-			results <- got.ID
 		})
 	}
 	wg.Wait()
-	close(results)
-	var first uuid.UUID
-	for id := range results {
-		if first == uuid.Nil {
-			first = id
-		} else if first != id {
-			t.Error("duplicate task created")
-		}
+	close(ids)
+	seen := map[uuid.UUID]bool{}
+	for id := range ids {
+		seen[id] = true
 	}
-	var count int64
-	db.Model(&models.OutboxEvent{}).Count(&count)
-	if count != 1 {
-		t.Fatalf("expected one wakeup, got %d", count)
+	var tasks int64
+	db.Model(&models.Task{}).Where("owner_id = ?", owner).Count(&tasks)
+	if tasks != 1 || len(seen) != 1 {
+		t.Fatalf("expected one task, got %d rows and %d ids", tasks, len(seen))
 	}
 }
 
-func TestManualRetryRejectsActiveOrForeignJobs(t *testing.T) {
+func TestRetryResetsTerminalJobsAndCanReplaceOptions(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	owner := uuid.New()
 	file := uploadedFile(t, db, owner)
 	s := NewService(db, nil)
-	parent, err := s.CreateTask(t.Context(), CreateTaskInput{
-		OwnerID: owner, TargetFormat: "png", Items: []TaskItemInput{{FileID: file.ID}},
-	})
+	created, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := RetryTaskInput{OwnerID: owner, TaskID: parent.ID, JobIDs: []uuid.UUID{parent.Jobs[0].ID}}
-	if _, err := s.RetryTask(t.Context(), input); !errors.Is(err, ErrJobNotRetryable) {
-		t.Fatalf("active job was accepted for retry: %v", err)
+	job := created.Jobs[0]
+	if _, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID, JobIDs: []uuid.UUID{job.ID}}); !errors.Is(err, ErrJobNotRetryable) {
+		t.Fatalf("active job must not be retried: %v", err)
 	}
-	input.JobIDs = []uuid.UUID{uuid.New()}
-	if _, err := s.RetryTask(t.Context(), input); !errors.Is(err, ErrInvalidJobID) {
-		t.Fatalf("foreign job was accepted for retry: %v", err)
+	if _, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: uuid.New(), TaskID: created.ID}); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("foreign owner must not retry: %v", err)
+	}
+	db.Model(&models.Job{}).Where("id = ?", job.ID).
+		Updates(map[string]any{"status": models.JobFailed, "attempts": 3, "error_code": "processing_failed"})
+	retried, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID,
+		Options: json.RawMessage(`{"format":"jxl"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := retried.Jobs[0]
+	if got.Status != models.JobPending || got.Attempts != 0 || got.ErrorCode != "" || got.Options.Format != imageoptions.FormatJXL || got.ArtifactKey == job.ArtifactKey {
+		t.Fatalf("retry did not reset the job: %+v", got)
 	}
 }
 
-func TestLegacyFingerprintStillMatchesAfterUpgrade(t *testing.T) {
+type fakeQueue struct{ cancelled []string }
+
+func (q *fakeQueue) Send(_ context.Context, _ string, _ []byte) error { return nil }
+func (q *fakeQueue) Cancel(_ context.Context, id string) error {
+	q.cancelled = append(q.cancelled, id)
+	return nil
+}
+
+func TestCancelMarksJobsAndSignalsRunningAttempts(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	owner := uuid.New()
 	file := uploadedFile(t, db, owner)
-	s := NewService(db, nil)
-	input := CreateTaskInput{
-		OwnerID: owner, TargetFormat: "PNG", Items: []TaskItemInput{{FileID: file.ID}}, IdempotencyKey: new("legacy"),
-	}
-	parent, err := s.CreateTask(t.Context(), input)
+	queue := &fakeQueue{}
+	s := &Service{db: db, queue: queue}
+	created, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&parent).Update("request_fingerprint", input.Fingerprint("PNG", input.Params)).Error; err != nil {
+	attempt := models.Attempt{JobID: created.Jobs[0].ID, Status: models.AttemptRunning, Queue: "q", Payload: models.JSON(`{}`), OutputKey: "k"}
+	db.Create(&attempt)
+	db.Model(&models.Job{}).Where("id = ?", created.Jobs[0].ID).
+		Updates(map[string]any{"status": models.JobProcessing, "current_attempt_id": attempt.ID})
+	cancelled, err := s.CancelTask(t.Context(), owner, created.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.CreateTask(t.Context(), input)
-	if err != nil || got.ID != parent.ID {
-		t.Fatalf("legacy idempotency replay broke after upgrade: %v", err)
+	if cancelled.Status != models.TaskCancelled || cancelled.Jobs[0].Status != models.JobCancelled {
+		t.Fatalf("task not cancelled: %+v", cancelled)
+	}
+	if len(queue.cancelled) != 1 || queue.cancelled[0] != attempt.ID.String() {
+		t.Fatalf("running attempt not signalled: %v", queue.cancelled)
 	}
 }

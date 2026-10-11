@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-func TestSharedComputeFixture(t *testing.T) {
-	raw, err := os.ReadFile("../../../docs/contracts/fixtures/compute-v1.0.json")
+func TestDispatchFixtureRoundTrips(t *testing.T) {
+	raw, err := os.ReadFile("../../../docs/contracts/fixtures/dispatch-v2.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload ComputePayload
+	var payload Dispatch
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.AttemptScopedCancel || payload.OutputFileID == "" {
-		t.Fatal("new compute fields were not decoded")
+	if payload.V != Version || payload.Options.Format != "avif" {
+		t.Fatalf("unexpected dispatch: %+v", payload)
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -26,52 +26,38 @@ func TestSharedComputeFixture(t *testing.T) {
 	assertJSONEqual(t, raw, encoded)
 }
 
-func TestSharedResultFixture(t *testing.T) {
-	raw, err := os.ReadFile("../../../docs/contracts/fixtures/result-v1.0.json")
+func TestResultFixturesRoundTrip(t *testing.T) {
+	raw, err := os.ReadFile("../../../docs/contracts/fixtures/results-v2.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload ResultPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Artifacts) != 1 || payload.Artifacts[0].FileID == "" || payload.Artifacts[0].Size != 1234 {
-		t.Fatal("artifact contract was not decoded")
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONEqual(t, raw, encoded)
-}
-
-func TestLegacyPayloadsOmitOptionalFields(t *testing.T) {
-	var compute ComputePayload
-	if err := json.Unmarshal([]byte(`{"schema_version":"1.0","job_id":"legacy","attempt_id":"legacy"}`), &compute); err != nil {
-		t.Fatal(err)
-	}
-	if compute.AttemptScopedCancel || compute.OutputFileID != "" {
-		t.Fatal("legacy cancellation defaults changed")
-	}
-	var result ResultPayload
-	if err := json.Unmarshal([]byte(`{"schema_version":"1.0","status":"COMPLETED","metadata":{"output_size_bytes":123}}`), &result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Artifacts) != 0 {
-		t.Fatal("legacy result unexpectedly requires artifacts")
+	for _, item := range items {
+		var result Result
+		if err := json.Unmarshal(item, &result); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSONEqual(t, item, encoded)
 	}
 }
 
 func assertJSONEqual(t *testing.T, expected, actual []byte) {
 	t.Helper()
-	var a, b any
-	if err := json.Unmarshal(expected, &a); err != nil {
+	var want, got any
+	if err := json.Unmarshal(expected, &want); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(actual, &b); err != nil {
+	if err := json.Unmarshal(actual, &got); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(a, b) {
-		t.Fatalf("wire fixture mismatch:\nexpected: %s\nactual: %s", expected, actual)
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("JSON mismatch\nwant: %s\n got: %s", expected, actual)
 	}
 }

@@ -91,9 +91,9 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 
 			// Create a job referencing the file (simulates task creation)
 			job := models.Job{
-				OwnerID:     user.ID,
-				Status:      models.JobPending,
-				InputFileID: &file.ID,
+				OwnerID:      user.ID,
+				Status:       models.JobPending,
+				SourceFileID: file.ID,
 			}
 			return tx.Create(&job).Error
 		})

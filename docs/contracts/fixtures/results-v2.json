@@ -1,0 +1,30 @@
+[
+  {
+    "v": 2,
+    "job_id": "0198a000-0000-7000-8000-000000000001",
+    "attempt_id": "0198a000-0000-7000-8000-000000000002",
+    "status": "RUNNING",
+    "progress": 10
+  },
+  {
+    "v": 2,
+    "job_id": "0198a000-0000-7000-8000-000000000001",
+    "attempt_id": "0198a000-0000-7000-8000-000000000002",
+    "status": "COMPLETED",
+    "progress": 100,
+    "artifact": {
+      "key": "outputs/0198a000-0000-7000-8000-00000000000a/0198a000-0000-7000-8000-000000000001/0198a000-0000-7000-8000-000000000002.avif",
+      "size": 1234,
+      "mime": "image/avif",
+      "width": 1600,
+      "height": 900
+    }
+  },
+  {
+    "v": 2,
+    "job_id": "0198a000-0000-7000-8000-000000000001",
+    "attempt_id": "0198a000-0000-7000-8000-000000000002",
+    "status": "FAILED",
+    "error": { "code": "unsupported_input", "message": "unsupported input: HDR (PQ/HLG) sources are not supported yet", "retryable": false }
+  }
+]

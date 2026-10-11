@@ -1,0 +1,18 @@
+{
+  "v": 2,
+  "job_id": "0198a000-0000-7000-8000-000000000001",
+  "attempt_id": "0198a000-0000-7000-8000-000000000002",
+  "op": "image.convert",
+  "options": {
+    "format": "avif",
+    "quality": 70,
+    "lossless": false,
+    "effort": 5,
+    "resize": { "width": 1600, "fit": "inside", "enlarge": false },
+    "color": "keep",
+    "dynamic_range": "keep",
+    "metadata": "strip"
+  },
+  "source_key": "uploads/0198a000-0000-7000-8000-00000000000a/source.png",
+  "output_key": "outputs/0198a000-0000-7000-8000-00000000000a/0198a000-0000-7000-8000-000000000001/0198a000-0000-7000-8000-000000000002.avif"
+}

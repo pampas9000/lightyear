@@ -18,7 +18,7 @@ func TestGetJobIsOwnerScoped(t *testing.T) {
 	if err := db.Create(&j).Error; err != nil {
 		t.Fatal(err)
 	}
-	s := NewService(db, nil)
+	s := NewService(db)
 	got, err := s.GetJob(t.Context(), owner, j.ID)
 	if err != nil || got.ID != j.ID {
 		t.Fatalf("owner cannot read own job: %v", err)

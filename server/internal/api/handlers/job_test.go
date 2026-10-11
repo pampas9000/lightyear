@@ -24,7 +24,7 @@ func TestJobEndpointDoesNotExposeAnotherOwnersJob(t *testing.T) {
 		c.Locals("user_id", c.Get("Test-User"))
 		return c.Next()
 	})
-	NewHandler(db, nil).Install(app.Group("/api"))
+	NewHandler(db).Install(app.Group("/api"))
 	for _, test := range []struct {
 		user   uuid.UUID
 		status int

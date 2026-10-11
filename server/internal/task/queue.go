@@ -1,136 +1,88 @@
+// Package task holds the queue contract shared with workers. The Rust side
+// mirrors it in compute-types' protocol module; both run the fixtures in
+// docs/contracts/fixtures/{dispatch,results}-v2.json.
 package task
 
 import (
 	"context"
-	"encoding/json"
+	"time"
 
-	"transcoder/server/internal/operation"
-	"transcoder/server/internal/transcode"
+	"transcoder/server/internal/imageoptions"
 
 	"github.com/redis/go-redis/v9"
 )
 
 const (
-	JobStreamKey           = "transcoder:jobs:stream"
-	ComputeStreamKey       = "transcoder:compute:stream"
-	ResultStreamKey        = "transcoder:results:stream"
-	StreamMaxLen           = 100000
-	JobCancelKeyPrefix     = "transcoder:cancel:job:"
-	TaskCancelKeyPrefix    = "transcoder:cancel:task:"
-	AttemptCancelKeyPrefix = "transcoder:cancel:attempt:"
+	Version = 2
+	// QueueImage carries image.convert dispatches to image workers.
+	QueueImage  = "q:image"
+	WorkerGroup = "workers"
+	// QueueResults carries worker heartbeats and outcomes to orchestrators.
+	QueueResults      = "q:results"
+	OrchestratorGroup = "orchestrators"
+	StreamMaxLen      = 100000
+	// CancelKeyPrefix + attempt ID marks an attempt the worker should abandon.
+	CancelKeyPrefix = "cancel:attempt:"
+	cancelTTL       = 24 * time.Hour
 )
 
-type Input struct {
-	FileID string `json:"file_id"`
-	Role   string `json:"role"`
-	Path   string `json:"path"`
+type Dispatch struct {
+	V         int                  `json:"v"`
+	JobID     string               `json:"job_id"`
+	AttemptID string               `json:"attempt_id"`
+	Op        string               `json:"op"`
+	Options   imageoptions.Options `json:"options"`
+	SourceKey string               `json:"source_key"`
+	OutputKey string               `json:"output_key"`
 }
 
-type Output struct {
-	FileID string `json:"file_id"`
-	Role   string `json:"role"`
-	Path   string `json:"path"`
-}
-
-type ExecutionPayload struct {
-	SchemaVersion string         `json:"schema_version"`
-	JobID         string         `json:"job_id"`
-	AttemptID     string         `json:"attempt_id"`
-	Generation    int            `json:"generation"`
-	Operation     operation.Kind `json:"operation"`
-	Executor      string         `json:"executor"`
-	Params        operation.JSON `json:"operation_params"`
-	Inputs        []Input        `json:"inputs"`
-	Outputs       []Output       `json:"outputs"`
-	TargetFormat  string         `json:"target_format"`
-}
-
-type ComputePayload struct {
-	SchemaVersion       string           `json:"schema_version"`
-	JobID               string           `json:"job_id"`
-	AttemptID           string           `json:"attempt_id"`
-	InputPath           string           `json:"input_path"`
-	InputFormat         string           `json:"input_format,omitempty"`
-	OutputPath          string           `json:"output_path"`
-	TargetFormat        string           `json:"target_format"`
-	Params              transcode.Params `json:"params"`
-	OutputFileID        string           `json:"output_file_id,omitempty"`
-	AttemptScopedCancel bool             `json:"attempt_scoped_cancel,omitzero"`
-}
-
-// Status of ResultPayload
-//
-// - COMPLETED: Transcode successfully
-//
-// - FAILED: Transcode failed
 type ResultStatus string
 
 const (
-	ResultStatusCompleted  = ResultStatus("COMPLETED")
-	ResultStatusFailed     = ResultStatus("FAILED")
-	ResultStatusProcessing = ResultStatus("PROCESSING")
+	ResultRunning   ResultStatus = "RUNNING"
+	ResultCompleted ResultStatus = "COMPLETED"
+	ResultFailed    ResultStatus = "FAILED"
 )
 
-type ResultPayload struct {
-	SchemaVersion     string         `json:"schema_version"`
-	JobID             string         `json:"job_id"`
-	AttemptID         string         `json:"attempt_id"`
-	Status            ResultStatus   `json:"status"`
-	ErrorMessage      string         `json:"error_message,omitempty"`
-	ErrorCode         string         `json:"error_code,omitempty"`
-	Retryable         *bool          `json:"retryable,omitempty"`
-	Progress          *int           `json:"progress,omitempty"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
-	Artifacts         []Artifact     `json:"artifacts,omitempty"`
-	RetryAfterSeconds *int           `json:"retry_after_seconds,omitempty"`
-}
-
 type Artifact struct {
-	FileID   string `json:"file_id"`
-	Path     string `json:"path"`
-	Size     int64  `json:"size"`
-	MimeType string `json:"mime_type"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	Key    string `json:"key"`
+	Size   int64  `json:"size"`
+	Mime   string `json:"mime"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
-func EnqueueJob(ctx context.Context, kv *redis.Client, jobID string) error {
-	return kv.XAdd(ctx, &redis.XAddArgs{
-		Stream: JobStreamKey,
-		MaxLen: StreamMaxLen,
-		Approx: true,
-		Values: map[string]any{
-			"job_id": jobID,
-		},
+type ResultError struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
+type Result struct {
+	V         int          `json:"v"`
+	JobID     string       `json:"job_id"`
+	AttemptID string       `json:"attempt_id"`
+	Status    ResultStatus `json:"status"`
+	Progress  *int         `json:"progress,omitempty"`
+	Artifact  *Artifact    `json:"artifact,omitempty"`
+	Error     *ResultError `json:"error,omitempty"`
+}
+
+// Queue is what the orchestrator needs from Redis.
+type Queue interface {
+	Send(ctx context.Context, queue string, payload []byte) error
+	Cancel(ctx context.Context, attemptID string) error
+}
+
+type RedisQueue struct{ Client *redis.Client }
+
+func (q RedisQueue) Send(ctx context.Context, queue string, payload []byte) error {
+	return q.Client.XAdd(ctx, &redis.XAddArgs{
+		Stream: queue, MaxLen: StreamMaxLen, Approx: true,
+		Values: map[string]any{"payload": string(payload)},
 	}).Err()
 }
 
-func EnqueueComputeJob(ctx context.Context, kv *redis.Client, payload *ComputePayload) error {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return kv.XAdd(ctx, &redis.XAddArgs{
-		Stream: ComputeStreamKey,
-		MaxLen: StreamMaxLen,
-		Approx: true,
-		Values: map[string]any{
-			"payload": string(bytes),
-		},
-	}).Err()
-}
-
-func EnqueueResult(ctx context.Context, kv *redis.Client, payload *ResultPayload) error {
-	bytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return kv.XAdd(ctx, &redis.XAddArgs{
-		Stream: ResultStreamKey,
-		MaxLen: StreamMaxLen,
-		Approx: true,
-		Values: map[string]any{
-			"payload": string(bytes),
-		},
-	}).Err()
+func (q RedisQueue) Cancel(ctx context.Context, attemptID string) error {
+	return q.Client.Set(ctx, CancelKeyPrefix+attemptID, "1", cancelTTL).Err()
 }

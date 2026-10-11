@@ -40,7 +40,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	})
 
 	return &Router{
-		job:      handlers.NewHandler(db, kv),
+		job:      handlers.NewHandler(db),
 		workflow: handlers.NewWorkflowHandler(db),
 		task:     handlers.NewTaskHandler(db, kv),
 		upload:   handlers.NewUploadHandler(db, cfg, s3Storage),

@@ -213,13 +213,13 @@ func TestCleanupStaleUploadedFiles(t *testing.T) {
 
 	// Create job using the submitted file to reference it
 	job := models.Job{
-		OwnerID:     user.ID,
-		Status:      models.JobPending,
-		InputFileID: &submittedFile.ID,
+		OwnerID:      user.ID,
+		Status:       models.JobPending,
+		SourceFileID: submittedFile.ID,
 	}
 	db.Create(&job)
 
-	// Case 4: A generalized input relation also protects a stale draft.
+	// Case 4: Being a job's output also protects a stale draft.
 	relationFile := models.File{
 		OwnerID:    user.ID,
 		Name:       "relation-input.mp4",
@@ -233,16 +233,8 @@ func TestCleanupStaleUploadedFiles(t *testing.T) {
 		FileID:  relationFile.ID,
 		OwnerID: user.ID,
 	})
-	relationJob := models.Job{OwnerID: user.ID, Status: models.JobPending}
+	relationJob := models.Job{OwnerID: user.ID, Status: models.JobCompleted, OutputFileID: &relationFile.ID}
 	db.Create(&relationJob)
-	relationInput := models.JobInput{
-		JobID:    relationJob.ID,
-		FileID:   relationFile.ID,
-		Role:     "mask",
-		Position: 0,
-		Path:     relationFile.Path,
-	}
-	db.Create(&relationInput)
 
 	// Run cleanup
 	runCleanup(ctx, db, s3Service, "test-bucket")
@@ -277,7 +269,6 @@ func TestCleanupStaleUploadedFiles(t *testing.T) {
 	db.Delete(&recentFile)
 	db.Where("file_id = ?", submittedFile.ID).Delete(&models.DraftFile{})
 	db.Delete(&submittedFile)
-	db.Delete(&relationInput)
 	db.Delete(&relationJob)
 	db.Where("file_id = ?", relationFile.ID).Delete(&models.DraftFile{})
 	db.Delete(&relationFile)

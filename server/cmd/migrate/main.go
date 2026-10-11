@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,8 @@ import (
 )
 
 func main() {
+	reset := flag.Bool("reset", false, "drop every application table and recreate the schema (destroys all data)")
+	flag.Parse()
 	cfg := config.Load()
 	db, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  cfg.DB.URL,
@@ -33,9 +36,13 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	if err := schema.Migrate(db); err != nil {
+	run, done := schema.Migrate, "database migration completed"
+	if *reset {
+		run, done = schema.Reset, "database reset and migrated"
+	}
+	if err := run(db); err != nil {
 		slog.Error("migrate schema", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println("database migration completed")
+	fmt.Println(done)
 }

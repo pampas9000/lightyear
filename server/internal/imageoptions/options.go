@@ -6,6 +6,7 @@ package imageoptions
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql/driver"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -248,13 +249,32 @@ func (o Options) Canonicalize() (Options, error) {
 	return o, nil
 }
 
-// ArtifactKey identifies the output of applying canonical options to a source
-// with the given SHA-256, so identical requests can reuse one artifact.
-func ArtifactKey(sourceSHA256 string, canonical Options) (string, error) {
+// ArtifactKey identifies the output of applying canonical options to a
+// source, so identical requests can reuse one artifact. `source` must identify
+// the content itself (a file ID, or a verified SHA-256), never a client claim.
+func ArtifactKey(source string, canonical Options) (string, error) {
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte("image-options/v1\n" + sourceSHA256 + "\n" + string(encoded)))
+	sum := sha256.Sum256([]byte("image-options/v1\n" + source + "\n" + string(encoded)))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// Value stores options as jsonb.
+func (o Options) Value() (driver.Value, error) {
+	encoded, err := json.Marshal(o)
+	return string(encoded), err
+}
+
+// Scan reads stored options; they were canonicalized before being written.
+func (o *Options) Scan(value any) error {
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, o)
+	case string:
+		return json.Unmarshal([]byte(v), o)
+	default:
+		return fmt.Errorf("scan image options: unsupported %T", value)
+	}
 }
