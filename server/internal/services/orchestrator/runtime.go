@@ -19,8 +19,7 @@ import (
 )
 
 func Run(ctx context.Context, db *gorm.DB, kv *redis.Client) error {
-	err := kv.XGroupCreateMkStream(ctx, taskqueue.QueueResults, taskqueue.OrchestratorGroup, "0").Err()
-	if err != nil && !strings.HasPrefix(err.Error(), "BUSYGROUP") {
+	if err := ensureGroup(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup); err != nil {
 		return fmt.Errorf("create consumer group: %w", err)
 	}
 	host, _ := os.Hostname()
@@ -71,6 +70,18 @@ func consume(ctx context.Context, kv *redis.Client, stream, group, consumer stri
 		entries, next, err := kv.XAutoClaim(ctx, &redis.XAutoClaimArgs{
 			Stream: stream, Group: group, Consumer: consumer, MinIdle: 30 * time.Second, Start: cursor, Count: 1,
 		}).Result()
+		if err != nil && strings.HasPrefix(err.Error(), "NOGROUP") {
+			// Redis lost the stream (restart without persistence). Results
+			// in it are gone; leases recover the affected jobs.
+			slog.Warn("consumer group missing; recreating", "stream", stream)
+			if err := ensureGroup(ctx, kv, stream, group); err != nil && ctx.Err() == nil {
+				slog.Error("recreate consumer group failed", "stream", stream, "error", err)
+				if !wait(ctx, time.Second) {
+					return
+				}
+			}
+			continue
+		}
 		if err != nil && !errors.Is(err, redis.Nil) {
 			if ctx.Err() == nil {
 				slog.Error("claim stream entries failed", "stream", stream, "error", err)
@@ -115,6 +126,14 @@ func consume(ctx context.Context, kv *redis.Client, stream, group, consumer stri
 			}
 		}
 	}
+}
+
+func ensureGroup(ctx context.Context, kv *redis.Client, stream, group string) error {
+	err := kv.XGroupCreateMkStream(ctx, stream, group, "0").Err()
+	if err != nil && !strings.HasPrefix(err.Error(), "BUSYGROUP") {
+		return err
+	}
+	return nil
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

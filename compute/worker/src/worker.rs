@@ -51,6 +51,16 @@ impl Worker {
                     }
                 }
                 Ok(None) => {}
+                // The stream or group vanished (Redis restarted without
+                // persistence): recreate it; lost dispatches are re-sent by
+                // the orchestrator.
+                Err(e) if e.code() == Some("NOGROUP") => {
+                    eprintln!("Consumer group missing; recreating");
+                    if let Err(e) = self.queue.ensure_group().await {
+                        eprintln!("Recreating consumer group failed: {e}");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
                 Err(e) => {
                     eprintln!("Redis read failed: {e}; reconnecting");
                     tokio::time::sleep(Duration::from_secs(1)).await;
