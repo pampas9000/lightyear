@@ -31,6 +31,7 @@ tasks:
       - echo "==> Building all Go binaries into server/bin/..."
       - go build -o bin/api ./cmd/api
       - go build -o bin/worker ./cmd/worker
+      - go build -o bin/migrate ./cmd/migrate
       - echo "✨ All Go binaries built successfully!"
 
   build:compute:
@@ -39,18 +40,6 @@ tasks:
       - echo "==> Building Rust compute workspace in release mode..."
       - cargo build --workspace --release
       - echo "✨ Rust compute workspace built successfully!"
-
-  build:compute:wasm:
-    desc: "编译 WebAssembly 媒体处理模块 (WASM)"
-    cmds:
-      - echo "==> Building compute WASM package with wasm-pack..."
-      - wasm-pack build compute/bindings/wasm --target web --out-dir ../../../web/public/wasm
-      - echo "✨ WASM package built successfully!"
-
-  build:wasm:
-    desc: "build:compute:wasm 任务别名"
-    cmds:
-      - task: build:compute:wasm
 
   build:worker:
     desc: "编译 Rust compute-worker 媒体转码消费者二进制"
@@ -61,8 +50,6 @@ tasks:
 
   build:web:
     desc: "构建 Web 前端应用 (Nuxt 4 + Vue 3)"
-    deps:
-      - task: build:compute:wasm
     dir: web
     cmds:
       - echo "==> Building Web frontend bundle with Bun..."
@@ -70,24 +57,15 @@ tasks:
       - echo "✨ Web frontend built successfully!"
 
   build:all:
-    desc: "构建全栈产物 (Go 二进制 + Rust 二进制/WASM + 前端 Web 产物)"
+    desc: "构建全栈产物 (Go 二进制 + Rust 二进制 + 前端 Web 产物)"
     deps:
       - task: build:server
       - task: build:compute
-      - task: build:compute:wasm
       - task: build:web
 
   # ==========================================
   # 代码生成与静态质量检查
   # ==========================================
-
-  gen:
-    desc: "执行 GORM GEN 数据库查询代码生成"
-    dir: server
-    cmds:
-      - echo "==> Running GORM GEN generator..."
-      - go run ./cmd/gen
-      - echo "✨ Code generated successfully!"
 
   fmt:
     desc: "格式化所有代码 (Go, Rust)"
@@ -219,7 +197,8 @@ tasks:
       - go version
       - cargo --version
       - task --version
-      - cmd: wasm-pack --version || echo "wasm-pack not installed; only required for build:compute:wasm."
+      - pkg-config --modversion vips
+      - cmd: cjxl --version | head -1 || echo "cjxl not installed; lossless JPEG -> JXL falls back to pixel encoding."
         silent: false
 
   # ==========================================
@@ -332,7 +311,7 @@ tasks:
     desc: "清理编译产物 (server/bin, web/dist, target/, WASM 等)"
     cmds:
       - echo "==> Cleaning build artifacts..."
-      - rm -rf server/bin web/.nuxt web/.output web/.nitro web/dist web/.cache target compute/bindings/wasm/pkg
+      - rm -rf server/bin web/.nuxt web/.output web/.nitro web/dist web/.cache target
       - go clean -cache -testcache
 
   reset:

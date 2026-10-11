@@ -90,41 +90,47 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 4.1 | 统一模型：`tasks` / `jobs(op, options, inputs jsonb)` / `attempts` / `files`，删除旧字段与预分配 JobOutput；直接重建表 | ⬜ |
-| 4.2 | 删除 AI provider 层（`providers`、`ProviderInvocation`、Generate/Upscale/Edit、ExecutionPayload 1.1、单条目 executor 注册表） | ⬜ |
-| 4.3 | 删除 `jobs` stream 与 `outbox_events`：用 `SKIP LOCKED` 领任务，attempt 行充当 outbox | ⬜ |
-| 4.4 | 恢复规则：派出后无 RUNNING 心跳则重发同一 attempt；lease 过期则新建 attempt | ⬜ |
-| 4.5 | 取消只保留 `cancel:attempt:<id>` | ⬜ |
-| 4.6 | 删除 Go `transcode` 包里的旧参数（`engine`、`engine_params`、`color`、`profile_policy`、`strategy`），改用 `ImageOptions` | ⬜ |
-| 4.7 | 产物键命中时任务直接完成 | ⬜ |
+| 4.1 | 统一模型：`tasks` / `jobs(operation, options, source_file_id, output_file_id)` / `attempts` / `files`；输出在完成时才建文件记录。单一来源先用 `source_file_id` 列，多输入的 AI 操作出现时再加 | ✅ |
+| 4.2 | 删除 AI provider 层、`execution`、`operation`、`transcode` 旧参数包，以及未被引用的 gorm/gen 生成代码 | ✅ |
+| 4.3 | 删除 `jobs` stream 与 `outbox_events`：orchestrator 每 500 ms 从数据库领取到期任务，attempt 行保存派发内容并充当 outbox | ✅ |
+| 4.4 | 恢复：未发出的 attempt 30 秒后补发；已发出但 10 分钟无 RUNNING 心跳则原样重发；运行中 lease（2 分钟，心跳续期）过期则放弃并重试 | ✅ |
+| 4.5 | 取消只用 `cancel:attempt:<id>`，提交后尽力通知，迟到的结果因任务已不在 PROCESSING 而被忽略 | ✅ |
+| 4.6 | Task/Workflow API 改收 `options`（严格解析、规范化） | ✅ |
+| 4.7 | 同一用户、同一源文件、同一规范化参数直接复用已有产物 | ✅ |
+| 4.8 | `cmd/migrate -reset`：删除全部应用表（含旧版本遗留表）后重建，仅限开发 | ✅ |
 
 ### 第 5 步：Worker（Rust）
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 5.1 | 派发协议 v2：`{job_id, attempt_id, op, options, inputs, output_prefix, deadline}`；结果 `{attempt_id, status, progress, artifacts, error{code,retryable}}`，用 fixtures 做双端契约测试 | ⬜ |
-| 5.2 | 消费 `q:image`，收到即 ACK；删除 Lua 锁、XCLAIM 心跳、XAUTOCLAIM | ⬜ |
-| 5.3 | 调用 `compute-imageops`，产物写入 `attempts/<id>/` | ⬜ |
-| 5.4 | 下载大小上限，按 attempt 检查取消 | ⬜ |
+| 5.1 | 派发/结果协议 v2，Go 与 Rust 共用 `docs/contracts/fixtures/{dispatch,results}-v2.json` | ✅ |
+| 5.2 | `XREADGROUP … NOACK` 收到即确认；删除 Lua 锁、XCLAIM 心跳、XAUTOCLAIM、结果缓存 | ✅ |
+| 5.3 | 调用 `compute-imageops`，产物写入 attempt 专属的 key | ✅ |
+| 5.4 | 下载大小上限（默认 200 MB）与像素上限可通过环境变量配置；每 3 秒检查取消、每 20 秒心跳 | ✅ |
+| 5.5 | 修复：Redis 默认 500 ms 响应超时会让阻塞读不断超时重连，改为 30 秒；`BUSYGROUP` 改按错误码判断（否则 worker 重启即退出） | ✅ |
+| 5.6 | 端到端验证（本地 Postgres + 内存版 Redis/S3，真实 orchestrator 与 worker）：缩放、HDR 拒绝、16-bit→10-bit AVIF、worker 宕机期间派发、JPEG→JXL 逐字节还原 | ✅ |
 
 ### 第 6 步：Web
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 6.1 | 参数面板直接编辑 `ImageOptions`；新建任务页与重试抽屉共用一份；不再让用户填源图色彩参数 | ⬜ |
-| 6.2 | 任务详情按 `ImageOptions` 展示参数 | ⬜ |
-| 6.3 | 沙盒改用 wasm-vips：Web Worker、模块按需加载、沙盒页 COOP/COEP（`credentialless`） | ⬜ |
-| 6.4 | 沙盒的 `ImageOptions → wasm-vips` 映射，与服务端做一致性测试 | ⬜ |
-| 6.5 | 删除 `compute-wasm` 调用、`@jsquash/jxl` 依赖及 wasm-pack 构建任务 | ⬜ |
+| 6.1 | `ImageOptionsForm` 取代 `TranscodeSettings`；新建任务页与重试抽屉共用；不再让用户填源图色彩参数，也不再编造源图探测结果 | ✅ |
+| 6.2 | 任务列表、详情、错误诊断改用 `options`、`source_file`、`attempts`；新增 `unsupported_input`、`processing_failed`、`execution_timeout` 的诊断文案 | ✅ |
+| 6.3 | 沙盒改用 wasm-vips（Web Worker、首次使用时加载）；全站 COOP `same-origin` + COEP `credentialless`，保证客户端路由进入沙盒时仍是跨源隔离状态 | ✅ |
+| 6.4 | `lib/vips-ops.ts` 与 `compute-imageops` 逐条对应；在浏览器中验证 AVIF/JXL/WebP/JPEG/PNG 编码与缩放 | ✅ |
+| 6.5 | 删除 `compute-wasm`、`@jsquash/jxl`、wasm-pack 构建任务 | ✅ |
+| 6.6 | 已知限制：Safari 不支持 COEP `credentialless`，页面无法跨源隔离，沙盒会提示不可用；浏览器端没有 cjxl，JPEG→JXL 无损会重新编码像素 | — |
+| 6.7 | 服务端与浏览器的自动化一致性测试（同一素材、同一参数比较产物） | ⬜ |
 
 ### 第 7 步：删除旧代码与工具链
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 7.1 | 删除 `compute-engine`、`compute-server-adapter`、`compute-wasm`，以及 `compute-types` 里的旧参数类型（`Params`、`LibavifParams`、`LibjxlParams`、`ColorEncoding` 等） | ⬜ |
-| 7.2 | 开发环境依赖改为 libvips ≥ 8.17（含 libjxl、libheif、libultrahdr）+ `cjxl`；去掉 `avifenc`/`avifdec`/`heif-enc`/`heif-dec`/`cwebp` | ⬜ |
-| 7.3 | Taskfile / `package.json`：去掉 wasm 构建，更新 bootstrap 与检查任务，修正过期端口文案 | ⬜ |
+| 7.1 | 删除 `compute-engine`、`compute-server-adapter`、`compute-wasm` 与 `compute-types` 旧参数类型；工作区只剩 `types`、`imageops`、`worker` | ✅ |
+| 7.2 | 开发环境依赖改为 libvips ≥ 8.17（含 libjxl、libheif、libultrahdr）+ `cjxl`；去掉 `avifenc`/`avifdec`/`heif-enc`/`heif-dec`/`cwebp`、`wasm-pack`（`task doctor` 已更新，文档待第 8 步） | 🚧 |
+| 7.3 | Taskfile / `package.json`：去掉 wasm 与 gorm/gen 任务，`build:server` 产出 `migrate` | ✅ |
 | 7.4 | `scripts/benchmark.ts` 改为产物级一致性测试；缺工具算失败 | ⬜ |
+| 7.5 | 修正过期的素材：`jpeg_420_90.jpg` 实为灰度图，`ultra_hdr_dual_jpeg.jpg` 已损坏 | ⬜ |
 
 ### 第 8 步：文档
 
