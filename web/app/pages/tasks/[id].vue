@@ -783,7 +783,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                 <div class="p-5">
                     <!-- Standard Structured Key-Value Capsules -->
                     <div v-if="!showRawJson" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-                        <div v-for="[key, val] in optionEntries(task.jobs[0].options)" :key="key" class="space-y-1 bg-surface-2/60 p-2.5 rounded-lg border border-hairline">
+                        <div v-for="[key, val] in optionEntries(task.jobs[0].options)" :key="key" class="space-y-1 bg-surface-2 p-2.5 rounded-lg border border-hairline">
                             <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider truncate">{{ $t(`image_options.${key}`) }}</div>
                             <div class="text-xs font-semibold text-ink truncate">{{ val }}</div>
                         </div>
@@ -809,7 +809,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                     </div>
 
                     <!-- Filter Tabs (Segment Control Style) -->
-                    <div class="flex items-center gap-0.5 bg-surface-2/80 p-0.5 rounded-lg border border-hairline self-start sm:self-auto">
+                    <div class="flex items-center gap-0.5 bg-surface-2 p-0.5 rounded-lg border border-hairline self-start sm:self-auto">
                         <button
                             @click="activeTab = 'all'"
                             class="px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer"
@@ -840,7 +840,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                     <div
                         v-for="job in filteredJobs"
                         :key="job.id"
-                        class="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-surface-2/40 transition-colors duration-150"
+                        class="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-surface-2 transition-colors duration-150"
                     >
                         <!-- Left: Status Icon & File Info -->
                         <div class="flex items-center gap-3.5 min-w-0 flex-1">

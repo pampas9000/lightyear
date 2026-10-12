@@ -77,9 +77,9 @@ const getStatusStyle = (status: TaskStatus | string) => {
     switch (status) {
         case 'COMPLETED': return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
         case 'FAILED': return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-        case 'CANCELLED': return 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20'
+        case 'CANCELLED': return 'bg-surface-2 text-ink-subtle border border-hairline'
         case 'PARTIALLY_FAILED': return 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'
-        case 'PROCESSING': return 'bg-primary/10 text-primary border border-primary/20'
+        case 'PROCESSING': return 'bg-primary-soft text-primary-soft-foreground border border-primary/20'
         default: return 'bg-surface-2 text-ink-subtle border border-hairline'
     }
 }
@@ -142,35 +142,22 @@ const getTaskProgress = (task: Task) => {
 <template>
     <div class="w-full max-w-7xl mx-auto space-y-6 pb-12 font-sans">
         <!-- Dashboard Top Header Bar (WASM Local Transcode Style) -->
-        <header class="h-14 border border-hairline bg-surface-1 rounded-xl shrink-0 flex items-center justify-between px-5 z-20 shadow-subtle">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-sm">
-                    <Zap class="w-4 h-4" stroke-width="2.5" />
-                </div>
-                <div>
-                    <h1 class="text-sm font-bold tracking-tight text-ink font-satoshi flex items-center gap-2">
-                        {{ $t('nav.overview') }}
-                        <Badge class="bg-primary/10 text-primary border-none text-[10px] px-1.5 py-0.5 h-auto font-mono font-bold uppercase select-none">
-                            CLUSTER OVERVIEW
-                        </Badge>
-                    </h1>
-                </div>
-                <div class="hidden sm:flex items-center gap-2 ml-2 pl-4 border-l border-hairline">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <p class="text-xs font-semibold text-ink-subtle">{{ $t('dashboard.all_operational') }}</p>
-                </div>
+        <header class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-semibold tracking-tight text-ink">{{ $t('nav.overview') }}</h1>
+                <p class="mt-1 flex items-center gap-2 text-sm text-ink-subtle">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    {{ $t('dashboard.all_operational') }}
+                </p>
             </div>
-
-            <!-- Header Quick Actions -->
             <div class="flex items-center gap-2">
-                <Button variant="outline" size="sm"
-                    class="h-8 px-3 text-xs font-semibold hover:bg-surface-2 cursor-pointer transition-all duration-200 border-hairline gap-1.5 shadow-xs">
-                    <Calendar class="w-3.5 h-3.5 text-primary" />
+                <Button variant="outline" size="sm" class="h-8 px-3 text-xs gap-1.5 cursor-pointer">
+                    <Calendar class="w-3.5 h-3.5 text-ink-subtle" />
                     <span>{{ $t('dashboard.last_7_days') }}</span>
                 </Button>
                 <NuxtLink to="/tasks/new">
-                    <Button size="sm" class="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary-hover shadow-xs rounded-lg cursor-pointer transition-all duration-200">
-                        <Plus class="w-3.5 h-3.5" stroke-width="2.5" />
+                    <Button size="sm" class="h-8 px-3 text-xs gap-1.5 cursor-pointer">
+                        <Plus class="w-3.5 h-3.5" stroke-width="2.25" />
                         <span>{{ $t('nav.new_task') }}</span>
                     </Button>
                 </NuxtLink>
@@ -180,58 +167,58 @@ const getTaskProgress = (task: Task) => {
         <!-- High Information Density Stats Cards (Local Transcoding Design) -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <!-- Total Tasks Card -->
-            <Card class="border border-hairline shadow-subtle bg-surface-1 rounded-xl p-4 flex flex-col justify-between transition-all duration-200 hover:border-hairline-strong">
+            <Card class="border border-hairline shadow-xs bg-surface-1 rounded-xl p-4 flex flex-col justify-between ">
                 <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-bold text-ink-subtle uppercase tracking-wider font-satoshi flex items-center gap-1.5">
-                        <RotateCcw class="w-3.5 h-3.5 text-primary" />
+                    <span class="text-xs font-medium text-ink-muted flex items-center gap-1.5">
+                        <RotateCcw class="w-3.5 h-3.5 text-ink-subtle" />
                         {{ $t('dashboard.total_tasks') }}
                     </span>
                     <Badge variant="secondary"
                         :class="[
                             (stats.growth_rate || 0) >= 0 
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' 
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' 
                                 : 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
-                            'border font-mono font-bold text-[10px] py-0.5 px-1.5 rounded'
+                            'border-transparent font-medium text-[11px] tabular-nums py-0.5 px-1.5 rounded-md'
                         ]">
                         {{ (stats.growth_rate || 0) >= 0 ? '+' : '' }}{{ stats.growth_rate !== undefined ? stats.growth_rate.toFixed(0) : '0' }}%
                     </Badge>
                 </div>
                 <div class="mt-4 flex items-baseline justify-between">
-                    <span class="text-3xl font-bold tracking-tight text-ink leading-none font-mono">
+                    <span class="text-3xl font-semibold tracking-tight text-ink leading-none tabular-nums">
                         {{ stats.COMPLETED + stats.PROCESSING + stats.PENDING + stats.FAILED + (stats.PARTIALLY_FAILED || 0) }}
                     </span>
                 </div>
                 <!-- Mini Activity Chart -->
-                <div class="mt-4 flex items-end gap-1 h-7 pt-1 bg-surface-2/40 p-1 rounded-lg border border-hairline">
+                <div class="mt-5 flex items-end gap-1 h-8">
                     <div v-for="(count, idx) in stats.daily_chart || [0, 0, 0, 0, 0, 0, 0]" :key="idx"
-                        class="flex-1 bg-primary/25 hover:bg-primary/60 rounded-xs transition-all duration-200"
+                        class="flex-1 bg-primary/25 hover:bg-primary rounded-[3px] transition-colors"
                         :style="{ height: `${Math.max(15, (count / maxDailyCount) * 100)}%` }"
                         :title="`${count} tasks`"></div>
                 </div>
             </Card>
 
             <!-- Storage Usage Card -->
-            <Card class="border border-hairline shadow-subtle bg-surface-1 rounded-xl p-4 flex flex-col justify-between transition-all duration-200 hover:border-hairline-strong">
+            <Card class="border border-hairline shadow-xs bg-surface-1 rounded-xl p-4 flex flex-col justify-between ">
                 <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-bold text-ink-subtle uppercase tracking-wider font-satoshi flex items-center gap-1.5">
-                        <Database class="w-3.5 h-3.5 text-primary" />
+                    <span class="text-xs font-medium text-ink-muted flex items-center gap-1.5">
+                        <Database class="w-3.5 h-3.5 text-ink-subtle" />
                         {{ $t('dashboard.storage_usage') }}
                     </span>
-                    <Badge variant="outline" class="font-mono text-[10px] font-bold border-hairline bg-surface-2 text-ink-subtle">
+                    <Badge variant="outline" class="text-[11px] font-medium border-transparent bg-surface-2 text-ink-subtle">
                         {{ storagePercentage }}% USED
                     </Badge>
                 </div>
                 <div class="mt-4 flex items-baseline justify-between">
                     <div class="flex items-baseline gap-1.5">
-                        <span class="text-3xl font-bold tracking-tight text-ink leading-none font-mono">{{ storageUsedInfo.value }}</span>
-                        <span class="text-xs font-mono font-bold text-ink-subtle uppercase">{{ storageUsedInfo.unit }} / {{ storageLimitInfo.value }} {{ storageLimitInfo.unit }}</span>
+                        <span class="text-3xl font-semibold tracking-tight text-ink leading-none tabular-nums">{{ storageUsedInfo.value }}</span>
+                        <span class="text-sm text-ink-subtle">{{ storageUsedInfo.unit }} / {{ storageLimitInfo.value }} {{ storageLimitInfo.unit }}</span>
                     </div>
                 </div>
                 <div class="mt-4 space-y-1.5">
-                    <div class="w-full h-1.5 bg-surface-2 rounded-full overflow-hidden border border-hairline">
+                    <div class="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden">
                         <div class="h-full bg-primary rounded-full transition-all duration-500" :style="{ width: `${storagePercentage}%` }"></div>
                     </div>
-                    <div class="flex justify-between text-[10px] font-mono font-semibold text-ink-subtle">
+                    <div class="flex justify-between text-xs text-ink-subtle tabular-nums">
                         <span>{{ storagePercentage }}% Used</span>
                         <span>{{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).value }} {{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).unit }} Free</span>
                     </div>
@@ -239,42 +226,42 @@ const getTaskProgress = (task: Task) => {
             </Card>
 
             <!-- Worker Nodes Card -->
-            <Card class="border border-hairline shadow-subtle bg-surface-1 rounded-xl p-4 flex flex-col justify-between transition-all duration-200 hover:border-hairline-strong">
+            <Card class="border border-hairline shadow-xs bg-surface-1 rounded-xl p-4 flex flex-col justify-between ">
                 <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-bold text-ink-subtle uppercase tracking-wider font-satoshi flex items-center gap-1.5">
-                        <Cpu class="w-3.5 h-3.5 text-primary" />
+                    <span class="text-xs font-medium text-ink-muted flex items-center gap-1.5">
+                        <Cpu class="w-3.5 h-3.5 text-ink-subtle" />
                         {{ $t('dashboard.worker_nodes') }}
                     </span>
-                    <Badge variant="outline" class="font-mono text-[10px] font-bold border-hairline bg-surface-2 text-ink-subtle">
+                    <Badge variant="outline" class="text-[11px] font-medium border-transparent bg-surface-2 text-ink-subtle">
                         WASM ENGINE
                     </Badge>
                 </div>
                 <div class="mt-4 flex items-baseline justify-between">
                     <div class="flex items-baseline gap-2">
-                        <span class="text-3xl font-bold tracking-tight text-ink leading-none font-mono">{{ stats.active_workers || 0 }}</span>
-                        <span class="text-xs font-semibold text-ink-subtle uppercase font-mono">{{ $t('dashboard.worker_active') }}</span>
+                        <span class="text-3xl font-semibold tracking-tight text-ink leading-none tabular-nums">{{ stats.active_workers || 0 }}</span>
+                        <span class="text-sm text-ink-subtle">{{ $t('dashboard.worker_active') }}</span>
                     </div>
                 </div>
-                <div class="mt-4 flex items-center justify-between p-2 rounded-lg bg-surface-2/40 border border-hairline">
+                <div class="mt-5 flex items-center justify-between px-2.5 py-2 rounded-md bg-surface-2">
                     <div class="flex items-center gap-1.5">
                         <div v-if="(stats.active_workers || 0) === 0"
                             class="w-2 h-2 rounded-full bg-amber-500 shadow-xs animate-pulse" title="No active workers"></div>
                         <div v-else v-for="i in Math.min(6, (stats.active_workers || 0))" :key="i"
                             class="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" title="Active worker"></div>
                     </div>
-                    <span class="text-[10px] font-mono font-bold text-ink-subtle uppercase">Cluster Normal</span>
+                    <span class="text-xs text-ink-subtle">Cluster Normal</span>
                 </div>
             </Card>
         </div>
 
         <!-- Recent Transcoding Section (Local Transcoding Design Style) -->
-        <Card class="border border-hairline shadow-subtle overflow-hidden rounded-xl bg-surface-1 py-0 gap-0">
-            <CardHeader class="h-11 px-5 py-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 bg-surface-1/50">
-                <CardTitle class="min-w-0 truncate text-[12px] leading-none font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-2">
-                    <SlidersHorizontal class="w-3.5 h-3.5 text-primary shrink-0" />
+        <Card class="border border-hairline shadow-xs overflow-hidden rounded-xl bg-surface-1 py-0 gap-0">
+            <CardHeader class="h-11 px-5 py-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2">
+                <CardTitle class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-2">
+                    <SlidersHorizontal class="w-3.5 h-3.5 text-ink-subtle shrink-0" />
                     {{ $t('dashboard.recent_tasks') }}
                 </CardTitle>
-                <NuxtLink to="/tasks" class="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+                <NuxtLink to="/tasks" class="text-xs font-medium text-ink-muted hover:text-ink flex items-center gap-1 transition-colors">
                     <span>{{ $t('dashboard.view_all') }}</span>
                     <ArrowUpRight class="w-3.5 h-3.5" />
                 </NuxtLink>
@@ -283,15 +270,15 @@ const getTaskProgress = (task: Task) => {
                 <!-- Loading -->
                 <div v-if="loading" class="p-12 flex flex-col items-center justify-center space-y-2">
                     <Loader2 class="h-6 w-6 text-primary animate-spin" />
-                    <p class="text-xs font-bold text-ink-subtle uppercase tracking-wider font-mono">{{ $t('dashboard.loading_tasks') }}</p>
+                    <p class="text-xs text-ink-subtle">{{ $t('dashboard.loading_tasks') }}</p>
                 </div>
 
                 <!-- Display Task List (Dense Rows in Local Transcode Style) -->
                 <div v-else-if="tasks && tasks.length > 0" class="divide-y divide-hairline">
                     <NuxtLink v-for="task in tasks.slice(0, 8)" :key="task.id" :to="'/tasks/' + task.id"
-                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2/60 transition-all duration-150 group cursor-pointer block">
+                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2 transition-colors group cursor-pointer block">
                         <!-- Task Icon -->
-                        <div class="w-9 h-9 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-xs group-hover:border-primary/40 transition-colors">
+                        <div class="w-9 h-9 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle shrink-0">
                             <Video v-if="task.status === 'PROCESSING'" class="w-4 h-4 text-primary animate-pulse" stroke-width="2" />
                             <FileVideo v-else-if="task.status === 'COMPLETED'" class="w-4 h-4 text-ink-subtle" stroke-width="1.8" />
                             <AlertCircle v-else class="w-4 h-4 text-red-500" stroke-width="1.8" />
@@ -301,13 +288,13 @@ const getTaskProgress = (task: Task) => {
                         <div class="flex-1 min-w-0 flex items-center justify-between gap-4">
                             <div class="min-w-0 space-y-1">
                                 <div class="flex items-center gap-2">
-                                    <span class="text-xs font-mono font-bold text-ink group-hover:text-primary transition-colors">Task-{{ task.id.substring(0, 8) }}</span>
-                                    <span class="text-[10px] font-mono font-medium text-ink-subtle bg-surface-2 px-1.5 py-0.5 rounded border border-hairline">
+                                    <span class="text-xs font-mono font-medium text-ink">Task-{{ task.id.substring(0, 8) }}</span>
+                                    <span class="text-[11px] text-ink-subtle tabular-nums">
                                         {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium">
-                                    <span class="uppercase tracking-wider font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20 text-[10px] font-mono">
+                                    <span class="font-medium text-ink-muted bg-surface-2 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase">
                                         {{ getTaskTargetFormat(task) }}
                                     </span>
                                     <span class="text-xs text-ink-subtle font-mono">Started {{ formatTimeAgo(task.created_at) }}</span>
@@ -316,7 +303,7 @@ const getTaskProgress = (task: Task) => {
 
                             <!-- Live Progress for Active Tasks -->
                             <div v-if="task.status === 'PROCESSING'" class="hidden md:flex items-center gap-2 w-36 shrink-0">
-                                <div class="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden border border-hairline">
+                                <div class="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
                                     <div class="h-full bg-primary rounded-full transition-all duration-300" :style="{ width: `${getTaskProgress(task)}%` }"></div>
                                 </div>
                                 <span class="text-[10px] font-mono font-bold text-primary shrink-0">{{ getTaskProgress(task) }}%</span>
@@ -326,7 +313,7 @@ const getTaskProgress = (task: Task) => {
                         <!-- Status Badge -->
                         <div class="shrink-0">
                             <Badge variant="secondary"
-                                class="rounded-full font-mono text-[11px] font-bold px-2.5 py-0.5 border uppercase tracking-wide transition-all"
+                                class="rounded-full text-[11px] font-medium px-2 py-0.5 border"
                                 :class="getStatusStyle(task.status)">
                                 <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400" stroke-width="2.5" />
                                 <div v-else-if="task.status === 'PROCESSING'" class="w-1.5 h-1.5 rounded-full bg-primary mr-1.5 animate-pulse"></div>
@@ -338,10 +325,10 @@ const getTaskProgress = (task: Task) => {
 
                 <!-- Empty State -->
                 <div v-else class="p-12 flex flex-col items-center justify-center text-center">
-                    <div class="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center mb-3 border border-hairline shadow-xs">
+                    <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mb-3">
                         <FileX class="w-5 h-5 text-ink-subtle" />
                     </div>
-                    <h3 class="text-sm font-bold text-ink mb-1 font-satoshi">{{ $t('dashboard.no_tasks') }}</h3>
+                    <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
                     <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-4">
                         {{ $t('dashboard.no_tasks_desc') }}
                     </p>

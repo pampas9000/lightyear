@@ -53,6 +53,12 @@ const dimension = (value: string | number) => {
     return Number.isFinite(n) && n > 0 ? Math.min(n, 16384) : undefined;
 };
 
+// Selectable chips share one look: white at rest, primary-tinted when chosen.
+const chip = (on: boolean) =>
+    on
+        ? "border-primary/45 bg-primary-soft text-primary-soft-foreground font-medium"
+        : "border-hairline bg-surface-1 text-ink-muted hover:bg-surface-2 hover:text-ink";
+
 type Choice<T> = { value: T; key: string };
 const fits: Choice<"inside" | "cover" | "fill">[] = [
     { value: "inside", key: "inside" },
@@ -64,7 +70,7 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
 <template>
     <div class="space-y-6 @container">
         <!-- Source summary -->
-        <div v-if="sourceProbe" class="p-3.5 rounded-xl bg-surface-2/60 border border-hairline flex items-center justify-between text-xs">
+        <div v-if="sourceProbe" class="px-3.5 py-3 rounded-lg bg-surface-2 flex items-center justify-between text-xs">
             <span class="font-semibold text-ink flex items-center gap-1.5">
                 <Eye class="w-3.5 h-3.5 text-primary" />
                 {{ $t("image_options.source") }}
@@ -78,27 +84,27 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
 
         <!-- Format -->
         <div class="space-y-2">
-            <Label class="text-xs font-bold text-ink uppercase tracking-wider">{{ $t("image_options.format") }}</Label>
+            <Label class="text-xs font-semibold text-ink">{{ $t("image_options.format") }}</Label>
             <div class="grid grid-cols-3 @lg:grid-cols-6 gap-2">
                 <button
                     v-for="fmt in formats ?? FORMATS"
                     :key="fmt"
                     type="button"
                     :disabled="disabled"
-                    class="p-2.5 rounded-xl border text-left transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                    :class="options.format === fmt ? 'border-primary/50 bg-primary/10 ring-1 ring-primary/20' : 'border-hairline bg-surface-2 hover:bg-surface-3'"
+                    class="flex flex-col justify-start px-2.5 py-2 rounded-lg border text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    :class="options.format === fmt ? 'border-primary/45 bg-primary-soft' : 'border-hairline bg-surface-1 hover:bg-surface-2'"
                     @click="setFormat(fmt)"
                 >
-                    <span class="block text-xs font-bold text-ink">{{ fmt.toUpperCase() }}</span>
-                    <span class="block text-[10px] text-ink-subtle leading-tight mt-0.5">{{ $t(`image_options.formats.${fmt}`) }}</span>
+                    <span class="block text-xs font-semibold" :class="options.format === fmt ? 'text-primary-soft-foreground' : 'text-ink'">{{ fmt.toUpperCase() }}</span>
+                    <span class="block text-[11px] text-ink-subtle leading-snug mt-0.5">{{ $t(`image_options.formats.${fmt}`) }}</span>
                 </button>
             </div>
         </div>
 
         <!-- Compression -->
-        <div class="space-y-4 p-4 rounded-xl bg-surface-1 border border-hairline">
+        <div class="space-y-4 p-4 rounded-lg bg-surface-1 border border-hairline">
             <div v-if="hasLossless(options.format)" class="flex items-center justify-between">
-                <Label class="text-xs font-bold text-ink">{{ $t("image_options.lossless") }}</Label>
+                <Label class="text-xs font-semibold text-ink">{{ $t("image_options.lossless") }}</Label>
                 <Switch :checked="!!options.lossless" :disabled="disabled" @update:checked="(v: boolean) => update({ lossless: v })" />
             </div>
             <p v-if="options.lossless && options.format === 'jxl'" class="text-[11px] text-ink-subtle">
@@ -107,8 +113,8 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
 
             <div v-if="hasQuality(options)" class="space-y-2">
                 <div class="flex justify-between items-center text-xs">
-                    <Label class="font-bold text-ink">{{ $t("image_options.quality") }}</Label>
-                    <span class="font-mono font-bold text-primary text-sm">{{ quality }}</span>
+                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
+                    <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ quality }}</span>
                 </div>
                 <Slider :model-value="[quality]" :min="1" :max="100" :step="1" :disabled="disabled"
                     @update:model-value="(v) => update({ quality: v?.[0] })" />
@@ -116,8 +122,8 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
 
             <div v-if="hasEffort(options.format)" class="space-y-2">
                 <div class="flex justify-between items-center text-xs">
-                    <Label class="font-bold text-ink">{{ $t("image_options.effort") }}</Label>
-                    <span class="font-mono font-bold text-primary text-sm">{{ effort }}</span>
+                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.effort") }}</Label>
+                    <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ effort }}</span>
                 </div>
                 <Slider :model-value="[effort]" :min="1" :max="10" :step="1" :disabled="disabled"
                     @update:model-value="(v) => update({ effort: v?.[0] })" />
@@ -126,9 +132,9 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
         </div>
 
         <!-- Resize -->
-        <div class="space-y-3 p-4 rounded-xl bg-surface-1 border border-hairline">
+        <div class="space-y-3 p-4 rounded-lg bg-surface-1 border border-hairline">
             <div class="flex items-center justify-between">
-                <Label class="text-xs font-bold text-ink">{{ $t("image_options.resize") }}</Label>
+                <Label class="text-xs font-semibold text-ink">{{ $t("image_options.resize") }}</Label>
                 <Switch :checked="resizeEnabled" :disabled="disabled" @update:checked="toggleResize" />
             </div>
             <template v-if="options.resize">
@@ -146,8 +152,8 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
                 </div>
                 <div v-if="options.resize.width && options.resize.height" class="grid grid-cols-3 gap-2">
                     <button v-for="fit in fits" :key="fit.value" type="button" :disabled="disabled"
-                        class="px-2 py-1.5 rounded-lg border text-xs transition-all cursor-pointer disabled:opacity-40"
-                        :class="(options.resize.fit ?? 'inside') === fit.value ? 'border-primary/50 bg-primary/10 text-ink font-semibold' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                        :class="chip((options.resize.fit ?? 'inside') === fit.value)"
                         @click="setResize({ fit: fit.value })">
                         {{ $t(`image_options.fit.${fit.key}`) }}
                     </button>
@@ -162,29 +168,29 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
         <!-- Color, HDR, metadata -->
         <div class="grid gap-3 @lg:grid-cols-3">
             <div class="space-y-1.5">
-                <Label class="text-[11px] font-semibold text-ink">{{ $t("image_options.color") }}</Label>
+                <Label class="text-xs font-semibold text-ink">{{ $t("image_options.color") }}</Label>
                 <div class="grid grid-cols-2 gap-1.5">
                     <button v-for="v in ['keep', 'srgb'] as const" :key="v" type="button" :disabled="disabled"
-                        class="px-2 py-1.5 rounded-lg border text-xs cursor-pointer disabled:opacity-40"
-                        :class="(options.color ?? 'keep') === v ? 'border-primary/50 bg-primary/10 font-semibold text-ink' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                        :class="chip((options.color ?? 'keep') === v)"
                         @click="update({ color: v })">{{ $t(`image_options.color_${v}`) }}</button>
                 </div>
             </div>
             <div class="space-y-1.5">
-                <Label class="text-[11px] font-semibold text-ink">{{ $t("image_options.dynamic_range") }}</Label>
+                <Label class="text-xs font-semibold text-ink">{{ $t("image_options.dynamic_range") }}</Label>
                 <div class="grid grid-cols-2 gap-1.5">
                     <button v-for="v in ['keep', 'sdr'] as const" :key="v" type="button" :disabled="disabled"
-                        class="px-2 py-1.5 rounded-lg border text-xs cursor-pointer disabled:opacity-40"
-                        :class="(options.dynamic_range ?? 'keep') === v ? 'border-primary/50 bg-primary/10 font-semibold text-ink' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                        :class="chip((options.dynamic_range ?? 'keep') === v)"
                         @click="update({ dynamic_range: v })">{{ $t(`image_options.dynamic_range_${v}`) }}</button>
                 </div>
             </div>
             <div class="space-y-1.5">
-                <Label class="text-[11px] font-semibold text-ink">{{ $t("image_options.metadata") }}</Label>
+                <Label class="text-xs font-semibold text-ink">{{ $t("image_options.metadata") }}</Label>
                 <div class="grid grid-cols-2 gap-1.5">
                     <button v-for="v in ['strip', 'keep'] as const" :key="v" type="button" :disabled="disabled"
-                        class="px-2 py-1.5 rounded-lg border text-xs cursor-pointer disabled:opacity-40"
-                        :class="(options.metadata ?? 'strip') === v ? 'border-primary/50 bg-primary/10 font-semibold text-ink' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                        :class="chip((options.metadata ?? 'strip') === v)"
                         @click="update({ metadata: v })">{{ $t(`image_options.metadata_${v}`) }}</button>
                 </div>
             </div>
@@ -200,20 +206,20 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
             </button>
             <div v-if="showAdvanced" class="grid gap-3 @md:grid-cols-2">
                 <div v-if="hasChroma(options)" class="space-y-1.5">
-                    <Label class="text-[11px] font-semibold text-ink">{{ $t("image_options.chroma") }}</Label>
+                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.chroma") }}</Label>
                     <div class="grid grid-cols-3 gap-1.5">
                         <button v-for="v in [undefined, '420', '444'] as const" :key="v ?? 'auto'" type="button" :disabled="disabled"
-                            class="px-2 py-1.5 rounded-lg border text-xs cursor-pointer disabled:opacity-40"
-                            :class="options.chroma === v ? 'border-primary/50 bg-primary/10 font-semibold text-ink' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                            class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                            :class="chip(options.chroma === v)"
                             @click="update({ chroma: v })">{{ v ? `4:${v.slice(1, 2)}:${v.slice(2)}` : $t("image_options.auto") }}</button>
                     </div>
                 </div>
                 <div v-if="hasBitDepth(options.format)" class="space-y-1.5">
-                    <Label class="text-[11px] font-semibold text-ink">{{ $t("image_options.bit_depth") }}</Label>
+                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.bit_depth") }}</Label>
                     <div class="grid grid-cols-3 gap-1.5">
                         <button v-for="v in [undefined, 8, 10] as const" :key="v ?? 'auto'" type="button" :disabled="disabled"
-                            class="px-2 py-1.5 rounded-lg border text-xs cursor-pointer disabled:opacity-40"
-                            :class="options.bit_depth === v ? 'border-primary/50 bg-primary/10 font-semibold text-ink' : 'border-hairline bg-surface-2 text-ink-subtle'"
+                            class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                            :class="chip(options.bit_depth === v)"
                             @click="update({ bit_depth: v })">{{ v ? `${v}-bit` : $t("image_options.follow_source") }}</button>
                     </div>
                 </div>

@@ -64,7 +64,7 @@ const handleSubmit = () => {
                         <div class="w-7 h-7 rounded-md bg-primary text-primary-foreground flex items-center justify-center shadow-sm shrink-0">
                             <SlidersHorizontal class="w-4 h-4 stroke-[2.5]" />
                         </div>
-                        <SheetTitle class="text-sm font-bold text-ink font-satoshi tracking-tight">
+                        <SheetTitle class="text-sm font-bold text-ink tracking-tight">
                             {{ targetJobId ? '重试单个作业' : '重试任务' }}
                         </SheetTitle>
                     </div>
@@ -79,9 +79,9 @@ const handleSubmit = () => {
 
             <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
                 <!-- Scope -->
-                <div v-if="!targetJobId" class="p-3.5 rounded-xl bg-surface-2/40 border border-hairline space-y-2">
+                <div v-if="!targetJobId" class="p-3.5 rounded-xl bg-surface-2 border border-hairline space-y-2">
                     <div class="flex items-center justify-between">
-                        <span class="text-xs font-bold text-ink flex items-center gap-1.5 font-satoshi">
+                        <span class="text-xs font-bold text-ink flex items-center gap-1.5">
                             <RotateCcw class="w-3.5 h-3.5 text-primary" />
                             重试范围
                         </span>

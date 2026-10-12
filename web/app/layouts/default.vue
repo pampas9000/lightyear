@@ -3,26 +3,25 @@
         <!-- Sidebar -->
         <Sidebar collapsible="icon" class="border-r border-hairline bg-surface-1">
             <!-- Header -->
-            <SidebarHeader class="h-14 border-b border-hairline flex items-center justify-between px-4">
+            <SidebarHeader class="h-14 border-b border-hairline flex flex-row items-center px-4 group-data-[collapsible=icon]:px-2">
                 <NuxtLink to="/" class="flex items-center gap-2.5 min-w-0 overflow-hidden">
                     <div
-                        class="w-7 h-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-sm">
+                        class="w-7 h-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0">
                         <Video class="w-4 h-4" stroke-width="2" />
                     </div>
-                    <div class="flex flex-col group-data-[collapsible=icon]:hidden">
-                        <h1 class="text-sm font-semibold tracking-tight text-ink uppercase truncate">lightyear</h1>
-                        <p class="text-[10px] font-medium text-ink-subtle mt-0.5 truncate">{{ $t('sidebar.tagline') }}
-                        </p>
+                    <div class="flex flex-col leading-none group-data-[collapsible=icon]:hidden">
+                        <h1 class="text-sm font-semibold tracking-tight text-ink truncate">Lightyear</h1>
+                        <p class="text-[11px] text-ink-subtle mt-1 truncate">{{ $t('sidebar.tagline') }}</p>
                     </div>
                 </NuxtLink>
             </SidebarHeader>
 
             <!-- Navigation content -->
-            <SidebarContent class="py-4">
+            <SidebarContent class="py-3">
                 <!-- Action button (New Task) -->
-                <div class="px-3 mb-4 group-data-[collapsible=icon]:px-2">
+                <div class="px-2 mb-3">
                     <SidebarMenuButton as-child size="lg"
-                        class="w-full h-9 bg-primary hover:bg-primary-hover text-primary-foreground rounded-lg shadow-sm border-none transition-all duration-200 gap-2 font-medium text-sm cursor-pointer justify-center">
+                        class="w-full h-8 bg-primary hover:bg-primary-hover hover:text-primary-foreground text-primary-foreground rounded-md shadow-xs border-none transition-colors gap-2 font-medium text-sm cursor-pointer justify-center">
                         <NuxtLink to="/tasks/new">
                             <Plus class="w-3.5 h-3.5 shrink-0" stroke-width="2.5" />
                             <span class="group-data-[collapsible=icon]:hidden">{{ $t('nav.new_task') }}</span>
@@ -38,14 +37,8 @@
                                 <SidebarMenuButton as-child :is-active="$route.path === item.to"
                                     :tooltip="$t(item.label)">
                                     <NuxtLink :to="item.to"
-                                        class="w-full justify-start gap-2.5 px-3 h-9 text-sm font-medium rounded-lg transition-all cursor-pointer flex items-center"
-                                        :class="[
-                                            $route.path === item.to
-                                                ? 'bg-primary/10 text-primary dark:text-primary-hover font-semibold'
-                                                : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
-                                        ]">
-                                        <component :is="item.icon" class="w-4 h-4 shrink-0"
-                                            :stroke-width="$route.path === item.to ? 2 : 1.5" />
+                                        class="w-full justify-start gap-2.5 px-2.5 h-8 text-sm font-medium rounded-md transition-colors cursor-pointer flex items-center text-ink-muted hover:bg-surface-2 hover:text-ink data-[active=true]:bg-sidebar-active data-[active=true]:text-sidebar-active-foreground data-[active=true]:hover:bg-sidebar-active data-[active=true]:hover:text-sidebar-active-foreground">
+                                        <component :is="item.icon" class="w-4 h-4 shrink-0" stroke-width="1.75" />
                                         <span class="group-data-[collapsible=icon]:hidden">{{ $t(item.label) }}</span>
                                     </NuxtLink>
                                 </SidebarMenuButton>
@@ -56,9 +49,9 @@
             </SidebarContent>
 
             <!-- Footer: Settings, switchers, Profile -->
-            <SidebarFooter class="border-t border-hairline p-3 gap-2">
+            <SidebarFooter class="border-t border-hairline p-2 gap-1">
                 <!-- Switchers -->
-                <div class="space-y-1 group-data-[collapsible=icon]:hidden">
+                <div class="space-y-0.5 group-data-[collapsible=icon]:hidden">
                     <LanguageSwitcher />
                     <ThemeSwitcher />
                 </div>
@@ -68,8 +61,8 @@
                     <SidebarMenuItem>
                         <SidebarMenuButton as-child :tooltip="$t('common.documentation')">
                             <a href="#"
-                                class="w-full justify-start gap-2.5 px-3 h-9 text-sm font-medium text-ink-subtle hover:bg-surface-2 hover:text-ink rounded-lg transition-all cursor-pointer flex items-center">
-                                <Settings class="w-4 h-4 shrink-0" stroke-width="1.5" />
+                                class="w-full justify-start gap-2.5 px-2.5 h-8 text-sm font-medium text-ink-muted hover:bg-surface-2 hover:text-ink rounded-md transition-colors cursor-pointer flex items-center">
+                                <BookOpen class="w-4 h-4 shrink-0" stroke-width="1.75" />
                                 <span class="group-data-[collapsible=icon]:hidden">{{ $t('common.documentation')
                                 }}</span>
                             </a>
@@ -134,7 +127,7 @@
                     <SidebarMenuItem>
                         <SidebarMenuButton as-child :tooltip="$t('common.login')">
                             <Button @click="showAuthModal = true" variant="outline"
-                                class="w-full h-9 font-medium text-sm shadow-sm hover:bg-surface-2 rounded-lg border-hairline cursor-pointer group-data-[collapsible=icon]:h-9 group-data-[collapsible=icon]:w-9 group-data-[collapsible=icon]:p-0">
+                                class="w-full h-8 mt-1 font-medium text-sm shadow-xs hover:bg-surface-2 rounded-md border-hairline-strong cursor-pointer group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:p-0">
                                 <span class="group-data-[collapsible=icon]:hidden">{{ $t('common.login') }}</span>
                                 <LogIn class="w-4 h-4 hidden group-data-[collapsible=icon]:block shrink-0" />
                             </Button>
@@ -149,16 +142,18 @@
             class="bg-canvas text-ink min-h-screen flex flex-col antialiased font-sans transition-colors duration-200">
             <!-- Dynamic header at the top of main content -->
             <header
-                class="flex h-14 shrink-0 items-center gap-2 border-b border-hairline px-6 bg-canvas/80 backdrop-blur z-20 sticky top-0 justify-between">
-                <div class="flex items-center gap-2">
+                class="flex h-14 shrink-0 items-center gap-2 border-b border-hairline px-4 sm:px-6 bg-canvas z-20 sticky top-0 justify-between">
+                <div class="flex items-center gap-2 min-w-0">
                     <SidebarTrigger class="-ml-1 text-ink-subtle hover:text-ink cursor-pointer" />
-                    <Separator orientation="vertical" class="mr-2 h-4" />
-                    <span class="text-xs font-semibold text-ink-subtle uppercase tracking-wider">lightyear</span>
+                    <Separator orientation="vertical" class="mx-1 !h-4" />
+                    <span class="text-sm font-medium text-ink truncate">{{ pageTitle }}</span>
                 </div>
+                <!-- Pages teleport their toolbar actions here. -->
+                <div id="header-actions" class="flex items-center gap-2 shrink-0" />
             </header>
 
-            <main class="flex-1 overflow-y-auto">
-                <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <main class="relative flex-1 overflow-y-auto">
+                <div class="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                     <slot />
                 </div>
             </main>
@@ -174,7 +169,7 @@ import {
     ListTodo,
     FolderKanban,
     Zap,
-    Settings,
+    BookOpen,
     LogOut,
     LogIn,
     ChevronsUpDown,
@@ -206,10 +201,19 @@ import {
 import { Separator } from '@/components/ui/separator'
 
 const { isAuthenticated, user, logout, showAuthModal } = useAuth()
+const route = useRoute()
+const { t } = useI18n()
 
 const navItems = [
     { to: '/', icon: Zap, label: 'nav.local_transcode' },
     { to: '/overview', icon: LayoutDashboard, label: 'nav.overview' },
     { to: '/tasks', icon: ListTodo, label: 'nav.tasks' },
 ]
+
+const pageTitle = computed(() => {
+    if (route.path === '/tasks/new') return t('nav.new_task')
+    if (route.path.startsWith('/tasks/')) return t('nav.tasks')
+    const item = navItems.find(i => i.to === route.path)
+    return item ? t(item.label) : 'Lightyear'
+})
 </script>

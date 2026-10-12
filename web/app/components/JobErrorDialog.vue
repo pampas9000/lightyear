@@ -83,7 +83,7 @@ const handleTuneRetry = () => {
                             <AlertCircle class="w-4.5 h-4.5 stroke-[2.2]" />
                         </div>
                         <div>
-                            <DialogTitle class="text-sm font-bold text-ink tracking-tight font-satoshi flex items-center gap-2">
+                            <DialogTitle class="text-sm font-bold text-ink tracking-tight flex items-center gap-2">
                                 <span>作业失败异常诊断</span>
                                 <Badge variant="outline" class="font-mono text-[10px] font-semibold px-1.5 py-0 uppercase border-hairline">
                                     {{ job?.options?.format }}
@@ -111,7 +111,7 @@ const handleTuneRetry = () => {
             <!-- Modal Body (Scrollable) -->
             <div class="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
                 <!-- 1. Diagnostic Card (Humanized Summary) -->
-                <div v-if="diagnostic" class="p-4 rounded-xl bg-surface-2/60 border border-hairline space-y-2.5">
+                <div v-if="diagnostic" class="p-4 rounded-xl bg-surface-2 border border-hairline space-y-2.5">
                     <div class="flex items-center gap-2 text-xs font-bold text-ink">
                         <Sparkles class="w-4 h-4 text-primary shrink-0" />
                         <span>{{ diagnostic.title }}</span>
@@ -131,7 +131,7 @@ const handleTuneRetry = () => {
                 <!-- 2. Technical Traceback / Raw Error Log -->
                 <div class="space-y-2">
                     <div class="flex items-center justify-between text-xs font-semibold text-ink">
-                        <span class="flex items-center gap-1.5 font-satoshi">
+                        <span class="flex items-center gap-1.5">
                             <Terminal class="w-3.5 h-3.5 text-ink-subtle" />
                             底层错误日志 / Error Traceback
                         </span>
@@ -155,26 +155,26 @@ const handleTuneRetry = () => {
 
                 <!-- 3. Job Execution Metadata -->
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                    <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
+                    <div class="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-0.5">
                         <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">输出参数</span>
                         <p class="text-xs font-bold text-ink font-mono">{{ describe(job?.options) }}</p>
                     </div>
 
-                    <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
+                    <div class="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-0.5">
                         <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">执行次数</span>
                         <p class="text-xs font-bold text-ink font-mono">
                             {{ job?.attempts || 0 }} / {{ job?.max_attempts || 3 }} 次
                         </p>
                     </div>
 
-                    <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
+                    <div class="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-0.5">
                         <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">可否直接重试</span>
                         <p class="text-xs font-bold font-mono" :class="diagnostic?.retryable ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
                             {{ diagnostic?.retryable ? '建议重试' : '建议调参' }}
                         </p>
                     </div>
 
-                    <div class="p-2.5 rounded-lg bg-surface-2/40 border border-hairline space-y-0.5">
+                    <div class="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-0.5">
                         <span class="text-[10px] text-ink-subtle uppercase font-semibold font-mono">作业 ID</span>
                         <p class="text-xs font-bold text-ink font-mono truncate" :title="job?.id">
                             {{ job?.id ? job.id.substring(0, 8) : '-' }}

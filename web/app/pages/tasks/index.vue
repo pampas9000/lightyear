@@ -120,9 +120,9 @@ const getStatusStyle = (status: TaskStatus | string) => {
     switch (status) {
         case 'COMPLETED': return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
         case 'FAILED': return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-        case 'CANCELLED': return 'bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border border-zinc-500/20'
+        case 'CANCELLED': return 'bg-surface-2 text-ink-subtle border border-hairline'
         case 'PARTIALLY_FAILED': return 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20'
-        case 'PROCESSING': return 'bg-primary/10 text-primary border border-primary/20'
+        case 'PROCESSING': return 'bg-primary-soft text-primary-soft-foreground border border-primary/20'
         case 'PENDING': return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
         default: return 'bg-surface-2 text-ink-subtle border border-hairline'
     }
@@ -194,24 +194,15 @@ const getMediaFlow = (task: Task) => {
 <template>
     <div class="w-full max-w-7xl mx-auto space-y-5 pb-12 font-sans">
         <!-- Top Header Bar (WASM Local Transcoding Sandbox Style) -->
-        <header class="h-14 border border-hairline bg-surface-1 rounded-xl shrink-0 flex items-center justify-between px-5 z-20 shadow-subtle">
-            <div class="flex items-center gap-3">
-                <div class="w-7 h-7 rounded-lg bg-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-sm">
-                    <Zap class="w-4 h-4" stroke-width="2.5" />
-                </div>
-                <div>
-                    <h1 class="text-sm font-bold tracking-tight text-ink font-satoshi flex items-center gap-2">
-                        {{ $t('dashboard.title') }}
-                        <Badge class="bg-primary/10 text-primary border-none text-[10px] px-1.5 py-0.5 h-auto font-mono font-bold uppercase select-none">
-                            {{ totalTasks }} {{ $t('nav.tasks') }}
-                        </Badge>
-                    </h1>
-                </div>
+        <header class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-semibold tracking-tight text-ink">{{ $t('dashboard.title') }}</h1>
+                <p class="mt-1 text-sm text-ink-subtle tabular-nums">{{ totalTasks }} {{ $t('nav.tasks') }}</p>
             </div>
             <div class="flex items-center gap-2">
                 <NuxtLink to="/tasks/new">
-                    <Button size="sm" class="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary-hover shadow-xs rounded-lg cursor-pointer transition-all duration-200">
-                        <Plus class="w-3.5 h-3.5" stroke-width="2.5" />
+                    <Button size="sm" class="h-8 px-3 text-xs gap-1.5 cursor-pointer">
+                        <Plus class="w-3.5 h-3.5" stroke-width="2.25" />
                         <span>{{ $t('nav.new_task') }}</span>
                     </Button>
                 </NuxtLink>
@@ -219,19 +210,19 @@ const getMediaFlow = (task: Task) => {
         </header>
 
         <!-- Filters & Search Toolbar (Local Transcoding Action Toolbar) -->
-        <div class="flex flex-col sm:flex-row gap-2.5 justify-between items-center bg-surface-2/40 p-2 rounded-xl border border-hairline shadow-subtle backdrop-blur-md">
-            <div class="flex items-center w-full sm:w-80 pl-2 relative">
-                <Search class="w-3.5 h-3.5 text-primary absolute left-2.5" />
+        <div class="flex flex-col sm:flex-row gap-2.5 justify-between items-center p-0">
+            <div class="flex items-center w-full sm:w-80 relative">
+                <Search class="w-3.5 h-3.5 text-ink-subtle absolute left-2.5" />
                 <Input v-model="searchQuery" type="text" :placeholder="$t('tasks.search_placeholder')"
-                    class="w-full pl-8 h-8 border border-hairline bg-surface-1 focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/20 text-xs font-medium rounded-lg shadow-2xs transition-all" />
+                    class="w-full pl-8 h-8 text-xs rounded-md" />
             </div>
-            <div class="flex gap-2 w-full sm:w-auto pr-1 items-center justify-end">
+            <div class="flex gap-2 w-full sm:w-auto items-center justify-end">
                 <Select v-model="statusFilter">
-                    <SelectTrigger class="w-[140px] h-8 bg-surface-1 border-hairline shadow-2xs text-xs font-semibold text-ink hover:bg-surface-2 focus:ring-0 cursor-pointer rounded-lg transition-all">
-                        <Filter class="w-3.5 h-3.5 mr-1.5 text-primary" />
+                    <SelectTrigger class="w-[160px] h-8 text-xs text-ink cursor-pointer">
+                        <Filter class="w-3.5 h-3.5 mr-1.5 text-ink-subtle" />
                         <SelectValue :placeholder="$t('tasks.status_placeholder')" />
                     </SelectTrigger>
-                    <SelectContent class="bg-surface-1 border-hairline rounded-lg text-ink shadow-md">
+                    <SelectContent class="bg-popover border-hairline rounded-lg text-ink shadow-md">
                         <SelectGroup>
                             <SelectItem value="ALL" class="text-xs font-medium cursor-pointer">{{ $t('tasks.all_statuses') }}</SelectItem>
                             <SelectItem value="PENDING" class="text-xs font-medium cursor-pointer">{{ $t('status.PENDING') }}</SelectItem>
@@ -246,11 +237,11 @@ const getMediaFlow = (task: Task) => {
         </div>
 
         <!-- High Density Task List Table/Rows (Local Transcoding Design Style) -->
-        <div class="border border-hairline shadow-subtle overflow-hidden rounded-xl bg-surface-1">
+        <div class="border border-hairline shadow-xs overflow-hidden rounded-xl bg-surface-1">
             <!-- Loading -->
             <div v-if="loading" class="p-16 flex flex-col items-center justify-center space-y-2">
                 <Loader2 class="h-6 w-6 text-primary animate-spin" />
-                <p class="text-xs font-bold text-ink-subtle uppercase tracking-wider font-mono">{{ $t('dashboard.loading_tasks') }}</p>
+                <p class="text-xs text-ink-subtle">{{ $t('dashboard.loading_tasks') }}</p>
             </div>
 
             <!-- Display Task List (Compact Rows) -->
@@ -260,10 +251,10 @@ const getMediaFlow = (task: Task) => {
                         v-for="task in tasks"
                         :key="task.id"
                         :to="'/tasks/' + task.id"
-                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2/60 transition-all duration-150 group cursor-pointer block"
+                        class="px-5 py-3 flex items-center gap-4 hover:bg-surface-2 transition-colors group cursor-pointer block"
                     >
                         <!-- Dynamic Flow Icon -->
-                        <div class="w-9 h-9 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle border border-hairline shrink-0 shadow-xs group-hover:border-primary/40 transition-colors">
+                        <div class="w-9 h-9 rounded-lg bg-surface-2 flex items-center justify-center text-ink-subtle shrink-0">
                             <Loader2 v-if="task.status === 'PROCESSING' || task.status === 'PENDING'" class="w-4 h-4 text-primary animate-spin" />
                             <FileImage v-else-if="getMediaFlow(task).target === 'image'" class="w-4 h-4 text-ink-subtle" stroke-width="1.8" />
                             <FileVideo v-else class="w-4 h-4 text-ink-subtle" stroke-width="1.8" />
@@ -274,15 +265,15 @@ const getMediaFlow = (task: Task) => {
                             <!-- Left: Task ID & Format Capsule -->
                             <div class="min-w-0 space-y-1">
                                 <div class="flex items-center gap-2">
-                                    <span class="text-xs font-mono font-bold text-ink group-hover:text-primary transition-colors">
+                                    <span class="text-xs font-mono font-medium text-ink">
                                         Task-{{ task.id.substring(0, 8) }}
                                     </span>
-                                    <span class="text-[10px] font-mono font-medium text-ink-subtle bg-surface-2 px-1.5 py-0.5 rounded border border-hairline">
+                                    <span class="text-[11px] text-ink-subtle tabular-nums">
                                         {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium flex-wrap">
-                                    <span class="uppercase tracking-wider font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded border border-primary/20 text-[10px] font-mono">
+                                    <span class="font-medium text-ink-muted bg-surface-2 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase">
                                         {{ getTaskSummaryLabel(task) }}
                                     </span>
                                     <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
@@ -298,7 +289,7 @@ const getMediaFlow = (task: Task) => {
 
                             <!-- Middle: Processing Progress (if active) -->
                             <div v-if="task.status === 'PROCESSING'" class="flex items-center gap-2 w-44 shrink-0" @click.stop.prevent>
-                                <div class="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden border border-hairline">
+                                <div class="flex-1 h-1.5 bg-surface-3 rounded-full overflow-hidden">
                                     <div class="h-full bg-primary rounded-full animate-progress" :style="{ width: `${getTaskProgress(task)}%` }"></div>
                                 </div>
                                 <span class="text-[10px] font-mono font-bold text-primary shrink-0">{{ getTaskProgress(task) }}%</span>
@@ -330,7 +321,7 @@ const getMediaFlow = (task: Task) => {
                                 <span>重试</span>
                             </button>
                             <Badge variant="secondary"
-                                class="rounded-full font-mono text-[11px] font-bold px-2.5 py-0.5 border uppercase tracking-wide transition-all"
+                                class="rounded-full text-[11px] font-medium px-2 py-0.5 border"
                                 :class="getStatusStyle(task.status)">
                                 <Check v-if="task.status === 'COMPLETED'" class="w-3 h-3 mr-1 text-emerald-600 dark:text-emerald-400" stroke-width="2.5" />
                                 <div v-else-if="task.status === 'PROCESSING'" class="w-1.5 h-1.5 rounded-full bg-primary mr-1.5 animate-pulse"></div>
@@ -342,7 +333,7 @@ const getMediaFlow = (task: Task) => {
                 </div>
 
                 <!-- Compact Pagination Footer -->
-                <div class="px-5 py-3 border-t border-hairline flex flex-col sm:flex-row gap-3 items-center justify-between bg-surface-1/50">
+                <div class="px-5 py-3 border-t border-hairline flex flex-col sm:flex-row gap-3 items-center justify-between">
                     <div class="text-xs font-mono font-medium text-ink-subtle whitespace-nowrap">
                         {{ $t('tasks.showing', { from: (currentPage - 1) * itemsPerPage + 1, to: Math.min(currentPage * itemsPerPage, totalTasks), total: totalTasks }) }}
                     </div>
@@ -378,10 +369,10 @@ const getMediaFlow = (task: Task) => {
 
             <!-- Empty State -->
             <div v-else class="p-12 flex flex-col items-center justify-center text-center">
-                <div class="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center mb-3 border border-hairline shadow-xs">
+                <div class="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mb-3">
                     <FileX class="w-5 h-5 text-ink-subtle" />
                 </div>
-                <h3 class="text-sm font-bold text-ink mb-1 font-satoshi">{{ $t('dashboard.no_tasks') }}</h3>
+                <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('dashboard.no_tasks') }}</h3>
                 <p class="text-xs text-ink-subtle max-w-xs mx-auto mb-4">
                     {{ $t('dashboard.no_tasks_desc') }}
                 </p>

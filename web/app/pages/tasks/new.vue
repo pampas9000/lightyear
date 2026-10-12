@@ -839,7 +839,7 @@ const handleDrop = (e: DragEvent) => {
                     <!-- Workflow Presets -->
                     <div
                         v-if="isAuthenticated"
-                        class="p-3.5 rounded-xl bg-surface-2/40 border border-hairline space-y-2.5"
+                        class="p-3.5 rounded-xl bg-surface-2 border border-hairline space-y-2.5"
                     >
                         <div class="flex items-center justify-between">
                             <Label class="text-xs font-semibold text-ink flex items-center gap-1.5">
@@ -862,7 +862,7 @@ const handleDrop = (e: DragEvent) => {
                                 :disabled="isParamsDisabled || workflows.length === 0"
                             >
                                 <SelectTrigger
-                                    class="h-9 flex-1 rounded-lg bg-surface-2 border-hairline text-ink text-xs"
+                                    class="h-9 flex-1 rounded-md text-ink text-xs"
                                 >
                                     <SelectValue
                                         :placeholder="
@@ -914,7 +914,7 @@ const handleDrop = (e: DragEvent) => {
                                 v-model="presetName"
                                 :disabled="isSavingPreset"
                                 placeholder="预设名称，例如：AVIF 画质优先"
-                                class="h-9 flex-1 rounded-lg bg-surface-2 border-hairline text-xs"
+                                class="h-9 flex-1 rounded-md text-xs"
                                 @keyup.enter="savePreset"
                             />
                             <Button
@@ -942,7 +942,7 @@ const handleDrop = (e: DragEvent) => {
             <Card
                 class="border border-hairline shadow-sm overflow-hidden relative bg-surface-1 rounded-xl transition-all duration-300 py-0 gap-0"
                 :class="{
-                    'border-primary ring-1 ring-primary/20 bg-surface-2/10': isDragActive,
+                    'border-primary ring-1 ring-primary/20 bg-primary-soft': isDragActive,
                 }"
                 @dragenter.prevent="handleDragEnter"
                 @dragover.prevent="handleDragOver"
@@ -965,7 +965,7 @@ const handleDrop = (e: DragEvent) => {
                         @drop.stop.prevent="handleDrop"
                     >
                         <div
-                            class="h-12 w-12 rounded-lg bg-surface-2 flex items-center justify-center text-primary shadow-sm border border-hairline animate-bounce"
+                            class="h-12 w-12 rounded-full bg-primary-soft flex items-center justify-center text-primary"
                         >
                             <UploadCloud class="w-6 h-6" />
                         </div>
@@ -990,9 +990,9 @@ const handleDrop = (e: DragEvent) => {
                             :disabled="isFormDisabled"
                         />
                         <Button
-                            variant="secondary"
+                            variant="outline"
                             size="sm"
-                            class="rounded-lg px-3 h-8 gap-1.5 font-semibold bg-surface-2 text-ink border border-hairline hover:bg-surface-3 cursor-pointer"
+                            class="rounded-md px-3 h-8 gap-1.5 text-xs cursor-pointer"
                             :disabled="isFormDisabled"
                         >
                             <Plus class="w-3.5 h-3.5" />
@@ -1005,7 +1005,7 @@ const handleDrop = (e: DragEvent) => {
                         <div
                             v-for="file in files"
                             :key="file.id"
-                            class="group flex items-center justify-between p-3 rounded-lg border border-hairline bg-surface-2/40 hover:bg-surface-2 transition-all duration-200"
+                            class="group flex items-center justify-between p-3 rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 transition-colors"
                         >
                             <div class="flex items-center space-x-3 truncate flex-1 pr-4">
                                 <div
@@ -1047,7 +1047,7 @@ const handleDrop = (e: DragEvent) => {
                                         >{{ file.progress }}%</span
                                     >
                                     <div
-                                        class="h-1 w-full rounded-full bg-surface-2 overflow-hidden"
+                                        class="h-1 w-full rounded-full bg-surface-3 overflow-hidden"
                                     >
                                         <div
                                             class="h-full bg-primary transition-all duration-500 ease-out"
@@ -1090,10 +1090,10 @@ const handleDrop = (e: DragEvent) => {
 
                     <div
                         v-else
-                        class="flex flex-col items-center justify-center py-16 px-6 text-center border-2 border-dashed border-hairline rounded-xl bg-surface-2/20"
+                        class="flex flex-col items-center justify-center py-16 px-6 text-center border-[1.5px] border-dashed border-hairline-tertiary rounded-xl bg-surface-1"
                     >
                         <div
-                            class="h-10 w-10 rounded-lg bg-surface-2 flex items-center justify-center mb-4 text-ink-subtle shadow-xs border border-hairline"
+                            class="h-10 w-10 rounded-full bg-primary-soft flex items-center justify-center mb-4 text-primary"
                         >
                             <UploadCloud class="w-5 h-5 opacity-70" />
                         </div>
@@ -1119,7 +1119,7 @@ const handleDrop = (e: DragEvent) => {
                                     >{{ globalProgress }}%</span
                                 >
                             </div>
-                            <div class="h-1.5 w-full rounded-full bg-surface-2 overflow-hidden">
+                            <div class="h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
                                 <div
                                     class="h-full bg-primary rounded-full transition-all duration-500 ease-out shadow-xs"
                                     :style="{ width: `${globalProgress}%` }"
@@ -1170,7 +1170,7 @@ const handleDrop = (e: DragEvent) => {
                             <div
                                 v-for="file in filteredRecentFiles"
                                 :key="file.id"
-                                class="flex items-center justify-between p-2 rounded-lg border border-hairline bg-surface-2/20 hover:bg-surface-2 transition-all"
+                                class="flex items-center justify-between p-2 rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 transition-colors"
                             >
                                 <div
                                     class="flex items-center space-x-2 truncate flex-1 min-w-0 mr-2"

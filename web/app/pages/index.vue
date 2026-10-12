@@ -1,61 +1,45 @@
 <template>
     <div class="absolute inset-0 flex flex-col overflow-hidden bg-canvas z-10 font-sans">
 
-        <!-- Top Bar / Header -->
-        <header class="h-12 border-b border-hairline bg-surface-1 shrink-0 flex items-center justify-between px-5 z-20">
-            <div class="flex items-center gap-3">
-                <div
-                    class="w-6 h-6 rounded-md bg-primary text-primary-foreground flex items-center justify-center shrink-0 shadow-sm">
-                    <Zap class="w-3.5 h-3.5" stroke-width="2.5" />
-                </div>
-                <div>
-                    <h1 class="text-sm font-bold tracking-tight text-ink font-satoshi flex items-center gap-2">
-                        {{ $t('wasm_sandbox.title') }}
-                        <Badge
-                            class="bg-primary/10 text-primary border-none text-[10px] px-1.5 py-0.5 h-auto font-bold uppercase select-none">
-                            WASM Local</Badge>
-                    </h1>
-                </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="flex items-center gap-2">
-                <Button v-if="items.length > 0" variant="outline"
-                    class="h-8 px-3 text-xs font-semibold hover:bg-surface-2 cursor-pointer transition-all duration-200 border-hairline gap-1.5"
+        <!-- Toolbar actions live in the layout header -->
+        <ClientOnly>
+            <Teleport to="#header-actions">
+                <Button v-if="items.length > 0" variant="outline" size="sm"
+                    class="h-8 px-3 text-xs font-medium border-hairline-strong shadow-xs hover:bg-surface-2 cursor-pointer gap-1.5"
                     @click="triggerFileInput">
-                    <Upload class="w-3.5 h-3.5 text-primary" />
+                    <Upload class="w-3.5 h-3.5 text-ink-subtle" />
                     {{ $t('wasm_sandbox.add_image') }}
                 </Button>
-                <Button v-if="selectedItem" variant="outline"
-                    class="h-8 px-3 text-xs font-semibold hover:bg-surface-2 cursor-pointer transition-all duration-200 border-hairline gap-1.5"
+                <Button v-if="selectedItem" variant="outline" size="sm"
+                    class="h-8 px-3 text-xs font-medium border-hairline-strong shadow-xs hover:bg-surface-2 cursor-pointer gap-1.5"
                     @click="triggerReplaceInput">
-                    <ArrowLeftRight class="w-3.5 h-3.5 text-primary" />
+                    <ArrowLeftRight class="w-3.5 h-3.5 text-ink-subtle" />
                     {{ $t('wasm_sandbox.replace_selected') }}
                 </Button>
-                <Button v-if="items.length > 0" variant="outline"
-                    class="h-8 px-3 text-xs font-semibold hover:bg-red-50 dark:hover:bg-red-950/20 cursor-pointer transition-all duration-200 border-hairline hover:border-red-200/50 hover:text-red-600 dark:hover:text-red-400 gap-1.5"
+                <Button v-if="items.length > 0" variant="ghost" size="sm"
+                    class="h-8 px-3 text-xs font-medium text-ink-subtle hover:bg-destructive/10 hover:text-destructive cursor-pointer gap-1.5"
                     @click="resetSandbox">
-                    <Trash2 class="w-3.5 h-3.5 text-red-500" />
+                    <Trash2 class="w-3.5 h-3.5" />
                     {{ $t('wasm_sandbox.clear_queue') }}
                 </Button>
-            </div>
-        </header>
+            </Teleport>
+        </ClientOnly>
 
         <!-- Main Body -->
         <div class="flex-1 flex overflow-hidden relative">
 
             <!-- Workspace / Left Panels -->
-            <main class="flex-1 flex flex-col py-6 px-6 overflow-y-auto gap-6 bg-canvas/30 min-w-0 relative"
+            <main class="flex-1 flex flex-col p-6 overflow-y-auto gap-4 bg-surface-2 dark:bg-canvas min-w-0 relative"
                 @dragenter.prevent="handleDragEnter" @dragover.prevent @dragleave.prevent="handleDragLeave"
                 @drop.stop.prevent="handleDrop">
                 <!-- Global Drag-and-Drop Active Overlay -->
                 <div v-if="isDragActive && items.length > 0"
-                    class="absolute inset-6 bg-surface-1/90 backdrop-blur-md border-2 border-dashed border-primary/50 rounded-2xl z-50 flex flex-col items-center justify-center py-20 px-8 transition-all duration-300 select-none pointer-events-none shadow-inner">
+                    class="absolute inset-6 bg-surface-1/95 border-[1.5px] border-dashed border-primary rounded-xl z-50 flex flex-col items-center justify-center py-20 px-8 select-none pointer-events-none">
                     <div
-                        class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-6 shadow-sm">
-                        <Upload class="w-7 h-7 text-primary animate-bounce" />
+                        class="w-12 h-12 rounded-full bg-primary-soft flex items-center justify-center text-primary mb-4">
+                        <Upload class="w-5 h-5" />
                     </div>
-                    <h3 class="text-lg font-bold text-ink tracking-tight text-primary">{{
+                    <h3 class="text-base font-semibold text-ink">{{
                         $t('wasm_sandbox.drop_to_queue') }}</h3>
                     <p class="text-sm text-ink-subtle mt-2">{{ $t('wasm_sandbox.formats_supported') }}</p>
                 </div>
@@ -73,14 +57,13 @@
 
                 <!-- Empty State Upload Zone -->
                 <div v-if="items.length === 0"
-                    class="flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center py-20 px-8 transition-all duration-300 cursor-pointer bg-surface-1/40 shadow-inner"
-                    :class="isDragActive ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-hairline hover:border-primary/50'"
+                    class="flex-1 border-[1.5px] border-dashed rounded-xl flex flex-col items-center justify-center py-20 px-8 transition-colors duration-200 cursor-pointer bg-surface-1"
+                    :class="isDragActive ? 'border-primary bg-primary-soft' : 'border-hairline-tertiary hover:border-primary/60'"
                     @click="triggerFileInput">
-                    <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-6 shadow-sm transition-all duration-300 hover:scale-105"
-                        :class="isDragActive ? 'scale-105' : ''">
-                        <Upload class="w-7 h-7" :class="isDragActive ? 'animate-bounce' : ''" />
+                    <div class="w-12 h-12 rounded-full bg-primary-soft flex items-center justify-center text-primary mb-4">
+                        <Upload class="w-5 h-5" />
                     </div>
-                    <h3 class="text-lg font-bold text-ink tracking-tight" :class="isDragActive ? 'text-primary' : ''">
+                    <h3 class="text-base font-semibold text-ink">
                         {{ isDragActive ? $t('wasm_sandbox.drop_to_queue') : $t('wasm_sandbox.drag_prompt') }}
                     </h3>
                     <p class="text-sm text-ink-subtle mt-2">{{ $t('wasm_sandbox.drag_sub') }}</p>
@@ -91,15 +74,15 @@
 
                     <!-- Filmstrip Queue Panel -->
                     <div
-                        class="shrink-0 flex flex-col gap-2 py-3 px-4 bg-surface-2/40 rounded-xl select-none animate-fade-in">
+                        class="shrink-0 flex flex-col gap-2 py-3 px-4 bg-surface-1 border border-hairline rounded-xl select-none animate-fade-in">
                         <div
-                            class="flex items-center justify-between text-xs font-bold text-ink-subtle uppercase tracking-wider px-1">
+                            class="flex items-center justify-between text-xs font-medium text-ink-muted px-1">
                             <div class="flex items-center gap-1.5">
-                                <SlidersHorizontal class="w-3.5 h-3.5 text-primary" />
+                                <SlidersHorizontal class="w-3.5 h-3.5 text-ink-subtle" />
                                 <span>{{ $t('wasm_sandbox.processing_queue', { count: items.length }) }}</span>
                             </div>
                             <Button variant="ghost"
-                                class="h-6 px-2 text-[11px] font-bold text-primary hover:bg-primary/10 border-none cursor-pointer rounded gap-1"
+                                class="h-6 px-2 text-xs font-medium text-primary hover:bg-primary-soft hover:text-primary border-none cursor-pointer rounded-md gap-1"
                                 :disabled="items.filter(i => i.status === 'done').length === 0 || hasPendingChanges"
                                 @click="downloadAll">
                                 <Download class="w-3 h-3" />
@@ -170,7 +153,7 @@
                     <!-- Mode Switcher Tabs (Prioritizing shadcn/vue) -->
                     <div class="flex justify-center shrink-0">
                         <Tabs v-model="viewMode" class="w-auto select-none ">
-                            <TabsList class="grid w-60 grid-cols-2 bg-surface-2 border border-hairline rounded-lg">
+                            <TabsList class="grid w-60 grid-cols-2 bg-surface-3 rounded-lg">
                                 <TabsTrigger value="side-by-side"
                                     class=" text-xs font-semibold rounded-md cursor-pointer transition-all duration-200">
                                     {{ $t('wasm_sandbox.view_side_by_side') }}
@@ -189,11 +172,11 @@
 
                         <!-- Original Image Card -->
                         <Card
-                            class="border border-hairline shadow-subtle flex flex-col overflow-hidden bg-surface-1 py-0 gap-0">
+                            class="border border-hairline shadow-xs flex flex-col overflow-hidden bg-surface-1 py-0 gap-0">
                             <CardHeader
-                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 bg-surface-1/50 overflow-visible">
+                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
                                 <CardTitle
-                                    class="min-w-0 truncate text-[12px] leading-none font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5 overflow-visible">
+                                    class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
                                     <Image class="w-3.5 h-3.5 shrink-0" />
                                     {{ $t('wasm_sandbox.source_image') }}
                                 </CardTitle>
@@ -204,7 +187,7 @@
                                             originalMetadata.height }}
                                     </Badge>
                                     <Button variant="ghost"
-                                        class="h-6 px-2 text-[11px] font-bold text-primary hover:bg-primary/10 border-none cursor-pointer rounded-md gap-1"
+                                        class="h-6 px-2 text-xs font-medium text-primary hover:bg-primary-soft hover:text-primary border-none cursor-pointer rounded-md gap-1"
                                         @click="triggerReplaceInput">
                                         <ArrowLeftRight class="w-3 h-3" />
                                         {{ $t('wasm_sandbox.replace') }}
@@ -235,12 +218,12 @@
 
                         <!-- Processed Image Card -->
                         <Card
-                            class="border border-hairline shadow-subtle flex flex-col overflow-hidden bg-surface-1 relative py-0 gap-0">
+                            class="border border-hairline shadow-xs flex flex-col overflow-hidden bg-surface-1 relative py-0 gap-0">
                             <CardHeader
-                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 bg-surface-1/50 overflow-visible">
+                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
                                 <CardTitle
-                                    class="min-w-0 truncate text-[12px] leading-none font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5 overflow-visible">
-                                    <Zap class="w-3.5 h-3.5 text-primary shrink-0" />
+                                    class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
+                                    <Zap class="w-3.5 h-3.5 text-ink-subtle shrink-0" />
                                     {{ $t('wasm_sandbox.optimized_preview') }}
                                 </CardTitle>
                                 <Badge v-if="processedUrl && metrics" variant="outline"
@@ -253,15 +236,15 @@
                                 <div v-if="isProcessing"
                                     class="absolute inset-0 bg-canvas/70 backdrop-blur-md z-10 flex flex-col items-center justify-center gap-3 animate-fade-in">
                                     <div
-                                        class="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xs">
-                                        <Cpu class="w-6 h-6 animate-pulse" />
+                                        class="w-10 h-10 rounded-full bg-primary-soft flex items-center justify-center text-primary">
+                                        <Cpu class="w-5 h-5 animate-pulse" />
                                     </div>
                                     <span
-                                        class="text-xs font-bold text-primary uppercase tracking-widest animate-pulse">{{
+                                        class="text-xs font-medium text-ink-muted">{{
                                             $t('wasm_sandbox.processing') }}</span>
                                 </div>
                                 <div v-else-if="processError"
-                                    class="absolute inset-0 flex items-center justify-center p-4 bg-surface-2/20">
+                                    class="absolute inset-0 flex items-center justify-center p-4">
                                     <div class="text-center max-w-sm text-red-600 dark:text-red-400">
                                         <XCircle class="w-7 h-7 mx-auto mb-2 text-red-500" />
                                         <p class="text-xs font-bold">{{ $t('wasm_sandbox.process_failed') }}</p>
@@ -280,12 +263,12 @@
 
                     <!-- View 2: Draggable Slider Comparison -->
                     <div v-else
-                        class="flex-1 flex flex-col border border-hairline shadow-subtle bg-surface-1 rounded-xl overflow-hidden relative py-0">
+                        class="flex-1 flex flex-col border border-hairline shadow-xs bg-surface-1 rounded-xl overflow-hidden relative py-0">
                         <CardHeader
-                            class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 bg-surface-1/50 overflow-visible">
+                            class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
                             <CardTitle
-                                class="min-w-0 truncate text-[12px] leading-none font-bold uppercase tracking-wider text-ink-subtle flex items-center gap-1.5 overflow-visible">
-                                <ArrowLeftRight class="w-3.5 h-3.5 text-primary shrink-0" />
+                                class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
+                                <ArrowLeftRight class="w-3.5 h-3.5 text-ink-subtle shrink-0" />
                                 {{ $t('wasm_sandbox.view_slider') }}
                             </CardTitle>
                             <!-- Mini overlay info -->
@@ -336,12 +319,12 @@
 
                 <!-- Metrics Dashboard Toolbar -->
                 <Card v-if="processedUrl && metrics"
-                    class="border border-hairline shadow-subtle shrink-0 bg-surface-1/60 backdrop-blur">
-                    <CardContent class="py-2 px-3 grid grid-cols-3 gap-4 text-center">
+                    class="border border-hairline shadow-none shrink-0 bg-surface-1 py-0">
+                    <CardContent class="py-3 px-3 grid grid-cols-3 gap-4 text-center">
                         <div class="flex flex-col items-center">
-                            <span class="text-[11px] uppercase font-bold tracking-wider text-ink-subtle">{{
+                            <span class="text-xs font-medium text-ink-subtle">{{
                                 $t('wasm_sandbox.metric_speed') }}</span>
-                            <span class="text-base font-bold text-ink mt-1 font-mono flex items-baseline gap-0.5">
+                            <span class="text-base font-semibold text-ink mt-1 font-mono tabular-nums flex items-baseline gap-0.5">
                                 {{ metrics.duration > 100 ? (metrics.duration / 1000).toFixed(2) :
                                     metrics.duration.toFixed(1) }}
                                 <span class="text-xs font-medium text-ink-subtle">{{ metrics.duration > 100 ? 's' : 'ms'
@@ -349,14 +332,14 @@
                             </span>
                         </div>
                         <div class="flex flex-col items-center border-x border-hairline">
-                            <span class="text-[11px] uppercase font-bold tracking-wider text-ink-subtle">{{
+                            <span class="text-xs font-medium text-ink-subtle">{{
                                 $t('wasm_sandbox.metric_size') }}</span>
-                            <span class="text-base font-bold text-ink mt-1 font-mono">
+                            <span class="text-base font-semibold text-ink mt-1 font-mono tabular-nums">
                                 {{ formatBytes(metrics.size) }}
                             </span>
                         </div>
                         <div class="flex flex-col items-center">
-                            <span class="text-[11px] uppercase font-bold tracking-wider text-ink-subtle">{{
+                            <span class="text-xs font-medium text-ink-subtle">{{
                                 $t('wasm_sandbox.metric_savings') }}</span>
                             <div class="mt-0.5 flex justify-center">
                                 <Badge v-if="metrics.savings < 0"
@@ -409,10 +392,10 @@
                 <div class="flex-1 overflow-y-auto py-6 px-5 space-y-6">
 
                     <!-- Run Mode & Trigger -->
-                    <div class="space-y-3 p-4 bg-surface-2/20 border border-hairline rounded-xl">
+                    <div class="space-y-3 p-4 bg-surface-1 border border-hairline rounded-xl">
                         <div class="flex items-center justify-between">
                             <div class="flex flex-col gap-0.5">
-                                <Label class="text-xs font-bold text-ink flex items-center gap-1 select-none">
+                                <Label class="text-xs font-semibold text-ink flex items-center gap-1.5 select-none">
                                     <Sparkles class="w-3.5 h-3.5 text-primary" />
                                     {{ $t('wasm_sandbox.auto_process') }}
                                 </Label>
@@ -420,7 +403,7 @@
                             </div>
                             <button type="button"
                                 class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                :class="autoApply ? 'bg-primary' : 'bg-surface-2 border-hairline'"
+                                :class="autoApply ? 'bg-primary' : 'bg-surface-4'"
                                 :disabled="!originalFile" @click="toggleAutoApply">
                                 <span
                                     class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
@@ -430,8 +413,8 @@
 
                         <!-- Manual Run Button -->
                         <Button v-if="!autoApply"
-                            class="w-full h-10 text-xs font-bold shadow-sm cursor-pointer justify-center transition-all duration-200 border-none gap-1.5"
-                            :class="hasPendingChanges ? 'bg-primary text-primary-foreground hover:bg-primary/95 animate-pulse bg-gradient-to-r from-primary to-violet-600' : 'bg-surface-2 border border-hairline text-ink-subtle hover:bg-surface-2'"
+                            class="w-full h-9 text-xs font-medium cursor-pointer justify-center transition-colors gap-1.5"
+                            :class="hasPendingChanges ? 'bg-primary text-primary-foreground hover:bg-primary-hover shadow-xs' : 'bg-surface-2 text-ink-subtle shadow-none disabled:opacity-100'"
                             :disabled="items.length === 0 || isProcessing || !hasPendingChanges"
                             @click="runManualProcess">
                             <Cpu v-if="isProcessing" class="w-3.5 h-3.5 animate-pulse" />
@@ -451,17 +434,17 @@
                 </div>
 
                 <!-- Control Sticky Footer -->
-                <div class="py-5 px-5 border-t border-hairline bg-surface-2/80 backdrop-blur shrink-0 space-y-2">
+                <div class="p-5 border-t border-hairline bg-surface-1 shrink-0 space-y-2">
                     <div v-if="originalFile" class="space-y-2 mb-2">
                         <Label for="output-filename"
-                            class="text-xs font-bold uppercase tracking-wider text-ink-subtle">{{
+                            class="text-xs font-medium text-ink-muted">{{
                                 $t('wasm_sandbox.output_filename') }}</Label>
                         <Input id="output-filename" v-model="customFilename"
-                            class="h-9 font-mono text-xs border-hairline focus:border-primary/50 focus:ring-1 focus:ring-primary/20 bg-canvas"
+                            class="h-9 font-mono text-xs bg-surface-1"
                             :placeholder="$t('wasm_sandbox.output_filename_placeholder')" />
                     </div>
                     <Button
-                        class="w-full h-10 bg-primary hover:bg-primary-hover text-primary-foreground font-semibold rounded-lg text-xs cursor-pointer shadow-sm border-none gap-2 justify-center transition-all duration-200"
+                        class="w-full h-9 bg-primary hover:bg-primary-hover text-primary-foreground font-medium rounded-md text-sm cursor-pointer shadow-xs border-none gap-2 justify-center transition-colors"
                         :disabled="!processedUrl || isProcessing || hasPendingChanges" @click="downloadImage">
                         <Download class="w-3.5 h-3.5" />
                         {{ $t('wasm_sandbox.download') }}
