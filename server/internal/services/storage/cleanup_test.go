@@ -414,3 +414,67 @@ func TestCleanupDeletingAndAbortingFiles(t *testing.T) {
 	db.Delete(&failFile)
 	db.Delete(&user)
 }
+
+// A single PUT has no multipart upload to abort. An expired row is healed when
+// the object exists (the browser never called complete) and deleted otherwise.
+func TestCleanupExpiredSinglePut(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	user := models.User{
+		Username:     "test_single_put_" + uuid.New().String()[:8],
+		Email:        "test_single_put_" + uuid.New().String()[:8] + "@example.com",
+		PasswordHash: "hash",
+	}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	existingKey := "uploads/" + user.ID.String() + "/finished.png"
+	var aborts int
+	s3Client := s3sdk.NewFromConfig(aws.Config{
+		Region: "auto",
+		HTTPClient: &http.Client{Transport: &mockRoundTripper{
+			roundTripFunc: func(req *http.Request) (*http.Response, error) {
+				if req.Method == "DELETE" && req.URL.Query().Get("uploadId") != "" {
+					aborts++
+				}
+				if req.Method == "HEAD" && strings.HasSuffix(req.URL.Path, existingKey) {
+					resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: http.NoBody}
+					resp.Header.Set("Content-Length", "1234")
+					return resp, nil
+				}
+				return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody}, nil
+			},
+		}},
+	})
+	s3Service := NewS3Service(s3Client)
+
+	expiredAt := time.Now().Add(-time.Hour)
+	finished := models.File{OwnerID: user.ID, Name: "finished.png", Path: existingKey, Status: "UPLOADING", UploadExpiresAt: &expiredAt}
+	abandoned := models.File{OwnerID: user.ID, Name: "abandoned.png", Path: "uploads/" + user.ID.String() + "/abandoned.png", Status: "UPLOADING", UploadExpiresAt: &expiredAt}
+	for _, f := range []*models.File{&finished, &abandoned} {
+		if err := db.Create(f).Error; err != nil {
+			t.Fatal(err)
+		}
+		db.Create(&models.DraftFile{FileID: f.ID, OwnerID: user.ID})
+	}
+
+	runCleanup(ctx, db, s3Service, "test-bucket")
+
+	if aborts != 0 {
+		t.Errorf("single PUT rows must not abort a multipart upload, got %d aborts", aborts)
+	}
+	var healed models.File
+	if err := db.Where("id = ?", finished.ID).First(&healed).Error; err != nil {
+		t.Fatalf("finished upload should be kept: %v", err)
+	}
+	if healed.Status != "UPLOADED" || healed.Size != 1234 || healed.UploadedAt == nil {
+		t.Errorf("finished upload not healed: status=%s size=%d uploaded_at=%v", healed.Status, healed.Size, healed.UploadedAt)
+	}
+	var count int64
+	db.Model(&models.File{}).Where("id = ?", abandoned.ID).Count(&count)
+	if count != 0 {
+		t.Errorf("abandoned upload row should be deleted")
+	}
+}

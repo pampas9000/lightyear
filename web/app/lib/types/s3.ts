@@ -1,18 +1,20 @@
-export interface MultipartUploadResponse {
-  uploadId: string
+export interface InitUploadResponse {
   key: string
-  fileId?: string
+  fileId: string
   fastUpload?: boolean
+  // Single PUT (files up to 10 MB): the presigned URL.
+  url?: string
+  // Multipart: the upload ID and one presigned URL per part, in order.
+  uploadId?: string
+  partUrls?: string[]
+}
+
+export interface CompleteUploadResponse {
+  fileId: string
+  key: string
+  location?: string
 }
 
 export interface PartSignatureResponse {
   url: string
-}
-
-export interface CompleteMultipartUploadRequest {
-  key: string
-  parts: {
-    PartNumber: number
-    ETag: string
-  }[]
 }

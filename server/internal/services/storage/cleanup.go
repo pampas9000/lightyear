@@ -75,41 +75,7 @@ func runCleanup(ctx context.Context, db *gorm.DB, s3 *S3Service, bucket string) 
 					var apiErr smithy.APIError
 					if errors.As(abortErr, &apiErr) && apiErr.ErrorCode() == "NoSuchUpload" {
 						// Multipart upload does not exist, let's verify if the object exists in S3
-						headOut, headErr := s3.HeadObject(ctx, bucket, lockedFile.Path)
-						if headErr == nil {
-							// Object exists! S3 completed but DB save failed. We heal the state.
-							slog.Info("healing completed upload status", "path", lockedFile.Path)
-							healSize := int64(0)
-							if headOut.ContentLength != nil {
-								healSize = *headOut.ContentLength
-							}
-							dbErr := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-								var innerFile models.File
-								if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", lockedFile.ID).First(&innerFile).Error; err != nil {
-									return err
-								}
-								innerFile.Status = "UPLOADED"
-								innerFile.Size = healSize
-								innerFile.UploadedAt = &now
-								return tx.Save(&innerFile).Error
-							})
-							if dbErr != nil {
-								slog.Error("failed to heal state in DB", "id", lockedFile.ID, "error", dbErr)
-							}
-							shouldDeleteDB = false
-						} else {
-							// If NotFound, it means upload was truly aborted or not completed. We can safely delete DB.
-							if errors.As(headErr, &apiErr) && apiErr.ErrorCode() == "NotFound" {
-								slog.Info("no completed object found for expired upload, deleting DB row", "path", lockedFile.Path)
-								shouldDeleteDB = true
-							} else {
-								// S3 temporarily unreachable, keep DB record for retry
-								slog.Warn("failed to check head object, keeping DB record", "path", lockedFile.Path, "error", headErr)
-								shouldDeleteDB = false
-								// Revert status back to UPLOADING so it can be retried later
-								_ = db.Model(&lockedFile).Update("status", "UPLOADING")
-							}
-						}
+						shouldDeleteDB = healOrDiscard(ctx, db, s3, bucket, lockedFile, now)
 					} else {
 						// General abort error, log and skip DB deletion for retry later
 						slog.Error("failed to abort multipart upload, keeping DB record", "path", lockedFile.Path, "error", abortErr)
@@ -117,6 +83,10 @@ func runCleanup(ctx context.Context, db *gorm.DB, s3 *S3Service, bucket string) 
 						_ = db.Model(&lockedFile).Update("status", "UPLOADING")
 					}
 				}
+			} else {
+				// A single PUT has no upload to abort; the object exists if the
+				// browser finished the PUT but never called complete.
+				shouldDeleteDB = healOrDiscard(ctx, db, s3, bucket, lockedFile, now)
 			}
 
 			if shouldDeleteDB {
@@ -262,4 +232,43 @@ func runCleanup(ctx context.Context, db *gorm.DB, s3 *S3Service, bucket string) 
 			}
 		}
 	}
+}
+
+// healOrDiscard settles an expired upload whose multipart upload is gone (or
+// that never had one). If the object exists the upload finished but complete
+// never recorded it, so the row is healed to UPLOADED. It reports whether the
+// row should be deleted.
+func healOrDiscard(ctx context.Context, db *gorm.DB, s3 *S3Service, bucket string, lockedFile models.File, now time.Time) bool {
+	headOut, headErr := s3.HeadObject(ctx, bucket, lockedFile.Path)
+	if headErr == nil {
+		slog.Info("healing completed upload status", "path", lockedFile.Path)
+		healSize := int64(0)
+		if headOut.ContentLength != nil {
+			healSize = *headOut.ContentLength
+		}
+		dbErr := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var innerFile models.File
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", lockedFile.ID).First(&innerFile).Error; err != nil {
+				return err
+			}
+			innerFile.Status = "UPLOADED"
+			innerFile.Size = healSize
+			innerFile.UploadedAt = &now
+			return tx.Save(&innerFile).Error
+		})
+		if dbErr != nil {
+			slog.Error("failed to heal state in DB", "id", lockedFile.ID, "error", dbErr)
+		}
+		return false
+	}
+	// NotFound means the upload never finished, so the row can go.
+	var apiErr smithy.APIError
+	if errors.As(headErr, &apiErr) && apiErr.ErrorCode() == "NotFound" {
+		slog.Info("no completed object found for expired upload, deleting DB row", "path", lockedFile.Path)
+		return true
+	}
+	// S3 temporarily unreachable: keep the row and retry on the next run.
+	slog.Warn("failed to check head object, keeping DB record", "path", lockedFile.Path, "error", headErr)
+	_ = db.Model(&lockedFile).Update("status", "UPLOADING")
+	return false
 }

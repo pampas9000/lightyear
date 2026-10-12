@@ -58,6 +58,29 @@ func (s *S3Service) GetPresignedURL(ctx context.Context, bucket, key string, isU
 	return req.URL, nil
 }
 
+// PresignPutObject generates a presigned single PUT. When checksumSHA256 (base64)
+// is set it is signed into the URL, so the client must send the same
+// x-amz-checksum-sha256 header and the store rejects a body that does not match.
+func (s *S3Service) PresignPutObject(ctx context.Context, bucket, key, contentType, checksumSHA256 string, expiry time.Duration) (string, error) {
+	presignClient := s3.NewPresignClient(s.client, func(o *s3.PresignOptions) {
+		o.Expires = expiry
+	})
+
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		ContentType: aws.String(contentType),
+	}
+	if checksumSHA256 != "" {
+		input.ChecksumSHA256 = aws.String(checksumSHA256)
+	}
+	req, err := presignClient.PresignPutObject(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	return req.URL, nil
+}
+
 // CreateMultipartUpload initiates a multipart upload.
 func (s *S3Service) CreateMultipartUpload(ctx context.Context, bucket, key, contentType string) (string, error) {
 	out, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{

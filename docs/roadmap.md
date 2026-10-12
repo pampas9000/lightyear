@@ -163,3 +163,5 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 - **任务串联**：输入写 `from_job`，上游完成后才派发。
 - **HDR / gain map 通道**：libavif / libultrahdr 在容器层处理，元数据对齐 libvips `gainmap-data`；libvips 支持 AVIF gain map 后可整体删除。
 - **自动扩缩容**：按各 stream 积压量（KEDA Redis Streams 伸缩器）。
+- **分片上传的 SHA-256 校验**：单次 PUT 由存储按签名里的 SHA-256 校验，分片上传（>10 MB）的 `hash` 仍由客户端上报。计划由 worker 首次读取源图时计算并回写，秒传只匹配校验过的文件。
+- **跨刷新断点续传**：init 按 `owner_id + hash + UPLOADING` 找回旧的 `uploadId`，经 `list-parts` 续传；目前只支持页面内重试。

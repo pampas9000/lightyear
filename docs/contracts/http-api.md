@@ -109,15 +109,21 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 `options` 与任务中的规则相同。
 
-## 上传（S3 分片预签名）
+## 上传（S3 预签名直传）
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/upload/multipart/init` | `{filename, type, hash}`；`hash`（SHA-256）命中本人已上传的文件时返回 `fastUpload: true` |
+| `POST` | `/api/upload/init` | `{filename, type, size, hash}`，见下文 |
+| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}` |
 | `GET` | `/api/upload/multipart/:uploadId/list-parts` | 已上传分片 |
-| `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber` | 分片预签名 URL |
-| `POST` | `/api/upload/multipart/:uploadId/complete` | `{key, parts:[{PartNumber, ETag}]}`，文件变为 `UPLOADED` |
+| `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber` | 重新签一个分片（init 返回的 URL 一小时后过期） |
 | `POST` | `/api/upload/multipart/:uploadId/abort` | 中止，文件变为 `ABORTED` |
+
+`init` 的 `hash` 是十六进制 SHA-256，可省略。返回值有三种：
+
+- 命中本人已上传的同 `hash` 文件：`{fileId, key, fastUpload: true}`，无需上传。
+- `size` 不超过 10 MB：`{fileId, key, url}`。向 `url` 单次 `PUT` 文件内容；`hash` 已签进 URL，内容不符时存储拒绝写入。
+- 更大的文件：`{fileId, key, uploadId, partUrls}`。分片大小为 `max(5 MiB, ceil(size / 10000))`，`partUrls[i]` 对应第 `i + 1` 片。
 
 ## 文件、草稿与 Job
 

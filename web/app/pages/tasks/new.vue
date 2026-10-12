@@ -7,7 +7,11 @@ import { useApi, parseApiError } from "~/composables/useApi";
 import { useAuth } from "~/composables/useAuth";
 import type { Task, Workflow } from "~/lib/types/task";
 import type { ApiResponse } from "~/lib/types/api";
-import type { MultipartUploadResponse, PartSignatureResponse } from "~/lib/types/s3";
+import type {
+    CompleteUploadResponse,
+    InitUploadResponse,
+    PartSignatureResponse,
+} from "~/lib/types/s3";
 import { toast } from "vue-sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -302,6 +306,9 @@ const deleteRecentFile = async (fileId: string) => {
 
 let uppy: Uppy;
 
+// Presigned URLs live an hour; re-sign a part a little before that.
+const PART_URL_TTL_MS = 50 * 60 * 1000;
+
 onMounted(() => {
     uppy = new Uppy({
         restrictions: {
@@ -311,26 +318,18 @@ onMounted(() => {
         autoProceed: true,
     });
 
+    // /upload/init has already run for every file Uppy sees: it chose single
+    // PUT or multipart by size and signed the URLs, which arrive in file.meta.
     uppy.use(AwsS3, {
-        shouldUseMultipart: true,
+        shouldUseMultipart: (file) => Boolean(file.meta.uploadId),
         limit: 4,
-        createMultipartUpload: async (file) => {
-            if (!file) {
-                throw new Error("No file provided for upload");
-            }
-            if (file.meta.uploadId && file.meta.key) {
-                return {
-                    uploadId: file.meta.uploadId as string,
-                    key: file.meta.key as string,
-                };
-            }
-            const hash = (file.meta.hash as string) || "";
-            const res = await api<MultipartUploadResponse>("/upload/multipart/init", {
-                method: "POST",
-                body: { filename: file.name, type: file.type, hash },
-            });
-            return { uploadId: res.uploadId, key: res.key };
-        },
+        // Same rule as partSize in server/internal/api/handlers/upload.go.
+        getChunkSize: (file) => Math.max(5 * 1024 * 1024, Math.ceil(file.size / 10000)),
+        getUploadParameters: (file) => ({ method: "PUT", url: file.meta.url as string }),
+        createMultipartUpload: (file) => ({
+            uploadId: file.meta.uploadId as string,
+            key: file.meta.key as string,
+        }),
         listParts: async (file, { uploadId, key }) => {
             const res = await api<any>(
                 `/upload/multipart/${uploadId}/list-parts?key=${encodeURIComponent(key)}`,
@@ -338,10 +337,14 @@ onMounted(() => {
             return res;
         },
         signPart: async (file, { uploadId, key, partNumber }) => {
-            const res = await api<PartSignatureResponse>(
+            const cached = (file.meta.partUrls as string[] | undefined)?.[partNumber - 1];
+            const signedAt = (file.meta.signedAt as number | undefined) ?? 0;
+            if (cached && Date.now() - signedAt < PART_URL_TTL_MS) {
+                return { url: cached };
+            }
+            return api<PartSignatureResponse>(
                 `/upload/multipart/${uploadId}/sign-part/${partNumber}?key=${encodeURIComponent(key)}`,
             );
-            return res; // contains { url }
         },
         abortMultipartUpload: async (file, { uploadId, key }) => {
             await api(`/upload/multipart/${uploadId}/abort`, {
@@ -349,13 +352,11 @@ onMounted(() => {
                 body: { key },
             });
         },
-        completeMultipartUpload: async (file, { uploadId, key, parts }) => {
-            const res = await api<any>(`/upload/multipart/${uploadId}/complete`, {
+        completeMultipartUpload: (file, { key, parts }) =>
+            api<CompleteUploadResponse>("/upload/complete", {
                 method: "POST",
                 body: { key, parts },
-            });
-            return res;
-        },
+            }),
     });
 
     uppy.on("file-added", (file) => {
@@ -397,21 +398,34 @@ onMounted(() => {
         globalProgress.value = progress;
     });
 
-    uppy.on("upload-success", (file, response) => {
+    uppy.on("upload-success", async (file, response) => {
         if (!file) return;
         const f = files.value.find((f) => f.id === file.id);
-        if (f) {
+        try {
+            // Multipart was completed inside Uppy; a single PUT still needs
+            // the server to record the object.
+            let fileId = (response.body as CompleteUploadResponse | undefined)?.fileId;
+            if (!file.meta.uploadId) {
+                const res = await api<CompleteUploadResponse>("/upload/complete", {
+                    method: "POST",
+                    body: { key: file.meta.key },
+                });
+                fileId = res.fileId;
+            }
+            if (!f) return;
             f.status = "uploaded";
             f.progress = 100;
-        }
-        const fileId = response.body?.fileId || (response.body as any)?.file_id;
-        if (fileId) {
-            uploadedFileIds.value[file.id] = fileId;
-            if (f) {
+            if (fileId) {
+                uploadedFileIds.value[f.id] = fileId;
                 f.serverFileId = fileId;
             }
+            saveDraft();
+        } catch (err) {
+            if (f) {
+                f.status = "error";
+                f.error = parseApiError(err).userMessage;
+            }
         }
-        saveDraft();
     });
 
     uppy.on("upload-error", (file, error) => {
@@ -486,9 +500,9 @@ const processSingleFile = async (file: File) => {
             return;
         }
 
-        const res = await api<MultipartUploadResponse>("/upload/multipart/init", {
+        const res = await api<InitUploadResponse>("/upload/init", {
             method: "POST",
-            body: { filename: file.name, type: file.type, hash },
+            body: { filename: file.name, type: file.type, size: file.size, hash },
         });
 
         if (res.fastUpload) {
@@ -515,18 +529,17 @@ const processSingleFile = async (file: File) => {
             return;
         }
 
-        if (!res.uploadId || !res.key) {
-            throw new Error("Multipart upload response is missing uploadId or key");
-        }
-
         uppy.addFile({
             name: file.name,
             type: file.type,
             data: file,
             meta: {
                 hash,
-                uploadId: res.uploadId,
                 key: res.key,
+                url: res.url,
+                uploadId: res.uploadId,
+                partUrls: res.partUrls,
+                signedAt: Date.now(),
                 probe,
             },
         });

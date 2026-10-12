@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,6 +16,7 @@ import (
 	"transcoder/server/internal/services/storage"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -35,24 +39,51 @@ func NewUploadHandler(db *gorm.DB, cfg config.Config, storage *storage.S3Service
 }
 
 func (h *UploadHandler) Install(router fiber.Router) {
-	// S3 Multipart Upload procedures
-	router.Post("/upload/multipart/init", h.CreateMultipartUpload)
+	router.Post("/upload/init", h.InitUpload)
+	router.Post("/upload/complete", h.CompleteUpload)
+	// Multipart only: resume and re-sign an expired part URL.
 	router.Get("/upload/multipart/:uploadId/list-parts", h.ListParts)
 	router.Get("/upload/multipart/:uploadId/sign-part/:partNumber", h.SignPart)
-	router.Post("/upload/multipart/:uploadId/complete", h.CompleteMultipartUpload)
 	router.Post("/upload/multipart/:uploadId/abort", h.AbortMultipartUpload)
 }
 
-type CreateMultipartRequest struct {
+const (
+	// Files above this size use multipart upload; smaller ones one PUT.
+	multipartThreshold = 10 << 20
+	minPartSize        = 5 << 20
+	maxParts           = 10000
+	uploadURLExpiry    = time.Hour
+)
+
+// partSize mirrors the default chunking of @uppy/aws-s3, so the part URLs
+// signed at init match the parts the browser cuts.
+func partSize(size int64) int64 {
+	return max(minPartSize, (size+maxParts-1)/maxParts)
+}
+
+type InitUploadRequest struct {
 	Filename string `json:"filename"`
 	Type     string `json:"type"`
+	Size     int64  `json:"size"`
 	Hash     string `json:"hash"`
 }
 
-func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
-	var req CreateMultipartRequest
+func (h *UploadHandler) InitUpload(c fiber.Ctx) error {
+	var req InitUploadRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body")
+	}
+	if req.Size <= 0 {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "size must be positive")
+	}
+	var checksum string
+	if req.Hash != "" {
+		sum, err := hex.DecodeString(req.Hash)
+		if err != nil || len(sum) != sha256.Size {
+			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "hash must be a hex SHA-256")
+		}
+		req.Hash = strings.ToLower(req.Hash)
+		checksum = base64.StdEncoding.EncodeToString(sum)
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
@@ -65,29 +96,16 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
 	}
 
-	// SHA-256 Fast Upload check
+	// SHA-256 fast upload: reuse the owner's file with the same content.
 	if req.Hash != "" {
 		var existing models.File
 		if errDb := h.db.WithContext(c.Context()).Where("owner_id = ? AND hash = ? AND status = ?", ownerID, req.Hash, "UPLOADED").First(&existing).Error; errDb == nil {
-			// Lock check to ensure DraftFile doesn't already exist for this exact file to avoid duplicates in the same queue
-			var existingDraft models.DraftFile
-			if errDraft := h.db.WithContext(c.Context()).Where("file_id = ? AND owner_id = ?", existing.ID, ownerID).First(&existingDraft).Error; errDraft != nil {
-				draftFile := &models.DraftFile{
-					FileID:  existing.ID,
-					OwnerID: ownerID,
-				}
-				if errCreate := h.db.WithContext(c.Context()).Create(draftFile).Error; errCreate == nil {
-					return c.JSON(fiber.Map{
-						"uploadId":   "",
-						"key":        existing.Path,
-						"fileId":     existing.ID.String(),
-						"fastUpload": true,
-					})
-				}
-			} else {
-				// If draft already exists, just return it directly (idempotent / duplicate prevention)
+			draftFile := &models.DraftFile{FileID: existing.ID, OwnerID: ownerID}
+			if errCreate := h.db.WithContext(c.Context()).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "file_id"}},
+				DoNothing: true,
+			}).Create(draftFile).Error; errCreate == nil {
 				return c.JSON(fiber.Map{
-					"uploadId":   "",
 					"key":        existing.Path,
 					"fileId":     existing.ID.String(),
 					"fastUpload": true,
@@ -97,16 +115,39 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 	}
 
 	ext := filepath.Ext(req.Filename)
-	// Create a unique key like: uploads/user-id/uuid/filename.ext
+	// Create a unique key like: uploads/user-id/uuid.ext
 	key := fmt.Sprintf("uploads/%s/%s%s", userIdStr, uuid.New().String(), ext)
 	contentType := req.Type
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
-	uploadId, err := h.storage.CreateMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, contentType)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create multipart upload", map[string]any{"reason": err.Error()})
+	// Signing is local; only multipart needs a round trip to the store.
+	resp := fiber.Map{"key": key}
+	var uploadId string
+	if req.Size > multipartThreshold {
+		uploadId, err = h.storage.CreateMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, contentType)
+		if err != nil {
+			return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create multipart upload", map[string]any{"reason": err.Error()})
+		}
+		ps := partSize(req.Size)
+		count := (req.Size + ps - 1) / ps
+		partURLs := make([]string, count)
+		for i := range partURLs {
+			partURLs[i], err = h.storage.SignPart(c.Context(), h.cfg.S3.Bucket, key, uploadId, int32(i+1), uploadURLExpiry)
+			if err != nil {
+				_ = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+				return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to sign part", map[string]any{"reason": err.Error()})
+			}
+		}
+		resp["uploadId"] = uploadId
+		resp["partUrls"] = partURLs
+	} else {
+		url, err := h.storage.PresignPutObject(c.Context(), h.cfg.S3.Bucket, key, contentType, checksum, uploadURLExpiry)
+		if err != nil {
+			return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to sign upload", map[string]any{"reason": err.Error()})
+		}
+		resp["url"] = url
 	}
 
 	expiresAt := time.Now().Add(24 * time.Hour)
@@ -133,15 +174,14 @@ func (h *UploadHandler) CreateMultipartUpload(c fiber.Ctx) error {
 	})
 	if err != nil {
 		// Compensate by aborting the multipart upload in S3 to prevent leaking
-		_ = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+		if uploadId != "" {
+			_ = h.storage.AbortMultipartUpload(c.Context(), h.cfg.S3.Bucket, key, uploadId)
+		}
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create file and draft record", map[string]any{"reason": err.Error()})
 	}
 
-	return c.JSON(fiber.Map{
-		"uploadId": uploadId,
-		"key":      key,
-		"fileId":   file.ID.String(),
-	})
+	resp["fileId"] = file.ID.String()
+	return c.JSON(resp)
 }
 
 func (h *UploadHandler) ListParts(c fiber.Ctx) error {
@@ -245,23 +285,23 @@ func (h *UploadHandler) SignPart(c fiber.Ctx) error {
 	})
 }
 
-type CompleteMultipartRequest struct {
-	Key   string `json:"key" validate:"required"`
+type CompleteUploadRequest struct {
+	Key string `json:"key" validate:"required"`
+	// Parts is required for multipart uploads and ignored for a single PUT.
 	Parts []struct {
 		PartNumber int32  `json:"PartNumber"`
 		ETag       string `json:"ETag"`
 	} `json:"parts"`
 }
 
-func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
-	uploadId := c.Params("uploadId")
-	var req CompleteMultipartRequest
+func (h *UploadHandler) CompleteUpload(c fiber.Ctx) error {
+	var req CompleteUploadRequest
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body")
 	}
 
-	if uploadId == "" || req.Key == "" {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "uploadId and key are required")
+	if req.Key == "" {
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key is required")
 	}
 
 	userIdStr, ok := c.Locals("user_id").(string)
@@ -286,19 +326,18 @@ func (h *UploadHandler) CompleteMultipartUpload(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusNotFound, response.CodeInternal, "Associated file upload record not found", map[string]any{"reason": err.Error()})
 	}
 
-	var completedParts []types.CompletedPart
-	for _, p := range req.Parts {
-		etag := p.ETag
-		completedParts = append(completedParts, types.CompletedPart{
-			PartNumber: aws.Int32(p.PartNumber),
-			ETag:       aws.String(etag),
-		})
-	}
-
-	// 3. Complete multipart upload on S3/R2
-	err = h.storage.CompleteMultipartUpload(c.Context(), h.cfg.S3.Bucket, req.Key, uploadId, completedParts)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to complete multipart upload on S3", map[string]any{"reason": err.Error()})
+	// 3. Complete multipart upload on S3/R2; a single PUT is already an object.
+	if file.UploadID != "" {
+		var completedParts []types.CompletedPart
+		for _, p := range req.Parts {
+			completedParts = append(completedParts, types.CompletedPart{
+				PartNumber: aws.Int32(p.PartNumber),
+				ETag:       aws.String(p.ETag),
+			})
+		}
+		if err := h.storage.CompleteMultipartUpload(c.Context(), h.cfg.S3.Bucket, req.Key, file.UploadID, completedParts); err != nil {
+			return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to complete multipart upload on S3", map[string]any{"reason": err.Error()})
+		}
 	}
 
 	// 4. Retrieve actual uploaded size and type from S3 using HeadObject
