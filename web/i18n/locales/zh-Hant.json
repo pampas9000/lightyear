@@ -87,6 +87,7 @@
         "params_subtitle": "配置圖片優化和轉碼參數",
         "media_files": "媒體文件",
         "add_files": "添加文件",
+        "preparing": "準備中",
         "no_files": "未選擇文件",
         "no_files_desc": "拖放文件到這裡，或點擊「添加文件」瀏覽。",
         "drop_files": "釋放檔案以在此處上傳",

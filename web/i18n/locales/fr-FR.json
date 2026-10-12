@@ -87,6 +87,7 @@
         "params_subtitle": "Configurer les paramètres d'optimisation d'image et de transcodage",
         "media_files": "Fichiers médias",
         "add_files": "Ajouter des fichiers",
+        "preparing": "Préparation",
         "no_files": "Aucun fichier sélectionné",
         "no_files_desc": "Glissez-déposez des fichiers ici, ou cliquez sur \"Ajouter des fichiers\" pour parcourir.",
         "drop_files": "Déposez les fichiers ici pour les charger",

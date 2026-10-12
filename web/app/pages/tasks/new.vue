@@ -12,6 +12,7 @@ import type {
     InitUploadResponse,
     PartSignatureResponse,
 } from "~/lib/types/s3";
+import { createLimiter, probeImage, sha256File } from "~/lib/upload-prep";
 import { toast } from "vue-sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -308,6 +309,8 @@ let uppy: Uppy;
 
 // Presigned URLs live an hour; re-sign a part a little before that.
 const PART_URL_TTL_MS = 50 * 60 * 1000;
+// Hashing reads the whole file, so cap how many run at once.
+const prepareSlot = createLimiter(3);
 
 onMounted(() => {
     uppy = new Uppy({
@@ -360,33 +363,20 @@ onMounted(() => {
     });
 
     uppy.on("file-added", (file) => {
-        if (!checkAuthBeforeAction()) {
-            uppy.removeFile(file.id);
-            return;
+        const f = files.value.find((f) => f.id === file.meta.clientId);
+        if (f) {
+            f.uppyId = file.id;
+            f.status = "uploading";
         }
-        const hash = (file.meta.hash as string) || "";
-        const probe = file.meta.probe as SourceProbeSummary | undefined;
-        files.value.push({
-            id: file.id,
-            source: "local",
-            uppyId: file.id,
-            name: file.name,
-            size: file.size || 0,
-            progress: 0,
-            status: "uploading",
-            type: file.type,
-            hash: hash,
-            probe,
-        });
     });
 
     uppy.on("file-removed", (file) => {
-        files.value = files.value.filter((f) => f.id !== file.id);
+        files.value = files.value.filter((f) => f.uppyId !== file.id);
     });
 
     uppy.on("upload-progress", (file, progress) => {
         if (!file) return;
-        const f = files.value.find((f) => f.id === file.id);
+        const f = files.value.find((f) => f.uppyId === file.id);
         if (f) {
             f.status = "uploading";
             const p = progress as any;
@@ -400,7 +390,7 @@ onMounted(() => {
 
     uppy.on("upload-success", async (file, response) => {
         if (!file) return;
-        const f = files.value.find((f) => f.id === file.id);
+        const f = files.value.find((f) => f.uppyId === file.id);
         try {
             // Multipart was completed inside Uppy; a single PUT still needs
             // the server to record the object.
@@ -430,7 +420,7 @@ onMounted(() => {
 
     uppy.on("upload-error", (file, error) => {
         if (!file) return;
-        const f = files.value.find((f) => f.id === file.id);
+        const f = files.value.find((f) => f.uppyId === file.id);
         if (f) {
             f.status = "error";
             f.error = parseApiError(error).userMessage;
@@ -455,97 +445,69 @@ onUnmounted(() => {
     }
 });
 
-const getSHA256 = async (file: File): Promise<string> => {
-    const buffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-};
-
-const probeImageFile = (file: File): Promise<SourceProbeSummary> => {
-    return new Promise((resolve) => {
-        const ext = file.name.split(".").pop()?.toLowerCase() || "";
-        const summary: SourceProbeSummary = {
-            format: ext || file.type.split("/")[1] || "unknown",
-        };
-
-        if (typeof window === "undefined" || !file.type.startsWith("image/")) {
-            return resolve(summary);
-        }
-
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = () => {
-            summary.width = img.naturalWidth;
-            summary.height = img.naturalHeight;
-            URL.revokeObjectURL(url);
-            resolve(summary);
-        };
-        img.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(summary);
-        };
-        img.src = url;
-    });
-};
-
 const processSingleFile = async (file: File) => {
+    // Show the file at once; hashing, probing and /upload/init follow.
+    files.value.push({
+        id: `local-${crypto.randomUUID()}`,
+        source: "local",
+        name: file.name,
+        size: file.size,
+        progress: 0,
+        status: "queued",
+        type: file.type,
+    });
+    const item = files.value[files.value.length - 1]!;
+    const isQueued = () => files.value.includes(item);
+
     try {
-        const hash = await getSHA256(file);
-        const probe = await probeImageFile(file);
+        await prepareSlot(async () => {
+            if (!isQueued()) return;
+            const [hash, probe] = await Promise.all([sha256File(file), probeImage(file)]);
+            item.hash = hash;
+            item.probe = probe;
 
-        // Local duplicate prevention
-        if (files.value.some((f) => f.hash === hash)) {
-            toast.warning(`文件 '${file.name}' 已经存在于当前列表中`);
-            return;
-        }
-
-        const res = await api<InitUploadResponse>("/upload/init", {
-            method: "POST",
-            body: { filename: file.name, type: file.type, size: file.size, hash },
-        });
-
-        if (res.fastUpload) {
-            const serverId = res.fileId || "";
-            if (!serverId) {
-                throw new Error("Fast upload response is missing fileId");
+            // Local duplicate prevention
+            if (files.value.some((f) => f !== item && f.hash === hash)) {
+                files.value = files.value.filter((f) => f !== item);
+                toast.warning(`文件 '${file.name}' 已经存在于当前列表中`);
+                return;
             }
-            const clientFileId = `fast-${Math.random().toString(36).substring(2, 9)}`;
-            files.value.push({
-                id: clientFileId,
-                source: "local",
-                serverFileId: serverId,
-                name: file.name,
-                size: file.size,
-                progress: 100,
-                status: "uploaded",
-                type: file.type || "",
-                hash: hash,
-                probe,
-            });
-            uploadedFileIds.value[clientFileId] = serverId;
-            toast.success(`文件 '${file.name}' 秒传成功！`);
-            saveDraft();
-            return;
-        }
 
-        uppy.addFile({
-            name: file.name,
-            type: file.type,
-            data: file,
-            meta: {
-                hash,
-                key: res.key,
-                url: res.url,
-                uploadId: res.uploadId,
-                partUrls: res.partUrls,
-                signedAt: Date.now(),
-                probe,
-            },
+            const res = await api<InitUploadResponse>("/upload/init", {
+                method: "POST",
+                body: { filename: file.name, type: file.type, size: file.size, hash },
+            });
+            if (!isQueued()) return;
+
+            if (res.fastUpload) {
+                item.serverFileId = res.fileId;
+                item.status = "uploaded";
+                item.progress = 100;
+                uploadedFileIds.value[item.id] = res.fileId;
+                toast.success(`文件 '${file.name}' 秒传成功！`);
+                saveDraft();
+                return;
+            }
+
+            uppy.addFile({
+                name: file.name,
+                type: file.type,
+                data: file,
+                meta: {
+                    clientId: item.id,
+                    key: res.key,
+                    url: res.url,
+                    uploadId: res.uploadId,
+                    partUrls: res.partUrls,
+                    signedAt: Date.now(),
+                },
+            });
         });
     } catch (err: any) {
         console.error("Failed to process file:", err);
         const errMsg = parseApiError(err).userMessage || err.message || String(err);
+        item.status = "error";
+        item.error = errMsg;
         toast.error(`初始化文件 '${file.name}' 上传失败: ${errMsg}`);
     }
 };
@@ -1053,7 +1015,14 @@ const handleDrop = (e: DragEvent) => {
 
                             <div class="flex items-center space-x-4">
                                 <div
-                                    v-if="file.status === 'uploading'"
+                                    v-if="file.status === 'queued'"
+                                    class="flex items-center gap-1.5 shrink-0 text-xs font-medium text-ink-subtle"
+                                >
+                                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                                    {{ $t("new_task.preparing") }}
+                                </div>
+                                <div
+                                    v-else-if="file.status === 'uploading'"
                                     class="w-24 flex flex-col items-end gap-1 shrink-0"
                                 >
                                     <span class="text-xs font-semibold text-primary"
