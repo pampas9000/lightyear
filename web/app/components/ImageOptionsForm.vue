@@ -7,7 +7,6 @@ import Slider from "@/components/ui/slider/Slider.vue";
 import { Eye, ChevronDown, ChevronUp } from "@lucide/vue";
 import type { ImageOptions, OutputFormat } from "~/lib/types/image-options";
 import {
-    DEFAULT_EFFORT,
     DEFAULT_QUALITY,
     FORMATS,
     hasBitDepth,
@@ -31,6 +30,8 @@ const props = defineProps<{
     disabled?: boolean;
     /** Output formats to offer; defaults to all. */
     formats?: OutputFormat[];
+    /** The engine repacks JPEG → lossless JXL with cjxl (server only). */
+    jpegRepack?: boolean;
 }>();
 const emit = defineEmits<{ (e: "update:modelValue", value: ImageOptions): void }>();
 
@@ -40,8 +41,13 @@ const update = (patch: Partial<ImageOptions>) =>
 
 const showAdvanced = ref(!!(props.modelValue.chroma || props.modelValue.bit_depth));
 const resizeEnabled = computed(() => !!options.value.resize);
-const quality = computed(() => options.value.quality ?? DEFAULT_QUALITY[options.value.format] ?? 0);
-const effort = computed(() => options.value.effort ?? DEFAULT_EFFORT);
+// Mirrors the cjxl bypass conditions in compute/crates/imageops/src/bypass.rs.
+const repackHint = computed(() => {
+    if (options.value.resize || (options.value.color ?? "keep") !== "keep") return "jxl_repack_blocked";
+    return (options.value.metadata ?? "strip") === "keep" ? "jxl_repack_hint" : "jxl_repack_strip_hint";
+});const quality = computed(() => options.value.quality ?? DEFAULT_QUALITY[options.value.format] ?? 0);
+// Unset means each encoder's own default; the slider rests mid-range until moved.
+const effort = computed(() => options.value.effort);
 
 const setFormat = (format: OutputFormat) => update({ format, quality: undefined });
 const setResize = (patch: Partial<NonNullable<ImageOptions["resize"]>>) =>
@@ -107,8 +113,8 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
                 <Label class="text-xs font-semibold text-ink">{{ $t("image_options.lossless") }}</Label>
                 <Switch :checked="!!options.lossless" :disabled="disabled" @update:checked="(v: boolean) => update({ lossless: v })" />
             </div>
-            <p v-if="options.lossless && options.format === 'jxl'" class="text-[11px] text-ink-subtle">
-                {{ $t("image_options.jxl_lossless_hint") }}
+            <p v-if="jpegRepack && options.lossless && options.format === 'jxl'" class="text-[11px] text-ink-subtle">
+                {{ $t(`image_options.${repackHint}`) }}
             </p>
 
             <div v-if="hasQuality(options)" class="space-y-2">
@@ -123,9 +129,15 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
             <div v-if="hasEffort(options.format)" class="space-y-2">
                 <div class="flex justify-between items-center text-xs">
                     <Label class="text-xs font-semibold text-ink">{{ $t("image_options.effort") }}</Label>
-                    <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ effort }}</span>
+                    <span v-if="effort == null" class="font-medium text-ink-muted text-xs">{{ $t("image_options.effort_default") }}</span>
+                    <span v-else class="flex items-center gap-2">
+                        <button type="button" :disabled="disabled"
+                            class="text-[11px] text-ink-subtle underline-offset-2 hover:text-ink hover:underline"
+                            @click="update({ effort: undefined })">{{ $t("image_options.effort_default") }}</button>
+                        <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ effort }}</span>
+                    </span>
                 </div>
-                <Slider :model-value="[effort]" :min="1" :max="10" :step="1" :disabled="disabled"
+                <Slider :model-value="[effort ?? 5]" :min="1" :max="10" :step="1" :disabled="disabled"
                     @update:model-value="(v) => update({ effort: v?.[0] })" />
                 <p class="text-[11px] text-ink-subtle">{{ $t("image_options.effort_hint") }}</p>
             </div>

@@ -29,7 +29,7 @@ It needs cross-origin isolation (`SharedArrayBuffer`), which Safari cannot provi
 
 ## Development
 
-Prerequisites: Bun, Node ≥ 23.6, Go 1.26+, Rust nightly (pinned by `rust-toolchain.toml`), `task`, libvips ≥ 8.17 with libheif/libjxl/libultrahdr, and the libjxl tools (`cjxl`, `djxl`). On macOS: `brew install vips jpeg-xl pkgconf go-task`. `task doctor` checks them.
+Prerequisites: Bun, Node ≥ 23.6, Go 1.26+, Rust nightly (pinned by `rust-toolchain.toml`), `task`, libvips ≥ 8.17 with libheif/libjxl/libultrahdr, libavif ≥ 1.1 with aom, and the libjxl tools (`cjxl`, `djxl`). On macOS: `brew install vips libavif jpeg-xl pkgconf go-task`. `task doctor` checks them.
 
 ```bash
 task bootstrap         # bun install + go work sync + cargo fetch

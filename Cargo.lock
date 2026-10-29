@@ -567,6 +567,7 @@ dependencies = [
 name = "compute-imageops"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "compute-types",
  "pkg-config",
  "rs-vips",

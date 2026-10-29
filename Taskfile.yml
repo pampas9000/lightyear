@@ -163,6 +163,14 @@ tasks:
     cmds:
       - node scripts/consistency.ts
 
+  bench:avif:
+    desc: "服务端 AVIF 三条路径（libavif / libvips / avifenc）的体积与画质，需要 image-qa（IMAGE_QA=路径）"
+    requires:
+      vars: [IMAGE_QA]
+    cmds:
+      - cargo build --release -p compute-imageops --example process
+      - IMAGE_QA={{.IMAGE_QA}} uv run --project {{.IMAGE_QA}}/backend python scripts/avif_encoders.py
+
   test:web:
     desc: "运行 Web 前端类型与集成检查"
     dir: web
@@ -210,6 +218,8 @@ tasks:
       - node --version
       - pkg-config --modversion vips
       - pkg-config --atleast-version=8.17 vips || { echo "libvips >= 8.17 is required"; exit 1; }
+      - pkg-config --modversion libavif
+      - pkg-config --atleast-version=1.1 libavif || { echo "libavif >= 1.1 (with aom) is required"; exit 1; }
       - cjxl --version
       - djxl --version
 

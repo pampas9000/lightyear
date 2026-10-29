@@ -256,7 +256,7 @@ const optionEntries = (o?: ImageOptions) => {
     return [
         ['format', o.format.toUpperCase()],
         ['quality', o.lossless ? $t('image_options.lossless') : String(o.quality ?? '—')],
-        ['effort', String(o.effort ?? '—')],
+        ['effort', o.format === 'jpeg' ? '—' : String(o.effort ?? $t('image_options.effort_default'))],
         ['resize', resize],
         ['color', $t(`image_options.color_${o.color ?? 'keep'}`)],
         ['dynamic_range', $t(`image_options.dynamic_range_${o.dynamic_range ?? 'keep'}`)],

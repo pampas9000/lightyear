@@ -19,7 +19,7 @@
 | `format` | `avif` `jxl` `webp` `jpeg` `png` `heic` | 必填 | |
 | `quality` | 1–100 | AVIF/HEIC 60，JXL/WebP 80，JPEG 82 | 不能与 `lossless` 同用；PNG 没有该项 |
 | `lossless` | bool | `false` | JPEG 不可用 |
-| `effort` | 1–10 | 5 | 1 最快，10 体积最小；JPEG 没有该项 |
+| `effort` | 1–10 | 编码器自身的默认 | 1 最快，10 体积最小；JPEG 没有该项。不填时不传给编码器，各格式的默认见[转码链路](/compute/pipeline#每种格式由谁编码) |
 | `resize` | `{width?, height?, fit, enlarge}` | 不缩放 | 宽高 1–16384，至少给一个；`fit` 为 `inside`（默认）/`cover`/`fill`，后两者需同时给宽高；`enlarge` 默认 `false` |
 | `color` | `keep` `srgb` | `keep` | `keep` 保留源 ICC、不转换像素；`srgb` 转换并标记为 sRGB |
 | `dynamic_range` | `keep` `sdr` | `keep` | `keep`：输出格式能携带 gain map 时保留（目前是 UltraHDR JPEG → JPEG），否则输出 SDR 基础图；`sdr`：总是去掉 gain map。PQ/HLG 源图两种取值都会被拒绝，见[已知限制](/compute/limitations#hdr) |
@@ -31,14 +31,14 @@
 
 ## 规范化与产物键
 
-规范化会先校验，再把所有默认值显式填上，因此"省略默认值"和"显式写出默认值"得到相同结果。存库和派发给 worker 的都是规范化后的参数。
+规范化会先校验，再把所有默认值显式填上，因此"省略默认值"和"显式写出默认值"得到相同结果。`effort` 例外：它的默认是编码器自己的，规范化后仍为未填写，显式写出的任何值都是另一种意图。存库和派发给 worker 的都是规范化后的参数。
 
 产物键只在 Go 侧计算：
 
 ```text
-sha256("image-options/v1\n" + 源标识 + "\n" + 规范化参数的 JSON)
+sha256("image-options/v2\n" + 源标识 + "\n" + 规范化参数的 JSON)
 ```
 
 源标识必须指向内容本身：目前用源文件 ID（相同内容上传时会合并为同一文件记录）；客户端上报但未经校验的哈希不能使用。
 
-同一用户、同一源图、同一意图的任务据此复用已有产物。规范化规则或默认值发生变化时，需要提升前缀中的版本号。
+同一用户、同一源图、同一意图的任务据此复用已有产物。规范化规则或默认值发生变化时，需要提升前缀中的版本号（v2：`effort` 不再默认填 5）。

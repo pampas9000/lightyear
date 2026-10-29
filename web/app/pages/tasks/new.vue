@@ -909,6 +909,7 @@ const handleDrop = (e: DragEvent) => {
                         v-model="options"
                         :source-probe="firstFileProbe"
                         :disabled="isParamsDisabled"
+                        jpeg-repack
                     />
                 </CardContent>
             </Card>

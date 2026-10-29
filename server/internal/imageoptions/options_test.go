@@ -59,8 +59,11 @@ func TestArtifactKeyIgnoresSpellingButNotIntentOrSource(t *testing.T) {
 		return k
 	}
 	base := key("abc", `{"format":"avif"}`)
-	if got := key("abc", `{"metadata":"strip","effort":5,"quality":60,"format":"avif"}`); got != base {
+	if got := key("abc", `{"metadata":"strip","quality":60,"format":"avif"}`); got != base {
 		t.Error("explicit defaults should produce the same key")
+	}
+	if key("abc", `{"format":"avif","effort":6}`) == base {
+		t.Error("an explicit effort is a different intent from the encoder default")
 	}
 	if key("abc", `{"format":"avif","quality":61}`) == base {
 		t.Error("different quality must change the key")

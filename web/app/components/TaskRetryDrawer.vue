@@ -113,7 +113,7 @@ const handleSubmit = () => {
                     </button>
                 </div>
 
-                <ImageOptionsForm v-if="changeOptions" v-model="options" :disabled="isRetrying" />
+                <ImageOptionsForm v-if="changeOptions" v-model="options" :disabled="isRetrying" jpeg-repack />
 
                 <div v-if="changeOptions" class="pt-2">
                     <button type="button" @click="showRawJson = !showRawJson"

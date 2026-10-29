@@ -45,6 +45,7 @@ export default defineConfig({
       {
         text: '处理核心',
         items: [
+          { text: '转码链路', link: '/compute/pipeline' },
           { text: 'compute-imageops', link: '/compute/imageops' },
           { text: 'HDR 与已知限制', link: '/compute/limitations' }
         ]
@@ -57,7 +58,8 @@ export default defineConfig({
         text: '工程笔记',
         items: [
           { text: '索引', link: '/engineering-notes/' },
-          { text: 'HDR Gain Map 调研', link: '/engineering-notes/gain-map-research' }
+          { text: 'HDR Gain Map 调研', link: '/engineering-notes/gain-map-research' },
+          { text: '编码器对比', link: '/engineering-notes/encoder-comparison' }
         ]
       }
     ],

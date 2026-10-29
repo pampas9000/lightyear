@@ -2,17 +2,17 @@
   {
     "name": "minimal avif fills defaults",
     "input": { "format": "avif" },
-    "canonical": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   {
     "name": "minimal jxl",
     "input": { "format": "jxl" },
-    "canonical": { "format": "jxl", "quality": 80, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "jxl", "quality": 80, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   {
     "name": "minimal webp",
     "input": { "format": "webp" },
-    "canonical": { "format": "webp", "quality": 80, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "webp", "quality": 80, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   {
     "name": "jpeg has quality but no effort",
@@ -22,12 +22,12 @@
   {
     "name": "png has effort but no quality",
     "input": { "format": "png" },
-    "canonical": { "format": "png", "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "png", "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   {
     "name": "heic default quality",
     "input": { "format": "heic" },
-    "canonical": { "format": "heic", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "heic", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   {
     "name": "lossless leaves quality unset",
@@ -50,7 +50,7 @@
     "name": "cover with both dimensions",
     "input": { "format": "webp", "resize": { "width": 400, "height": 300, "fit": "cover", "enlarge": true } },
     "canonical": {
-      "format": "webp", "quality": 80, "lossless": false, "effort": 5,
+      "format": "webp", "quality": 80, "lossless": false,
       "resize": { "width": 400, "height": 300, "fit": "cover", "enlarge": true },
       "color": "keep", "dynamic_range": "keep", "metadata": "strip"
     }
@@ -63,7 +63,7 @@
   {
     "name": "null optional field means unset",
     "input": { "format": "avif", "quality": null, "chroma": null },
-    "canonical": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
   { "name": "format is required", "input": { "quality": 80 } },
   { "name": "null for a defaulted field is rejected", "input": { "format": "avif", "color": null } },

@@ -41,4 +41,4 @@ features:
 | `compute` | Rust nightly（edition 2024）、libvips ≥ 8.17（`rs-vips`）、`cjxl`、`redis-rs`、`aws-sdk-s3` |
 | `web` | Nuxt 4、Vue 3.5、Tailwind CSS 4、shadcn-nuxt、@nuxtjs/i18n、wasm-vips |
 
-继续阅读：[架构总览](/architecture/overview) · [ImageOptions](/contracts/image-options) · [处理核心](/compute/imageops) · [路线图](/roadmap)
+继续阅读：[架构总览](/architecture/overview) · [转码链路](/compute/pipeline) · [ImageOptions](/contracts/image-options) · [处理核心](/compute/imageops) · [路线图](/roadmap)

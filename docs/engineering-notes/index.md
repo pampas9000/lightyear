@@ -5,6 +5,7 @@
 | 笔记 | 主题 |
 | :--- | :--- |
 | [HDR Gain Map 调研](./gain-map-research) | 通用工具链为何保不住 gain map、libvips 8.17 之后的变化、以后 HDR 通道的定位 |
+| [编码器对比](./encoder-comparison) | libvips 与直接调用 libjxl / libavif 的体积与画质（SSIMU2、Butteraugli），截图类 AVIF 偏大的原因；改走 libavif 后的三方复测 |
 
 自研 Rust 引擎时期的迁移记录（输入探测、ICC 容器、重采样、EXIF）随引擎一起删除，需要时可在 git 历史中查看。
 

@@ -25,14 +25,21 @@ pub struct WorkerConfig {
     /// Largest source image accepted, in pixels.
     #[serde(default = "default_max_pixels")]
     pub max_pixels: u64,
+    /// `libavif` (default) or `libvips`, the fallback.
+    #[serde(default = "default_avif_encoder")]
+    pub avif_encoder: String,
 }
 
 fn default_max_source_bytes() -> u64 {
     200 * 1024 * 1024
 }
 
+fn default_avif_encoder() -> String {
+    "libavif".into()
+}
+
 fn default_max_pixels() -> u64 {
-    compute_imageops::Limits::default().max_pixels
+    compute_imageops::Settings::default().max_pixels
 }
 
 impl WorkerConfig {
@@ -70,6 +77,9 @@ impl WorkerConfig {
         }
         if let Ok(pixels) = std::env::var("WORKER_MAX_PIXELS") {
             builder = builder.set_override("max_pixels", pixels)?;
+        }
+        if let Ok(encoder) = std::env::var("WORKER_AVIF_ENCODER") {
+            builder = builder.set_override("avif_encoder", encoder)?;
         }
 
         let settings: WorkerConfig = builder.build()?.try_deserialize()?;

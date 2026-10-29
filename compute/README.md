@@ -6,7 +6,7 @@ Rust workspace for image processing. The Cargo workspace root is `../Cargo.toml`
 compute/
 ├── crates/
 │   ├── types/      # compute-types: ImageOptions (single source of truth) + queue protocol v2
-│   └── imageops/   # compute-imageops: ImageOptions → libvips, input guards, cjxl bypass
+│   └── imageops/   # compute-imageops: ImageOptions → libvips, input guards, cjxl bypass, libavif
 └── worker/         # compute-worker: stateless Redis/S3 consumer
 ```
 
@@ -19,7 +19,7 @@ Dependency direction: `compute-types` ← `compute-imageops` ← `compute-worker
 
 ## `compute-imageops`
 
-`process(input, &options, &limits) -> Output` runs one conversion with libvips (via `rs-vips`, linked through pkg-config, libvips ≥ 8.17). It rejects oversized inputs before decoding, blocks libvips' untrusted loaders (re-allowing JPEG XL), refuses PQ/HLG sources that libvips would mislabel as sRGB, keeps UltraHDR gain maps for JPEG output, and repacks JPEG → lossless JXL with `cjxl` so `djxl` restores the original bytes. Design and libvips behaviors: [docs/compute/imageops.md](../docs/compute/imageops.md).
+`process(input, &options, &settings) -> Output` runs one conversion with libvips (via `rs-vips`, linked through pkg-config, libvips ≥ 8.17). It rejects oversized inputs before decoding, blocks libvips' untrusted loaders (re-allowing JPEG XL), refuses PQ/HLG sources that libvips would mislabel as sRGB, keeps UltraHDR gain maps for JPEG output, repacks JPEG → lossless JXL with `cjxl` so `djxl` restores the original bytes, and encodes AVIF with libavif (aom) through a small C shim, since libvips' `heifsave` disables aom's intra block copy; `WORKER_AVIF_ENCODER=libvips` switches back to `heifsave`. Design and libvips behaviors: [docs/compute/imageops.md](../docs/compute/imageops.md).
 
 `examples/process.rs` runs one conversion from the command line; `scripts/consistency.ts` uses it to compare against the browser implementation.
 

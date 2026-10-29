@@ -31,7 +31,7 @@ A change on the left is incomplete until the right is done in the same commit.
   - Rust: `cargo test --workspace`. It needs `cjxl` and `djxl`.
   - Image behavior: also run `task test:fixtures` and `task test:consistency`.
 - UI changes have been viewed in a browser (`task web`, port 3000).
-- `task doctor` lists the toolchain (libvips ≥ 8.17, cjxl/djxl, Node ≥ 23.6).
+- `task doctor` lists the toolchain (libvips ≥ 8.17, libavif ≥ 1.1, cjxl/djxl, Node ≥ 23.6).
 
 ## Gotchas
 

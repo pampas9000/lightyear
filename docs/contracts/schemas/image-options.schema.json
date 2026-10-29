@@ -33,7 +33,7 @@
       "default": "keep"
     },
     "effort": {
-      "description": "1 (fastest) – 10 (smallest). Not available for JPEG.",
+      "description": "1 (fastest) – 10 (smallest). Not available for JPEG. Unset uses each\nencoder's own default.",
       "type": [
         "integer",
         "null"

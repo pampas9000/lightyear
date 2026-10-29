@@ -18,7 +18,8 @@ export interface ImageOptions {
   color?: "keep" | "srgb";
   dynamic_range?: "keep" | "sdr";
   /**
-   * 1 (fastest) – 10 (smallest). Not available for JPEG.
+   * 1 (fastest) – 10 (smallest). Not available for JPEG. Unset uses each
+   * encoder's own default.
    */
   effort?: number | null;
   format: OutputFormat;

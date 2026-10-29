@@ -20,6 +20,15 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to load configuration: {}", e))?;
     println!("Configuration loaded and validated.");
 
+    // JPEG → JXL lossless recompression needs cjxl on every worker.
+    compute_imageops::check_cjxl().map_err(|e| anyhow::anyhow!("cjxl is required: {}", e))?;
+
+    let avif_encoder = config
+        .avif_encoder
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!("WORKER_AVIF_ENCODER: {e}"))?;
+    println!("AVIF encoder: {}", config.avif_encoder);
+
     // Mask Redis URL password for safe logging
     let masked_redis_url = mask_url_credentials(&config.redis_url);
     println!("Redis URL: {}", masked_redis_url);
@@ -45,8 +54,9 @@ async fn main() -> Result<()> {
         s3,
         bucket: config.s3.bucket.clone(),
         max_source_bytes: config.max_source_bytes,
-        limits: compute_imageops::Limits {
+        settings: compute_imageops::Settings {
             max_pixels: config.max_pixels,
+            avif_encoder,
         },
     };
     worker::Worker::new(redis_client, queue::Queue::new(conn), ctx)

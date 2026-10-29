@@ -2,7 +2,7 @@
 
 use crate::error::ComputeError;
 use crate::storage;
-use compute_imageops::Limits;
+use compute_imageops::Settings;
 use compute_types::protocol::{Artifact, Dispatch};
 
 pub const OP_IMAGE_CONVERT: &str = "image.convert";
@@ -11,7 +11,7 @@ pub struct Context {
     pub s3: aws_sdk_s3::Client,
     pub bucket: String,
     pub max_source_bytes: u64,
-    pub limits: Limits,
+    pub settings: Settings,
 }
 
 pub async fn run(ctx: &Context, dispatch: &Dispatch) -> Result<Artifact, ComputeError> {
@@ -29,12 +29,13 @@ pub async fn run(ctx: &Context, dispatch: &Dispatch) -> Result<Artifact, Compute
     )
     .await?;
     let options = dispatch.options.clone();
-    let limits = ctx.limits;
+    let settings = ctx.settings;
     // libvips is synchronous and uses its own thread pool.
-    let output =
-        tokio::task::spawn_blocking(move || compute_imageops::process(&source, &options, &limits))
-            .await
-            .map_err(|e| ComputeError::Internal(format!("processing task: {e}")))??;
+    let output = tokio::task::spawn_blocking(move || {
+        compute_imageops::process(&source, &options, &settings)
+    })
+    .await
+    .map_err(|e| ComputeError::Internal(format!("processing task: {e}")))??;
     let artifact = Artifact {
         key: dispatch.output_key.clone(),
         size: output.bytes.len() as u64,

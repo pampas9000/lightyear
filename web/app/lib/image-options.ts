@@ -15,8 +15,6 @@ export const DEFAULT_QUALITY: Record<OutputFormat, number | null> = {
     png: null,
 }
 
-export const DEFAULT_EFFORT = 5
-
 export const hasQuality = (o: ImageOptions) => !o.lossless && o.format !== 'png'
 export const hasLossless = (format: OutputFormat) => format !== 'jpeg'
 export const hasEffort = (format: OutputFormat) => format !== 'jpeg'

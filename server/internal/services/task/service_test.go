@@ -43,7 +43,7 @@ func TestCreateTaskStoresCanonicalOptionsAndIsIdempotent(t *testing.T) {
 	if len(got.Jobs) != 1 || job.Status != models.JobPending || job.SourceFileID != file.ID || job.Operation != models.OpImageConvert {
 		t.Fatalf("unexpected job: %+v", job)
 	}
-	if job.Options.Effort == nil || *job.Options.Effort != 5 || job.Options.Metadata != imageoptions.MetadataStrip {
+	if job.Options.Effort != nil || job.Options.Metadata != imageoptions.MetadataStrip {
 		t.Fatalf("options were not canonicalized: %+v", job.Options)
 	}
 	if job.ArtifactKey == "" {
@@ -94,7 +94,7 @@ func TestCompletedArtifactIsReusedForSameOwnerOnly(t *testing.T) {
 		Updates(map[string]any{"status": models.JobCompleted, "output_file_id": output.ID})
 
 	again, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}},
-		Options: json.RawMessage(`{"quality":70,"format":"avif","effort":5}`)})
+		Options: json.RawMessage(`{"quality":70,"format":"avif","metadata":"strip"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

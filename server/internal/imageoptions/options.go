@@ -218,6 +218,7 @@ func (o Options) Validate() error {
 
 // Canonicalize validates and fills every default, so equal intents serialize
 // equally. The result is what gets stored and dispatched.
+// Effort stays unset: its default is the encoder's own.
 func (o Options) Canonicalize() (Options, error) {
 	if err := o.Validate(); err != nil {
 		return Options{}, err
@@ -225,10 +226,6 @@ func (o Options) Canonicalize() (Options, error) {
 	if o.Quality == nil && !o.Lossless && defaultQuality[o.Format] != 0 {
 		q := defaultQuality[o.Format]
 		o.Quality = &q
-	}
-	if o.Effort == nil && o.Format != FormatJPEG {
-		e := 5
-		o.Effort = &e
 	}
 	if o.Resize != nil {
 		r := *o.Resize
@@ -257,7 +254,7 @@ func ArtifactKey(source string, canonical Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256([]byte("image-options/v1\n" + source + "\n" + string(encoded)))
+	sum := sha256.Sum256([]byte("image-options/v2\n" + source + "\n" + string(encoded)))
 	return hex.EncodeToString(sum[:]), nil
 }
 

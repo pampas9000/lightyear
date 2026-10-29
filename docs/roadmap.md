@@ -30,6 +30,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-10 | 前期只做异步任务；CDN 式取图、AI 能力以后再加 | 负担小，结构已预留 |
 | 2026-10 | Rust 工具链保持 nightly | 项目决定 |
 | 2026-10 | `dynamic_range=keep` 在输出格式无法携带 gain map 时输出 SDR 基础图，而不是报错 | 否则最常见的"手机照片转 AVIF"默认会失败；PQ/HLG 源图仍一律拒绝 |
+| 2026-10-12 | 浏览器沙盒暂不支持 HEIC（读写都不做），HEIC 只走服务端 | 官方 wasm-vips 以 `WITH_LIBDE265=OFF` 构建；自编带 libde265 的 wasm-vips 需维护构建且有 HEVC 专利风险；libheif-js 只出 8-bit，ICC/Exif/XMP 要自己从 ISOBMFF 解析透传，与服务端难以一致 |
+| 2026-10-27 | 编码平时走 libvips；服务端 AVIF 改为直接调用 libavif。默认速度档跟随实际调用的编码器：走 libvips 用 libvips 默认，走 libavif 用 libavif 默认（speed 6），走 libjxl 用 libjxl 默认（effort 7）；用户未填 `effort` 时不传 | [编码器对比](/engineering-notes/encoder-comparison)：JXL 经 libvips 与 `cjxl` 逐字节相同，没有理由绕开；AVIF 照片与 `avifenc` 持平，但 libvips `heifsave` 固定关闭 intrabc，截图大 13%–40%。默认值不自造映射，与所用库的文档一致 |
 
 ## 执行步骤
 
@@ -73,7 +75,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 3.1 | 新 crate，`build.rs` 用 pkg-config 定位 libvips（≥ 8.17） | ✅ |
 | 3.2 | 解码 + 自动转正、缩放（`inside`/`cover`/`fill`、`enlarge`）、ICC 保留或转 sRGB、元数据保留/去除、六种格式编码 | ✅ |
 | 3.3 | 资源上限：解码前按像素数拒绝；`fail_on=error`；拦截 libvips 标记为 untrusted 的加载器（PDF、SVG、OpenEXR、FITS 等），单独放行 JXL | ✅ |
-| 3.4 | `cjxl` JPEG→JXL 无损旁路（逐字节可还原，已用 `djxl` 验证）；缺 `cjxl` 时退回像素级无损 | ✅ |
+| 3.4 | `cjxl` JPEG→JXL 无损旁路（逐字节可还原，已用 `djxl` 验证）；`cjxl` 改为 worker 必装，启动时检查；`metadata=strip` 也走旁路（删元数据、不带重构数据）；UltraHDR 源也走旁路（gain map 在重构数据中保留，`dynamic_range=sdr` 时不带）；服务端表单提示会走哪条路径 | ✅ |
 | 3.5 | HDR 保护：PQ/HLG 源图（HEIF/AVIF `nclx`、PNG `cICP`）明确拒绝；UltraHDR JPEG 的 gain map 在 JPEG 输出时保留，`sdr` 或其他格式输出基础 SDR 图 | ✅ |
 | 3.6 | 全部素材 × 六种格式扫描（`task test:fixtures`）：只有带 PQ/HLG 标记的 4 个 HDR 素材被拒绝，其余全部成功 | ✅ |
 | 3.7 | PQ/HLG 源图转 SDR（色调映射）与 AVIF/HEIC gain map 保留 | ⬜ 归入以后的 HDR 通道 |
@@ -156,11 +158,28 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 9.7 | 令牌桶限流、attempt 用量、`usage_daily` | ⬜ |
 | 9.8 | MCP：`upload` / `submit_task` / `get_task(wait_seconds)` | ⬜ |
 
+### 第 10 步：编码器直连与默认值
+
+背景见[编码器对比](/engineering-notes/encoder-comparison)与[转码链路](/compute/pipeline)。
+
+| # | 项目 | 状态 |
+|---|---|---|
+| 10.1 | 已知问题：经 libvips `heifsave` 编码的截图类 AVIF 比 `avifenc` 大 13%–40%（同等 SSIMU2），原因是它固定 `enable-intrabc=FALSE`、`auto-tiles=TRUE` 且无选项可改；照片不受影响。服务端已改走 libavif，浏览器沙盒仍有此问题 | — |
+| 10.2 | 验证 libavif 的最坏编码时间：intrabc 在 speed 0–2 时开销大（2560×1392 截图 speed 1 为 16 秒，关闭 intrabc 为 4 秒，10 线程）；默认 speed 6 低于 1 秒，照片不受影响。决定不加限制，保持 libavif 默认，只有显式 `effort` 9–10 会进入这几档 | ✅ |
+| 10.3 | 服务端 AVIF 改走 libavif（C 包装层 `avif_shim.c`，编译期经 pkg-config 链接），默认 speed 6；位深、色度、ICC、Exif/XMP、alpha、缩放后的像素仍由 libvips 准备；测试读回 ICC、Exif、方向与无损像素 | ✅ |
+| 10.4 | `effort` 未填时不传给编码器（JXL e7、AVIF s6、其余为 libvips 默认）：Rust/Go 规范化、fixtures、Schema、Web 表单（显示"默认"，可恢复）、契约文档同步修改，产物键前缀升到 `image-options/v2` | ✅ |
+| 10.5 | 浏览器沙盒仍用 wasm-vips 编码 AVIF：`task test:consistency` 不比较体积，确认像素差仍在阈值内，并在[已知限制](/compute/limitations#浏览器沙盒)登记两端 AVIF 体积不同。两个独立的有损 AV1 编码在 Q60 下彼此平均差约 2（各自与源图差约 2.8，无色偏），有损 AVIF 用例的阈值放宽到 3；新增无损 AVIF（要求完全相同）与 alpha AVIF 用例，共 24 组 | ✅ |
+| 10.6 | 决定 `cjxl` 旁路是否传入用户显式给出的 `effort`（目前不传，即 cjxl 默认 e7） | ⬜ |
+| 10.7 | worker 级开关 `WORKER_AVIF_ENCODER=libavif\|libvips`（默认 libavif），用于回退与对比；不进 `ImageOptions`，不开放给用户：实测 libavif 在照片上与 libvips 持平、截图上更小，JXL 两条路径逐字节相同，用户可选只会多出更差或相同的选项。同时修正 libavif 输出的矩阵为 BT.601（之前写"未指定"）；与 `avifenc` 的差别只剩它默认自动切 tile（截图大 15%–18%，画质相同） | ✅ |
+| 10.8 | 三方复测（[编码器对比](/engineering-notes/encoder-comparison#复测-服务端-avif-改走-libavif-之后)）：服务端 AVIF 与直接调用 libavif 等效，截图比 `avifenc` 小 15%–18%（它默认切 tile）。顺带更正：libavif 默认 alpha 跟随颜色质量（有损），此前文档误写为无损 | ✅ |
+| 10.9 | 决定 `bit_depth` 是否开放 12：AV1 支持 12-bit，`avifenc` 对深色位源默认输出 12-bit，lightyear 目前只允许 8 或 10（契约、Schema、表单与 HEIC 都要一起考虑） | ⬜ |
+
 ### 以后（结构已预留，暂不排期）
 
 - **CDN 式取图** `/v1/img/{source}/{options}`：有产物就 302，否则返回原图并投递任务。
 - **AI 能力**（放大、生图、P 图）：注册表加一行 + 新 worker 池；付费调用以 `attempt_id` 作幂等键，attempt 上记 `remote_ref` 与用量。
 - **任务串联**：输入写 `from_job`，上游完成后才派发。
+- **浏览器读取 HEIC**：首选自编 wasm-vips 打开 libde265（仅解码），`heifload` 与服务端行为一致，无需手工透传色彩与元数据；备选 libheif-js + ISOBMFF 解析（仅 8-bit）。
 - **HDR / gain map 通道**：libavif / libultrahdr 在容器层处理，元数据对齐 libvips `gainmap-data`；libvips 支持 AVIF gain map 后可整体删除。
 - **自动扩缩容**：按各 stream 积压量（KEDA Redis Streams 伸缩器）。
 - **分片上传的 SHA-256 校验**：单次 PUT 由存储按签名里的 SHA-256 校验，分片上传（>10 MB）的 `hash` 仍由客户端上报。计划由 worker 首次读取源图时计算并回写，秒传只匹配校验过的文件。

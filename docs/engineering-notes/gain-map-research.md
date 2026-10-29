@@ -7,6 +7,8 @@
 > - 第三节里的 `compute-engine` / `compute-server-adapter`、Y4M 管线均已删除。以后的 HDR 通道应作为 `compute-imageops` 旁的一条容器层路径，元数据对齐 libvips 的 `gainmap-data`，libvips 支持 AVIF gain map 后整体删除。
 >
 > 勘误（2026-10 初）：初稿中"`cjxl` 会自动识别 UltraHDR JPEG 的 MPF/XMP 并把 Gain Map 封装进 JXL（`jhgm`）"的结论**不成立**——libjxl 没有该能力（上游 issue #4588），带 MPF 的 JPEG 按普通 JPEG 重新打包会静默丢失 Gain Map。正确解法见下文"针对 JXL 目标"一节。
+>
+> 补充（2026-10-12 实测，cjxl 0.12）："丢失"只针对 JXL 本身：`cjxl --lossless_jpeg=1` 会把 MPF 与 gain map 当作 JPEG 尾部数据存进重构数据（`jbrd`），`djxl` 还原出的 JPEG 与原 UltraHDR 文件逐字节一致，gain map 仍可读出。JXL 查看器看到的只有 SDR 基础图。
 
 ## 问题
 

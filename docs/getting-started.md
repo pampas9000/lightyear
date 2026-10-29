@@ -9,17 +9,18 @@
 | Go 1.26+ | API 与 orchestrator |
 | Rust nightly | 由 `rust-toolchain.toml` 指定（edition 2024） |
 | [`task`](https://taskfile.dev) | 仓库任务入口 |
-| libvips ≥ 8.17 + `pkg-config` | worker 处理核心；需带 libheif（AVIF/HEIC）、libjxl、libultrahdr |
-| `cjxl` / `djxl`（libjxl 工具） | JPEG → JXL 无损重新打包；测试需要 `djxl` |
+| libvips ≥ 8.17 + `pkg-config` | worker 处理核心；需带 libheif（HEIC）、libjxl、libultrahdr |
+| libavif ≥ 1.1（带 aom）+ 头文件 | 服务端 AVIF 编码 |
+| `cjxl` / `djxl`（libjxl 工具） | JPEG → JXL 无损重新打包，worker 必装（启动时检查）；测试需要 `djxl` |
 | PostgreSQL、Redis、S3 兼容存储 | 运行时依赖 |
 
-macOS（Homebrew 的 vips 已包含 libheif、libjxl、libultrahdr）：
+macOS（Homebrew 的 vips 已包含 libheif、libjxl、libultrahdr；libavif 也会作为依赖装上）：
 
 ```bash
-brew install vips jpeg-xl pkgconf go-task
+brew install vips libavif jpeg-xl pkgconf go-task
 ```
 
-Linux 发行版自带的 libvips 往往低于 8.17，需要从源码构建或使用较新的发行版；`vips --vips-config` 中 `UHDR`、`JXL`、`HEIC/AVIF` 三项应为 `true`。
+Linux 发行版自带的 libvips 往往低于 8.17，需要从源码构建或使用较新的发行版；libavif 需安装开发包（如 `libavif-dev`）且编译时启用 aom；`vips --vips-config` 中 `UHDR`、`JXL`、`HEIC/AVIF` 三项应为 `true`。
 
 `task doctor` 会打印各工具版本，缺少任何一项都会报错。
 
@@ -101,7 +102,7 @@ TEST_DATABASE_URL='postgres://postgres@127.0.0.1:5432/lightyear_test?sslmode=dis
 | Redis | `REDIS_URL`，默认 `redis://localhost:6379/0` | 会话、队列、取消标记 |
 | S3 / R2 | `S3_ENDPOINT`、`S3_ACCESS_ID`、`S3_ACCESS_KEY`、`S3_BUCKET`、`S3_REGION`（空为 `auto`） | |
 
-API 与 orchestrator 从 `server/.env`（没有则用根目录 `.env`）和环境变量读取配置；worker 读取当前目录的 `.env` 与环境变量，另有 `WORKER_MAX_SOURCE_BYTES`（默认 200 MB）与 `WORKER_MAX_PIXELS`（默认 1 亿）。完整列表见 `.env.example`。
+API 与 orchestrator 从 `server/.env`（没有则用根目录 `.env`）和环境变量读取配置；worker 读取当前目录的 `.env` 与环境变量，另有 `WORKER_MAX_SOURCE_BYTES`（默认 200 MB）、`WORKER_MAX_PIXELS`（默认 1 亿）与 `WORKER_AVIF_ENCODER`（`libavif` 或 `libvips`，默认 `libavif`）。完整列表见 `.env.example`。
 
 ## 下一步
 

@@ -38,6 +38,11 @@ interface Case {
     tolerance?: number
 }
 
+// The server encodes AVIF with libavif, the browser with libvips heifsave: two
+// independent lossy AV1 encodes, each about 2.8 from the source at Q60, land
+// about 2 apart without any shift in color (measured on webkit_iceland_p3.jpg).
+const AVIF_ENCODERS = 3
+
 const CASES: Case[] = [
     { fixture: 'quality/jpeg_420_90.jpg', options: { format: 'avif' } },
     { fixture: 'quality/jpeg_420_90.jpg', options: { format: 'jpeg', chroma: '444', quality: 90 } },
@@ -53,8 +58,10 @@ const CASES: Case[] = [
     { fixture: 'quality/heic_yuv_85.heic', options: { format: 'webp' }, browserGap: 'no HEVC decoder' },
     { fixture: 'quality/checker_rb_444.png', options: { format: 'heic' }, browserGap: 'no HEVC encoder' },
     { fixture: 'external/webkit_iceland_p3.jpg', options: { format: 'webp', color: 'srgb', resize: { width: 800 } } },
-    { fixture: 'external/webkit_iceland_p3.jpg', options: { format: 'avif', metadata: 'keep' } },
-    { fixture: 'hd_benchmark/landscape_mountains_4k.jpg', options: { format: 'avif', resize: { width: 300, height: 300, fit: 'cover' } } },
+    { fixture: 'external/webkit_iceland_p3.jpg', options: { format: 'avif', metadata: 'keep' }, tolerance: AVIF_ENCODERS },
+    { fixture: 'hd_benchmark/landscape_mountains_4k.jpg', options: { format: 'avif', resize: { width: 300, height: 300, fit: 'cover' } }, tolerance: AVIF_ENCODERS },
+    { fixture: 'quality/checker_rb_444.png', options: { format: 'avif', lossless: true }, tolerance: 0 },
+    { fixture: 'quality/avif_8bit_420_alpha.avif', options: { format: 'avif' }, tolerance: AVIF_ENCODERS },
     { fixture: 'hd_benchmark/landscape_mountains_4k.jpg', options: { format: 'jpeg', resize: { width: 120, height: 300, fit: 'fill' } } },
     { fixture: 'external/aom_apple_gainmap_new.jpg', options: { format: 'jpeg', resize: { width: 400 } } },
     { fixture: 'external/aom_apple_gainmap_new.jpg', options: { format: 'jpeg', dynamic_range: 'sdr' } },

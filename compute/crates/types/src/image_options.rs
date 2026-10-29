@@ -116,7 +116,8 @@ pub struct ImageOptions {
     /// Not available for JPEG.
     #[serde(default)]
     pub lossless: bool,
-    /// 1 (fastest) – 10 (smallest). Not available for JPEG.
+    /// 1 (fastest) – 10 (smallest). Not available for JPEG. Unset uses each
+    /// encoder's own default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1, max = 10))]
     pub effort: Option<u8>,
@@ -210,13 +211,11 @@ impl ImageOptions {
     }
 
     /// Validates and fills every default, so equal intents serialize equally.
+    /// `effort` stays unset: its default is the encoder's own.
     pub fn canonicalize(mut self) -> Result<Self, OptionsError> {
         self.validate()?;
         if self.quality.is_none() && !self.lossless {
             self.quality = self.format.default_quality();
-        }
-        if self.effort.is_none() && self.format != OutputFormat::Jpeg {
-            self.effort = Some(5);
         }
         Ok(self)
     }

@@ -87,7 +87,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 ```json
 {
   "id": "…", "task_id": "…", "operation": "image.convert",
-  "options": { "format": "avif", "quality": 60, "lossless": false, "effort": 5, "color": "keep", "dynamic_range": "keep", "metadata": "strip" },
+  "options": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" },
   "source_file_id": "…", "source_file": { "name": "a.jpg", "size": 123, "width": 4000, "height": 3000 },
   "output_file_id": "…", "output_file": { "name": "a.avif", "size": 45, "mime_type": "image/avif" },
   "status": "COMPLETED", "progress": 100, "attempts": 1, "max_attempts": 3,

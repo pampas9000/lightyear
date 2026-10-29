@@ -3,12 +3,16 @@
 //! Decoding, EXIF auto-rotation, resizing, color conversion, metadata handling
 //! and encoding are all libvips; this crate only maps the options onto it and
 //! guards the cases libvips would get wrong (HDR labels) or that need limits.
-//! The one external tool is `cjxl`, for bit-exact JPEG → JXL recompression.
+//! The exceptions are `cjxl`, for bit-exact JPEG → JXL recompression, and
+//! libavif for the final AVIF encode (see `avif.rs`) unless the worker
+//! selects libvips for it ([`AvifEncoder`]).
 
+mod avif;
 mod bypass;
 mod encode;
 mod probe;
 
+pub use bypass::check_cjxl;
 pub use compute_types::ImageOptions;
 use compute_types::image_options::{ColorIntent, Fit, Resize};
 use rs_vips::enums::BandFormat;
@@ -18,16 +22,43 @@ use rs_vips::{
 };
 use std::sync::OnceLock;
 
-/// Bounds a single job; anything larger is rejected before full decoding.
+/// Per-worker settings, the same for every job.
 #[derive(Debug, Clone, Copy)]
-pub struct Limits {
+pub struct Settings {
+    /// Larger sources are rejected before full decoding.
     pub max_pixels: u64,
+    pub avif_encoder: AvifEncoder,
 }
 
-impl Default for Limits {
+impl Default for Settings {
     fn default() -> Self {
         Self {
             max_pixels: 100_000_000,
+            avif_encoder: AvifEncoder::default(),
+        }
+    }
+}
+
+/// The library that encodes AVIF. libvips `heifsave` is kept as a fallback
+/// should libavif misbehave, and for comparisons; it is also what the browser
+/// sandbox uses.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AvifEncoder {
+    #[default]
+    Libavif,
+    Libvips,
+}
+
+impl std::str::FromStr for AvifEncoder {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "libavif" => Ok(Self::Libavif),
+            "libvips" => Ok(Self::Libvips),
+            _ => Err(format!(
+                "unknown AVIF encoder {s:?}, expected libavif or libvips"
+            )),
         }
     }
 }
@@ -91,7 +122,7 @@ fn init() {
 }
 
 /// Processes `input` according to `options`.
-pub fn process(input: &[u8], options: &ImageOptions, limits: &Limits) -> Result<Output, Error> {
+pub fn process(input: &[u8], options: &ImageOptions, settings: &Settings) -> Result<Output, Error> {
     let options = options
         .clone()
         .canonicalize()
@@ -102,10 +133,10 @@ pub fn process(input: &[u8], options: &ImageOptions, limits: &Limits) -> Result<
     let source = VipsImage::new_from_buffer(input, "")
         .map_err(|_| Error::Unsupported("unrecognized or corrupt image".into()))?;
     let pixels = source.get_width() as u64 * source.get_height() as u64;
-    if pixels > limits.max_pixels {
+    if pixels > settings.max_pixels {
         return Err(Error::Unsupported(format!(
             "{pixels} pixels exceeds the limit of {}",
-            limits.max_pixels
+            settings.max_pixels
         )));
     }
     let loader = source.get_string("vips-loader").unwrap_or_default();
@@ -117,12 +148,12 @@ pub fn process(input: &[u8], options: &ImageOptions, limits: &Limits) -> Result<
     }
     let has_gain_map = source.get_typeof("gainmap-data").unwrap_or(0) != 0;
 
-    if let Some(output) = bypass::jpeg_to_jxl(input, &source, &loader, &options)? {
+    if let Some(output) = bypass::jpeg_to_jxl(input, &source, &loader, has_gain_map, &options)? {
         return Ok(output);
     }
 
     let image = decode(input, &source, &options)?;
-    let bytes = encode::save(&image, &options, has_gain_map)?;
+    let bytes = encode::save(&image, &options, has_gain_map, settings.avif_encoder)?;
     Ok(Output {
         bytes,
         mime: encode::mime(options.format),

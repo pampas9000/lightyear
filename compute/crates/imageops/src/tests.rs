@@ -12,7 +12,7 @@ fn opts(json: &str) -> ImageOptions {
 }
 
 fn run(input: &[u8], json: &str) -> Output {
-    process(input, &opts(json), &Limits::default()).unwrap_or_else(|e| panic!("{json}: {e}"))
+    process(input, &opts(json), &Settings::default()).unwrap_or_else(|e| panic!("{json}: {e}"))
 }
 
 fn reload(output: &Output) -> VipsImage {
@@ -213,10 +213,71 @@ fn every_format_encodes() {
 }
 
 #[test]
+fn avif_carries_profile_and_metadata_and_lossless_is_exact() {
+    let p3 = fixture("external/webkit_iceland_p3.jpg");
+    let source_icc = VipsImage::new_from_buffer(&p3, "")
+        .unwrap()
+        .get_blob("icc-profile-data")
+        .unwrap();
+    let kept = reload(&run(&p3, r#"{"format":"avif"}"#));
+    assert_eq!(kept.get_blob("icc-profile-data").unwrap(), source_icc);
+
+    let sideways = sideways_jpeg(40, 20);
+    assert!(!has_field(
+        &reload(&run(&sideways, r#"{"format":"avif"}"#)),
+        "exif-data"
+    ));
+    let out = run(&sideways, r#"{"format":"avif","metadata":"keep"}"#);
+    assert_eq!((out.width, out.height), (20, 40));
+    let kept = reload(&out);
+    assert!(has_field(&kept, "exif-data"));
+    // The orientation was applied, so it must not be applied twice.
+    assert!(kept.get_int("orientation").is_err() || kept.get_int("orientation").unwrap() == 1);
+    assert_eq!((kept.get_width(), kept.get_height()), (20, 40));
+
+    let checker = fixture("quality/checker_rb_444.png");
+    let lossless = reload(&run(&checker, r#"{"format":"avif","lossless":true}"#));
+    let source = VipsImage::new_from_buffer(&checker, "").unwrap();
+    let diff = source
+        .subtract(&lossless)
+        .unwrap()
+        .abs()
+        .unwrap()
+        .max()
+        .unwrap();
+    assert_eq!(diff, 0.0);
+}
+
+#[test]
+fn avif_encoder_setting_picks_the_library() {
+    let input = fixture("quality/checker_rb_444.png");
+    let encode = |avif_encoder| {
+        let settings = Settings {
+            avif_encoder,
+            ..Settings::default()
+        };
+        process(&input, &opts(r#"{"format":"avif"}"#), &settings).unwrap()
+    };
+    // libavif names its primary item "Color" in the `infe` box; libheif
+    // leaves it unnamed.
+    let names_libavif = |out: &Output| out.bytes.windows(10).any(|w| w == b"av01Color\0");
+    let libavif = encode(AvifEncoder::Libavif);
+    let libvips = encode(AvifEncoder::Libvips);
+    assert!(names_libavif(&libavif));
+    assert!(!names_libavif(&libvips));
+    for out in [&libavif, &libvips] {
+        assert_eq!(out.mime, "image/avif");
+        assert_eq!(reload(out).get_string("heif-compression").unwrap(), "av1");
+    }
+    assert_eq!("libvips".parse(), Ok(AvifEncoder::Libvips));
+    assert!("aom".parse::<AvifEncoder>().is_err());
+}
+
+#[test]
 fn untrusted_loaders_are_blocked() {
     let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"/>"#;
     assert!(matches!(
-        process(svg, &opts(r#"{"format":"png"}"#), &Limits::default()),
+        process(svg, &opts(r#"{"format":"png"}"#), &Settings::default()),
         Err(Error::Unsupported(_))
     ));
 }
@@ -231,7 +292,7 @@ fn hdr_transfer_sources_are_rejected_instead_of_mislabeled() {
         let err = process(
             &fixture(path),
             &opts(r#"{"format":"avif"}"#),
-            &Limits::default(),
+            &Settings::default(),
         )
         .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)), "{path}: {err}");
@@ -252,7 +313,10 @@ fn ultrahdr_gain_map_is_kept_for_jpeg_and_dropped_for_sdr() {
 #[test]
 fn oversized_and_unreadable_inputs_are_unsupported() {
     let photo = fixture("quality/checker_rb_444.png");
-    let tiny = Limits { max_pixels: 1000 };
+    let tiny = Settings {
+        max_pixels: 1000,
+        ..Settings::default()
+    };
     assert!(matches!(
         process(&photo, &opts(r#"{"format":"png"}"#), &tiny),
         Err(Error::Unsupported(_))
@@ -261,7 +325,7 @@ fn oversized_and_unreadable_inputs_are_unsupported() {
         process(
             b"not an image",
             &opts(r#"{"format":"png"}"#),
-            &Limits::default()
+            &Settings::default()
         ),
         Err(Error::Unsupported(_))
     ));
@@ -269,25 +333,18 @@ fn oversized_and_unreadable_inputs_are_unsupported() {
         process(
             &photo,
             &opts(r#"{"format":"png","quality":50}"#),
-            &Limits::default()
+            &Settings::default()
         ),
         Err(Error::Invalid(_))
     ));
 }
 
-#[test]
-fn jpeg_to_jxl_lossless_is_bit_exact() {
-    let jpeg = fixture("quality/jpeg_420_90.jpg");
-    let out = run(
-        &jpeg,
-        r#"{"format":"jxl","lossless":true,"metadata":"keep"}"#,
-    );
-    assert_eq!(out.mime, "image/jxl");
+/// Restores a JPEG from a JXL's reconstruction data with `djxl`.
+fn djxl_jpeg(jxl_bytes: &[u8]) -> Vec<u8> {
     let dir = tempfile::tempdir().unwrap();
     let (jxl, back) = (dir.path().join("a.jxl"), dir.path().join("back.jpg"));
-    std::fs::write(&jxl, &out.bytes).unwrap();
-    // cjxl and djxl are development dependencies: a missing tool fails here
-    // rather than quietly testing the pixel fallback.
+    std::fs::write(&jxl, jxl_bytes).unwrap();
+    // djxl is a development dependency: a missing tool fails here.
     let djxl = std::process::Command::new("djxl")
         .arg(&jxl)
         .arg(&back)
@@ -298,11 +355,63 @@ fn jpeg_to_jxl_lossless_is_bit_exact() {
         "djxl: {}",
         String::from_utf8_lossy(&djxl.stderr)
     );
-    assert_eq!(
-        std::fs::read(&back).unwrap(),
-        jpeg,
-        "JPEG not reconstructed bit-exactly (is cjxl installed?)"
+    std::fs::read(&back).unwrap()
+}
+
+/// Whether a JXL container carries JPEG reconstruction data (`jbrd` box).
+fn has_jbrd(jxl: &[u8]) -> bool {
+    jxl.windows(4).any(|w| w == b"jbrd")
+}
+
+#[test]
+fn jpeg_to_jxl_lossless_is_bit_exact() {
+    let jpeg = fixture("quality/jpeg_420_90.jpg");
+    let out = run(
+        &jpeg,
+        r#"{"format":"jxl","lossless":true,"metadata":"keep"}"#,
     );
+    assert_eq!(out.mime, "image/jxl");
+    assert_eq!(
+        djxl_jpeg(&out.bytes),
+        jpeg,
+        "JPEG not reconstructed bit-exactly"
+    );
+}
+
+#[test]
+fn jpeg_to_jxl_lossless_with_stripped_metadata_transcodes_coefficients() {
+    let jpeg = fixture("external/webkit_iceland_p3.jpg");
+    let out = run(&jpeg, r#"{"format":"jxl","lossless":true}"#);
+    // Re-encoded pixels would be larger than the JPEG; transcoding is smaller.
+    assert!(out.bytes.len() < jpeg.len());
+    assert!(!has_jbrd(&out.bytes));
+    let jxl = reload(&out);
+    assert!(!has_field(&jxl, "exif-data"));
+    assert!(has_field(&jxl, "icc-profile-data"));
+}
+
+#[test]
+fn ultrahdr_to_jxl_lossless_keeps_gain_map_unless_sdr() {
+    let ultra = fixture("external/aom_apple_gainmap_new.jpg");
+    let out = run(
+        &ultra,
+        r#"{"format":"jxl","lossless":true,"metadata":"keep"}"#,
+    );
+    // The gain map lives in the reconstruction data, so the restored JPEG is
+    // the original UltraHDR file.
+    assert_eq!(
+        djxl_jpeg(&out.bytes),
+        ultra,
+        "UltraHDR not reconstructed bit-exactly"
+    );
+
+    // `dynamic_range=sdr` drops the gain map with the reconstruction data.
+    let sdr = run(
+        &ultra,
+        r#"{"format":"jxl","lossless":true,"metadata":"keep","dynamic_range":"sdr"}"#,
+    );
+    assert!(!has_jbrd(&sdr.bytes));
+    assert!(sdr.bytes.len() < ultra.len());
 }
 
 /// Every fixture × every format; only CICP-tagged HDR sources may fail. Slow in
@@ -331,7 +440,7 @@ fn fixture_sweep() {
             let input = std::fs::read(entry.path()).unwrap();
             for format in ["avif", "heic", "jxl", "webp", "jpeg", "png"] {
                 let json = format!(r#"{{"format":"{format}","resize":{{"width":1024}}}}"#);
-                let result = process(&input, &opts(&json), &Limits::default());
+                let result = process(&input, &opts(&json), &Settings::default());
                 match (REJECTED.contains(&name.as_str()), result) {
                     (false, Ok(_)) | (true, Err(Error::Unsupported(_))) => {}
                     (_, result) => {

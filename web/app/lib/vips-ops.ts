@@ -7,7 +7,7 @@
 // - its JPEG XL decoder rejects files carrying an Exif or XMP box.
 import type VipsModule from 'wasm-vips'
 import type { ImageOptions, OutputFormat } from '~/lib/types/image-options'
-import { DEFAULT_EFFORT, DEFAULT_QUALITY, FORMATS } from '~/lib/image-options'
+import { DEFAULT_QUALITY, FORMATS } from '~/lib/image-options'
 
 type Vips = Awaited<ReturnType<typeof VipsModule>>
 type Image = InstanceType<Vips['Image']>
@@ -73,10 +73,14 @@ export function probe(vips: Vips, input: Uint8Array): Probe {
     return { width: image.width, height: image.height, format: loader.replace(/load.*$/, '') }
 }
 
-/** Spreads the shared 1-10 effort over an encoder's own range. */
-function effort(o: ImageOptions, low: number, high: number) {
-    const e = Math.min(10, Math.max(1, o.effort ?? DEFAULT_EFFORT))
-    return low + Math.floor(((e - 1) * (high - low) + 4) / 9)
+/**
+ * Spreads the shared 1-10 effort over an encoder's own range, as the option
+ * `name`; an unset effort passes nothing, leaving libvips' own default.
+ */
+function effort(name: string, o: ImageOptions, low: number, high: number) {
+    if (o.effort == null) return {}
+    const e = Math.min(10, Math.max(1, o.effort))
+    return { [name]: low + Math.floor(((e - 1) * (high - low) + 4) / 9) }
 }
 
 export function process(vips: Vips, input: Uint8Array, o: ImageOptions): ProcessResult {
@@ -149,16 +153,16 @@ function save(image: Image, o: ImageOptions, hasGainMap: boolean): Uint8Array {
                 ...common,
                 compression: o.format === 'avif' ? 'av1' : 'hevc',
                 lossless: !!o.lossless,
-                effort: effort(o, 0, 9),
+                ...effort('effort', o, 0, 9),
                 bitdepth: o.bit_depth ?? (deep ? 10 : 8),
                 subsample_mode: subsample,
             })
         case 'jxl':
-            return image.jxlsaveBuffer({ ...common, lossless: !!o.lossless, effort: effort(o, 1, 9) })
+            return image.jxlsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 1, 9) })
         case 'webp':
-            return image.webpsaveBuffer({ ...common, lossless: !!o.lossless, effort: effort(o, 0, 6) })
+            return image.webpsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 0, 6) })
         case 'png':
-            return image.pngsaveBuffer({ keep, compression: effort(o, 0, 9), bitdepth: deep ? 16 : 8 })
+            return image.pngsaveBuffer({ keep, ...effort('compression', o, 0, 9), bitdepth: deep ? 16 : 8 })
         case 'jpeg':
             if (keepGainMap) return image.uhdrsaveBuffer(common)
             return image.jpegsaveBuffer({ ...common, subsample_mode: subsample, optimize_coding: true, background: [255] })
