@@ -172,7 +172,9 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 10.6 | 决定 `cjxl` 旁路是否传入用户显式给出的 `effort`（目前不传，即 cjxl 默认 e7） | ⬜ |
 | 10.7 | worker 级开关 `WORKER_AVIF_ENCODER=libavif\|libvips`（默认 libavif），用于回退与对比；不进 `ImageOptions`，不开放给用户：实测 libavif 在照片上与 libvips 持平、截图上更小，JXL 两条路径逐字节相同，用户可选只会多出更差或相同的选项。同时修正 libavif 输出的矩阵为 BT.601（之前写"未指定"）；与 `avifenc` 的差别只剩它默认自动切 tile（截图大 15%–18%，画质相同） | ✅ |
 | 10.8 | 三方复测（[编码器对比](/engineering-notes/encoder-comparison#复测-服务端-avif-改走-libavif-之后)）：服务端 AVIF 与直接调用 libavif 等效，截图比 `avifenc` 小 15%–18%（它默认切 tile）。顺带更正：libavif 默认 alpha 跟随颜色质量（有损），此前文档误写为无损 | ✅ |
-| 10.9 | 决定 `bit_depth` 是否开放 12：AV1 支持 12-bit，`avifenc` 对深色位源默认输出 12-bit，lightyear 目前只允许 8 或 10（契约、Schema、表单与 HEIC 都要一起考虑） | ⬜ |
+| 10.9 | `bit_depth` 开放 12（AVIF/HEIC）并开放给 JXL（8 或 16）：Schema 改为枚举，Rust/Go 校验按格式区分，fixtures、表单、沙盒、文档同步；未填时的默认不变，产物键前缀不变。JPEG → JXL 的 `cjxl` 旁路只在未指定或指定 8 时使用 | ✅ |
+| 10.10 | JXL 的 10/12-bit：libvips 8.18 的 `jxlsave bitdepth` 写出的像素偏暗（10-bit 暗 64 倍，12-bit 暗 16 倍），暂不开放。可选做法：等 libvips 修复，或像 AVIF 一样加 libjxl 的 C 包装层（浏览器沙盒无法同步） | ⬜ |
+| 10.11 | 浮点源（scRGB）转整数位深时截断 0–1 以外的值，且不参考内嵌 ICC；需要色调映射或按 ICC 转换时再处理，与 HDR 通道一并考虑 | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 

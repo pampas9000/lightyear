@@ -4,13 +4,20 @@
   "type": "object",
   "properties": {
     "bit_depth": {
-      "description": "8 or 10, AVIF and HEIC only; absent means follow the source.",
+      "description": "AVIF and HEIC take 8, 10 or 12; JXL takes 8 or 16. Absent means\nfollow the source.",
       "type": [
         "integer",
         "null"
       ],
       "format": "uint8",
-      "maximum": 10,
+      "enum": [
+        8,
+        10,
+        12,
+        16,
+        null
+      ],
+      "maximum": 16,
       "minimum": 8
     },
     "chroma": {

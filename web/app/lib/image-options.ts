@@ -19,7 +19,10 @@ export const hasQuality = (o: ImageOptions) => !o.lossless && o.format !== 'png'
 export const hasLossless = (format: OutputFormat) => format !== 'jpeg'
 export const hasEffort = (format: OutputFormat) => format !== 'jpeg'
 export const hasChroma = (o: ImageOptions) => ['avif', 'heic', 'jpeg'].includes(o.format) && !o.lossless
-export const hasBitDepth = (format: OutputFormat) => format === 'avif' || format === 'heic'
+/** Depths that can be asked for; empty where the output follows the source. */
+export const bitDepths = (format: OutputFormat): (8 | 10 | 12 | 16)[] =>
+    format === 'avif' || format === 'heic' ? [8, 10, 12] : format === 'jxl' ? [8, 16] : []
+export const hasBitDepth = (format: OutputFormat) => bitDepths(format).length > 0
 
 export const defaultOptions = (): ImageOptions => ({ format: 'avif' })
 
@@ -42,7 +45,7 @@ export function sanitize(o: ImageOptions): ImageOptions {
     if (o.dynamic_range) out.dynamic_range = o.dynamic_range
     if (o.metadata) out.metadata = o.metadata
     if (o.chroma && hasChroma(out)) out.chroma = o.chroma
-    if (o.bit_depth && hasBitDepth(o.format)) out.bit_depth = o.bit_depth
+    if (o.bit_depth && bitDepths(o.format).includes(o.bit_depth)) out.bit_depth = o.bit_depth
     return out
 }
 

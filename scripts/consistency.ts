@@ -68,6 +68,9 @@ const CASES: Case[] = [
     // With metadata "keep" the server repacks the JPEG with cjxl instead; that
     // output carries Exif, which wasm-vips cannot decode (see vips-ops.ts).
     { fixture: 'external/webkit_rose_srgb.jpg', options: { format: 'jxl', lossless: true } },
+    { fixture: 'external/aom_weld_16bit.png', options: { format: 'jxl', bit_depth: 8, resize: { width: 512 } } },
+    { fixture: 'quality/jpeg_420_90.jpg', options: { format: 'jxl', bit_depth: 16 } },
+    { fixture: 'quality/gradient_gray16bit.png', options: { format: 'avif', bit_depth: 12 }, tolerance: AVIF_ENCODERS },
     { fixture: 'quality/hdr_pq_10bit.avif', options: { format: 'avif' }, rejected: true },
     { fixture: 'quality/hdr_hlg_10bit.avif', options: { format: 'png' }, rejected: true },
 ]

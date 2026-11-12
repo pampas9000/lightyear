@@ -132,9 +132,10 @@ pub struct ImageOptions {
     /// AVIF, HEIC and JPEG only; absent means chosen automatically.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chroma: Option<Chroma>,
-    /// 8 or 10, AVIF and HEIC only; absent means follow the source.
+    /// AVIF and HEIC take 8, 10 or 12; JXL takes 8 or 16. Absent means
+    /// follow the source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(range(min = 8, max = 10))]
+    #[schemars(extend("enum" = [8, 10, 12, 16, null], "minimum" = 8, "maximum" = 16))]
     pub bit_depth: Option<u8>,
 }
 
@@ -200,11 +201,15 @@ impl ImageOptions {
             }
         }
         if let Some(depth) = self.bit_depth {
-            if depth != 8 && depth != 10 {
-                return reject("bit_depth must be 8 or 10");
-            }
-            if !matches!(self.format, Avif | Heic) {
-                return reject("bit_depth applies to avif and heic only");
+            match self.format {
+                Avif | Heic if !matches!(depth, 8 | 10 | 12) => {
+                    return reject("avif and heic bit_depth must be 8, 10 or 12");
+                }
+                Jxl if !matches!(depth, 8 | 16) => {
+                    return reject("jxl bit_depth must be 8 or 16");
+                }
+                Avif | Heic | Jxl => {}
+                _ => return reject("bit_depth applies to avif, heic and jxl only"),
             }
         }
         Ok(())

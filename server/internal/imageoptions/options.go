@@ -94,7 +94,7 @@ type Options struct {
 
 // Fields with a default must not be null; only optional fields may be.
 var (
-	requiredTop    = []string{"format", "lossless", "color", "dynamic_range", "metadata", "resize"}
+	requiredTop    = []string{"format", "lossless", "color", "dynamic_range", "metadata"}
 	requiredResize = []string{"fit", "enlarge"}
 )
 
@@ -206,11 +206,18 @@ func (o Options) Validate() error {
 		}
 	}
 	if o.BitDepth != nil {
-		if *o.BitDepth != 8 && *o.BitDepth != 10 {
-			return invalid("bit_depth must be 8 or 10")
-		}
-		if o.Format != FormatAVIF && o.Format != FormatHEIC {
-			return invalid("bit_depth applies to avif and heic only")
+		d := *o.BitDepth
+		switch o.Format {
+		case FormatAVIF, FormatHEIC:
+			if d != 8 && d != 10 && d != 12 {
+				return invalid("avif and heic bit_depth must be 8, 10 or 12")
+			}
+		case FormatJXL:
+			if d != 8 && d != 16 {
+				return invalid("jxl bit_depth must be 8 or 16")
+			}
+		default:
+			return invalid("bit_depth applies to avif, heic and jxl only")
 		}
 	}
 	return nil

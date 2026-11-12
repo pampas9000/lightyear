@@ -25,6 +25,8 @@
 - **元数据**：`metadata=keep` 保留 EXIF、XMP、IPTC；方向一律烘焙进像素。不支持只保留其中一部分。
 - **JPEG 输出**：总是 8-bit；带 alpha 的源铺在白底上。
 - **PNG 输出**：位深跟随源图（8 或 16），不能指定。
+- **JXL 位深**：只能指定 8 或 16，不能指定 10 或 12（libvips 8.18 的 `jxlsave` 在这两档写出的像素偏暗）。浮点源不指定位深时输出 32-bit 浮点；指定 8 或 16 时转成整数，0–1 以外的值（超出 SDR 的高光）被截断，带 ICC 的浮点源按 scRGB 处理。
+- **12-bit AVIF/HEIC**：需要 AV1 Professional profile 或 HEVC 范围扩展，很多解码器（含硬件解码与 Apple 的 HEIC）只支持 8 与 10 bit。
 - **动图**：只处理第一帧。
 - **JPEG → JXL 直接转码**：只在"无损、不缩放、`color=keep`"时走 `cjxl`；其他组合是普通的像素编码。只有再加上 `metadata=keep`（默认是 `strip`）才可逐字节还原；UltraHDR 源在 `dynamic_range=sdr` 时也不可还原。
 - **AVIF 的 Exif**：服务端 AVIF 写入源图 Exif 时只把方向改为 1，不像 libvips 那样更新尺寸字段，也不会给没有 Exif 的源图补一个。

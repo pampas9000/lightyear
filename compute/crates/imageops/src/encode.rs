@@ -4,7 +4,7 @@ use crate::{AvifEncoder, Error, vips_error};
 use compute_types::ImageOptions;
 use compute_types::image_options::{Chroma, DynamicRange, Metadata, OutputFormat};
 use rs_vips::VipsImage;
-use rs_vips::enums::{BandFormat, ForeignKeep};
+use rs_vips::enums::{BandFormat, ForeignKeep, Interpretation};
 use rs_vips::voption::{Setter, VOption};
 
 pub fn mime(format: OutputFormat) -> &'static str {
@@ -58,6 +58,38 @@ fn is_deep(image: &VipsImage) -> bool {
     )
 }
 
+/// Pixels for `jxlsave`, which writes the depth it is given: 8-bit integer,
+/// 16-bit integer or 32-bit float. A requested depth rescales the samples;
+/// none keeps the source's, float included. Float samples outside 0–1 are
+/// clipped when an integer depth is asked for.
+///
+/// `jxlsave` has a `bitdepth` option, but libvips 8.18 shifts the samples
+/// down without telling libjxl, so 10 and 12 come out 64 and 16 times darker.
+fn jxl_pixels(image: &VipsImage, depth: Option<u8>) -> Result<VipsImage, Error> {
+    let Some(depth) = depth else {
+        return Ok(image.clone());
+    };
+    let (format, colour, mono) = if depth == 16 {
+        (
+            BandFormat::Ushort,
+            Interpretation::Rgb16,
+            Interpretation::Grey16,
+        )
+    } else {
+        (BandFormat::Uchar, Interpretation::Srgb, Interpretation::BW)
+    };
+    if image.get_format().ok() == Some(format) {
+        return Ok(image.clone());
+    }
+    let is_mono = matches!(
+        image.guess_interpretation(),
+        Ok(Interpretation::BW | Interpretation::Grey16)
+    );
+    image
+        .colourspace(if is_mono { mono } else { colour })
+        .map_err(|e| vips_error("convert bit depth", e))
+}
+
 /// AVIF/HEIC depth: as requested, else 10 for deeper sources and 8 otherwise.
 fn heif_depth(image: &VipsImage, options: &ImageOptions) -> i32 {
     options
@@ -104,13 +136,15 @@ pub fn save(
                 9,
             ))
         }
-        OutputFormat::Jxl => image.jxlsave_buffer_with_opts(effort(
-            opts.set("lossless", options.lossless),
-            "effort",
-            options,
-            1,
-            9,
-        )),
+        OutputFormat::Jxl => {
+            jxl_pixels(image, options.bit_depth)?.jxlsave_buffer_with_opts(effort(
+                opts.set("lossless", options.lossless),
+                "effort",
+                options,
+                1,
+                9,
+            ))
+        }
         OutputFormat::Webp => image.webpsave_buffer_with_opts(effort(
             opts.set("lossless", options.lossless),
             "effort",

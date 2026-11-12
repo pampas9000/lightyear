@@ -5,9 +5,10 @@ export type OutputFormat = "avif" | "jxl" | "webp" | "jpeg" | "png" | "heic";
 
 export interface ImageOptions {
   /**
-   * 8 or 10, AVIF and HEIC only; absent means follow the source.
+   * AVIF and HEIC take 8, 10 or 12; JXL takes 8 or 16. Absent means
+   * follow the source.
    */
-  bit_depth?: number | null;
+  bit_depth?: 8 | 10 | 12 | 16 | null;
   /**
    * AVIF, HEIC and JPEG only; absent means chosen automatically.
    */

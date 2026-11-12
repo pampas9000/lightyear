@@ -29,7 +29,9 @@ pub fn jpeg_to_jxl(
         && options.format == OutputFormat::Jxl
         && options.lossless
         && options.resize.is_none()
-        && options.color == ColorIntent::Keep;
+        && options.color == ColorIntent::Keep
+        // A JPEG is 8-bit, so only a request for more needs a re-encode.
+        && options.bit_depth.is_none_or(|depth| depth == 8);
     if !pure {
         return Ok(None);
     }

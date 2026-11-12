@@ -40,7 +40,9 @@ process(input, options, limits)
 | `metadata` | `keep` 标志：总是 ICC；`keep` 时加 EXIF/XMP/IPTC；保留 gain map 时加 gainmap |
 | `effort` 1–10 | 线性映射到各编码器的范围：AVIF（libavif）speed 10–0，HEIC 0–9，JXL 1–9，WebP 0–6，PNG 压缩级别 0–9；未填时不设置，使用编码器自身的默认 |
 | `chroma` | `subsample_mode`：`420` → on，`444` → off，未给 → auto |
-| `bit_depth` | AVIF/HEIC `bitdepth`；未给时 8-bit 源输出 8，更高位深源输出 10 |
+| `bit_depth` | AVIF/HEIC：`bitdepth`（8/10/12）；未给时 8-bit 源输出 8，更高位深源输出 10。JXL：编码前用 `colourspace` 把像素转成 8-bit（sRGB / B_W）或 16-bit（RGB16 / GREY16），`jxlsave` 按像素格式写出；未给时不转换，浮点源输出 32-bit 浮点 |
+
+JXL 不使用 `jxlsave` 的 `bitdepth` 选项：libvips 8.18 在该选项下把 16-bit 样本右移后仍按 16-bit 交给 libjxl，10-bit 与 12-bit 的产物分别暗 64 倍与 16 倍（用 `djxl` 解码确认）。
 
 PNG 输出跟随源位深（16 或 8）。JPEG 输出总是 8-bit，带 alpha 的源铺在白底上；保留 gain map 时改用 `uhdrsave`。
 

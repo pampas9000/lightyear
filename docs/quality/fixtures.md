@@ -6,7 +6,7 @@
 | :--- | :--- | :--- |
 | `cargo test -p compute-imageops` | 逐项行为（几何、转正、ICC、位深、alpha、元数据、gain map、HDR 拒绝、上限、JPEG→JXL 还原） | 读回产物，检查头信息与像素属性 |
 | `task test:fixtures` | 全部素材 × 六种输出格式 | 只有带 PQ/HLG 标记的 4 个素材被拒绝，其余必须成功 |
-| `task test:consistency` | 服务端与浏览器实现，22 组素材 × 参数 | 格式、尺寸、通道、位深、ICC/Exif/gain map 一致，像素平均差 ≤ 1.5（0–255）；浏览器已知缺口按预期失败处理 |
+| `task test:consistency` | 服务端与浏览器实现，27 组素材 × 参数 | 格式、尺寸、通道、位深、ICC/Exif/gain map 一致，像素平均差 ≤ 1.5（0–255）；浏览器已知缺口按预期失败处理 |
 
 测试依赖的工具缺失时直接失败，不跳过：`cjxl`/`djxl`（JPEG→JXL 逐字节还原）、Node ≥ 23.6（一致性测试）。
 

@@ -9,6 +9,7 @@ import type { ImageOptions, OutputFormat } from "~/lib/types/image-options";
 import {
     DEFAULT_QUALITY,
     FORMATS,
+    bitDepths,
     hasBitDepth,
     hasChroma,
     hasEffort,
@@ -228,8 +229,8 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
                 </div>
                 <div v-if="hasBitDepth(options.format)" class="space-y-1.5">
                     <Label class="text-xs font-semibold text-ink">{{ $t("image_options.bit_depth") }}</Label>
-                    <div class="grid grid-cols-3 gap-1.5">
-                        <button v-for="v in [undefined, 8, 10] as const" :key="v ?? 'auto'" type="button" :disabled="disabled"
+                    <div class="grid gap-1.5" :class="bitDepths(options.format).length > 2 ? 'grid-cols-4' : 'grid-cols-3'">
+                        <button v-for="v in [undefined, ...bitDepths(options.format)]" :key="v ?? 'auto'" type="button" :disabled="disabled"
                             class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
                             :class="chip(options.bit_depth === v)"
                             @click="update({ bit_depth: v })">{{ v ? `${v}-bit` : $t("image_options.follow_source") }}</button>

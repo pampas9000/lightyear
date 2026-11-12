@@ -137,6 +137,20 @@ function fullDepth(vips: Vips, input: Uint8Array, o: ImageOptions): Image {
     return image
 }
 
+/**
+ * Pixels for jxlsave, which writes the depth it is given: 8-bit, 16-bit or
+ * float. A requested depth rescales the samples; none keeps the source's.
+ * jxlsave's own `bitdepth` option is not used: libvips 8.18 writes 10 and 12
+ * bits 64 and 16 times too dark.
+ */
+function jxlPixels(image: Image, depth: number | null | undefined): Image {
+    if (!depth) return image
+    const sixteen = depth === 16
+    if (image.format === (sixteen ? 'ushort' : 'uchar')) return image
+    const mono = image.interpretation === 'b-w' || image.interpretation === 'grey16'
+    return image.colourspace(mono ? (sixteen ? 'grey16' : 'b-w') : sixteen ? 'rgb16' : 'srgb')
+}
+
 function save(image: Image, o: ImageOptions, hasGainMap: boolean): Uint8Array {
     const keepGainMap = hasGainMap && (o.dynamic_range ?? 'keep') === 'keep'
     let keep = KEEP.icc
@@ -158,7 +172,7 @@ function save(image: Image, o: ImageOptions, hasGainMap: boolean): Uint8Array {
                 subsample_mode: subsample,
             })
         case 'jxl':
-            return image.jxlsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 1, 9) })
+            return jxlPixels(image, o.bit_depth).jxlsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 1, 9) })
         case 'webp':
             return image.webpsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 0, 6) })
         case 'png':

@@ -140,6 +140,99 @@ fn avif_depth_follows_the_source_unless_requested() {
     );
 }
 
+fn mean(image: &VipsImage) -> f64 {
+    image.avg().unwrap()
+}
+
+#[test]
+fn twelve_bit_avif_and_heic_keep_their_brightness() {
+    let deep = deep_png();
+    let source = mean(&VipsImage::new_from_buffer(&deep, "").unwrap());
+    for format in ["avif", "heic"] {
+        let out = reload(&run(
+            &deep,
+            &format!(r#"{{"format":"{format}","bit_depth":12}}"#),
+        ));
+        assert_eq!(out.get_int("bits-per-sample").unwrap(), 12, "{format}");
+        // Loaded back on the 16-bit scale.
+        let ratio = mean(&out) / source;
+        assert!((0.97..1.03).contains(&ratio), "{format}: {ratio}");
+    }
+    let libvips = Settings {
+        avif_encoder: AvifEncoder::Libvips,
+        ..Settings::default()
+    };
+    let out = process(
+        &deep,
+        &opts(r#"{"format":"avif","bit_depth":12}"#),
+        &libvips,
+    )
+    .unwrap();
+    assert_eq!(reload(&out).get_int("bits-per-sample").unwrap(), 12);
+}
+
+#[test]
+fn jxl_depth_follows_the_source_unless_requested() {
+    use rs_vips::enums::BandFormat;
+    let deep = deep_png();
+    let source = mean(&VipsImage::new_from_buffer(&deep, "").unwrap());
+    let follow = reload(&run(&deep, r#"{"format":"jxl"}"#));
+    assert_eq!(follow.get_format().unwrap(), BandFormat::Ushort);
+    let shallow = reload(&run(&deep, r#"{"format":"jxl","bit_depth":8}"#));
+    assert_eq!(shallow.get_format().unwrap(), BandFormat::Uchar);
+    assert_eq!(shallow.get_int("bits-per-sample").unwrap(), 8);
+    let ratio = mean(&shallow) * 257.0 / source;
+    assert!((0.97..1.03).contains(&ratio), "16 to 8: {ratio}");
+
+    let photo = fixture("quality/jpeg_420_90.jpg");
+    let source = mean(&VipsImage::new_from_buffer(&photo, "").unwrap());
+    let widened = reload(&run(&photo, r#"{"format":"jxl","bit_depth":16}"#));
+    assert_eq!(widened.get_format().unwrap(), BandFormat::Ushort);
+    assert_eq!(widened.get_int("bits-per-sample").unwrap(), 16);
+    let ratio = mean(&widened) / 257.0 / source;
+    assert!((0.97..1.03).contains(&ratio), "8 to 16: {ratio}");
+
+    // Lossless JPEG to JXL is a bit-exact recompression only at 8 bits.
+    let recompressed = run(&photo, r#"{"format":"jxl","lossless":true,"bit_depth":8}"#);
+    assert_eq!(
+        reload(&recompressed).get_format().unwrap(),
+        BandFormat::Uchar
+    );
+    let widened = run(&photo, r#"{"format":"jxl","lossless":true,"bit_depth":16}"#);
+    assert_eq!(reload(&widened).get_format().unwrap(), BandFormat::Ushort);
+}
+
+#[test]
+fn float_jxl_stays_float_unless_a_depth_is_requested() {
+    use rs_vips::enums::{BandFormat, Interpretation};
+    init();
+    // Linear 0.5, which is 0.7354 once sRGB-encoded.
+    let float = VipsImage::black_with_opts(64, 64, VOption::new().set("bands", 3))
+        .unwrap()
+        .linear(&[0.0], &[0.5])
+        .unwrap()
+        .copy_with_opts(VOption::new().set("interpretation", Interpretation::Scrgb as i32))
+        .unwrap()
+        .jxlsave_buffer_with_opts(VOption::new().set("lossless", true))
+        .unwrap();
+    let source = VipsImage::new_from_buffer(&float, "").unwrap();
+    assert_eq!(source.get_format().unwrap(), BandFormat::Float);
+
+    let follow = reload(&run(&float, r#"{"format":"jxl"}"#));
+    assert_eq!(follow.get_format().unwrap(), BandFormat::Float);
+    assert!((mean(&follow) - 0.5).abs() < 0.01, "{}", mean(&follow));
+
+    let sixteen = reload(&run(&float, r#"{"format":"jxl","bit_depth":16}"#));
+    assert_eq!(sixteen.get_format().unwrap(), BandFormat::Ushort);
+    let level = mean(&sixteen) / 65535.0;
+    assert!((level - 0.7354).abs() < 0.01, "16-bit: {level}");
+
+    let eight = reload(&run(&float, r#"{"format":"jxl","bit_depth":8}"#));
+    assert_eq!(eight.get_format().unwrap(), BandFormat::Uchar);
+    let level = mean(&eight) / 255.0;
+    assert!((level - 0.7354).abs() < 0.01, "8-bit: {level}");
+}
+
 #[test]
 fn deep_sources_get_the_same_geometry_and_stay_deep() {
     let deep = deep_png(); // 1024 × 684

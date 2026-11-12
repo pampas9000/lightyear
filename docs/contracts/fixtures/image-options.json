@@ -65,6 +65,31 @@
     "input": { "format": "avif", "quality": null, "chroma": null },
     "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
   },
+  {
+    "name": "avif bit depth 12",
+    "input": { "format": "avif", "bit_depth": 12 },
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 12 }
+  },
+  {
+    "name": "heic bit depth 12",
+    "input": { "format": "heic", "bit_depth": 12 },
+    "canonical": { "format": "heic", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 12 }
+  },
+  {
+    "name": "jxl bit depth 16",
+    "input": { "format": "jxl", "bit_depth": 16 },
+    "canonical": { "format": "jxl", "quality": 80, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 16 }
+  },
+  {
+    "name": "jxl bit depth 8",
+    "input": { "format": "jxl", "lossless": true, "bit_depth": 8 },
+    "canonical": { "format": "jxl", "lossless": true, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 8 }
+  },
+  {
+    "name": "null resize means no resize",
+    "input": { "format": "avif", "resize": null },
+    "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
   { "name": "format is required", "input": { "quality": 80 } },
   { "name": "null for a defaulted field is rejected", "input": { "format": "avif", "color": null } },
   { "name": "null fit is rejected", "input": { "format": "avif", "resize": { "width": 10, "fit": null } } },
@@ -86,6 +111,10 @@
   { "name": "chroma on webp", "input": { "format": "webp", "chroma": "444" } },
   { "name": "chroma with lossless", "input": { "format": "avif", "lossless": true, "chroma": "444" } },
   { "name": "unknown chroma", "input": { "format": "avif", "chroma": "422" } },
-  { "name": "bit depth 12", "input": { "format": "avif", "bit_depth": 12 } },
-  { "name": "bit depth on jxl", "input": { "format": "jxl", "bit_depth": 10 } }
+  { "name": "bit depth 9", "input": { "format": "avif", "bit_depth": 9 } },
+  { "name": "bit depth 16 on avif", "input": { "format": "avif", "bit_depth": 16 } },
+  { "name": "bit depth 10 on jxl", "input": { "format": "jxl", "bit_depth": 10 } },
+  { "name": "bit depth 12 on jxl", "input": { "format": "jxl", "bit_depth": 12 } },
+  { "name": "bit depth on webp", "input": { "format": "webp", "bit_depth": 8 } },
+  { "name": "bit depth on png", "input": { "format": "png", "bit_depth": 16 } }
 ]
