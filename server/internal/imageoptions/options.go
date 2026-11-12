@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"strconv"
 )
 
 const MaxDimension = 16384
@@ -71,6 +73,39 @@ const (
 	Chroma444 Chroma = "444"
 )
 
+// Distance is a JXL Butteraugli distance in hundredths, mirroring the Rust
+// newtype: JSON carries a number with at most two decimals, and whole values
+// are written without a fraction so both sides produce the same bytes.
+type Distance int
+
+const (
+	MinDistance Distance = 10   // 0.1; distance 0 is lossless, spelled `lossless`
+	MaxDistance Distance = 2500 // 25, the largest distance libjxl accepts
+)
+
+func (d Distance) Float() float64 { return float64(d) / 100 }
+
+func (d Distance) MarshalJSON() ([]byte, error) {
+	if d%100 == 0 {
+		return []byte(strconv.Itoa(int(d / 100))), nil
+	}
+	return []byte(strconv.FormatFloat(d.Float(), 'f', -1, 64)), nil
+}
+
+func (d *Distance) UnmarshalJSON(raw []byte) error {
+	var v float64
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	scaled := v * 100
+	hundredths := math.Round(scaled)
+	if hundredths < 0 || hundredths > math.MaxUint16 || math.Abs(scaled-hundredths) > 1e-6 {
+		return errors.New("distance must be 0.1–25 with at most two decimals")
+	}
+	*d = Distance(hundredths)
+	return nil
+}
+
 type Resize struct {
 	Width   *int `json:"width,omitempty"`
 	Height  *int `json:"height,omitempty"`
@@ -82,6 +117,7 @@ type Resize struct {
 type Options struct {
 	Format       Format       `json:"format"`
 	Quality      *int         `json:"quality,omitempty"`
+	Distance     *Distance    `json:"distance,omitempty"`
 	Lossless     bool         `json:"lossless"`
 	Effort       *int         `json:"effort,omitempty"`
 	Resize       *Resize      `json:"resize,omitempty"`
@@ -165,6 +201,20 @@ func (o Options) Validate() error {
 			return invalid("png has no quality setting")
 		}
 	}
+	if d := o.Distance; d != nil {
+		if *d < MinDistance || *d > MaxDistance {
+			return invalid("distance must be 0.1–25 with at most two decimals")
+		}
+		if o.Format != FormatJXL {
+			return invalid("distance applies to jxl only")
+		}
+		if o.Quality != nil {
+			return invalid("distance cannot be combined with quality")
+		}
+		if o.Lossless {
+			return invalid("distance cannot be combined with lossless")
+		}
+	}
 	if o.Lossless && o.Format == FormatJPEG {
 		return invalid("jpeg cannot be lossless")
 	}
@@ -225,12 +275,13 @@ func (o Options) Validate() error {
 
 // Canonicalize validates and fills every default, so equal intents serialize
 // equally. The result is what gets stored and dispatched.
-// Effort stays unset: its default is the encoder's own.
+// Effort stays unset: its default is the encoder's own. A distance is kept as
+// given and not converted to or from quality.
 func (o Options) Canonicalize() (Options, error) {
 	if err := o.Validate(); err != nil {
 		return Options{}, err
 	}
-	if o.Quality == nil && !o.Lossless && defaultQuality[o.Format] != 0 {
+	if o.Quality == nil && o.Distance == nil && !o.Lossless && defaultQuality[o.Format] != 0 {
 		q := defaultQuality[o.Format]
 		o.Quality = &q
 	}

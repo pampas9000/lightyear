@@ -255,7 +255,9 @@ const optionEntries = (o?: ImageOptions) => {
     const resize = r ? (r.width && r.height ? `${r.width}×${r.height} ${r.fit ?? 'inside'}` : `≤${r.width ?? r.height}px`) + (r.enlarge ? ' ↑' : '') : '—'
     return [
         ['format', o.format.toUpperCase()],
-        ['quality', o.lossless ? $t('image_options.lossless') : String(o.quality ?? '—')],
+        o.distance != null
+            ? ['distance', String(o.distance)]
+            : ['quality', o.lossless ? $t('image_options.lossless') : String(o.quality ?? '—')],
         ['effort', o.format === 'jpeg' ? '—' : String(o.effort ?? $t('image_options.effort_default'))],
         ['resize', resize],
         ['color', $t(`image_options.color_${o.color ?? 'keep'}`)],

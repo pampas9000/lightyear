@@ -137,6 +137,11 @@ pub fn save(
             ))
         }
         OutputFormat::Jxl => {
+            // Validation keeps `distance` and `quality` apart, so at most one
+            // reaches jxlsave; libvips turns Q into a distance itself.
+            if let Some(distance) = options.distance {
+                opts = opts.set("distance", distance.get());
+            }
             jxl_pixels(image, options.bit_depth)?.jxlsave_buffer_with_opts(effort(
                 opts.set("lossless", options.lossless),
                 "effort",

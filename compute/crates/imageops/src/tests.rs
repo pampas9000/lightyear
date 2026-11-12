@@ -284,6 +284,18 @@ fn jpeg_chroma_and_quality_are_applied() {
 }
 
 #[test]
+fn jxl_distance_is_applied() {
+    let photo = fixture("quality/gradient_sunset_8bit.png");
+    let near = run(&photo, r#"{"format":"jxl","distance":0.5,"effort":3}"#).bytes;
+    let far = run(&photo, r#"{"format":"jxl","distance":4,"effort":3}"#).bytes;
+    assert!(far.len() < near.len(), "distance ignored: {} vs {}", far.len(), near.len());
+    // libvips maps Q80 to distance 1.9, so both requests encode identically.
+    let by_distance = run(&photo, r#"{"format":"jxl","distance":1.9,"effort":3}"#).bytes;
+    let by_quality = run(&photo, r#"{"format":"jxl","quality":80,"effort":3}"#).bytes;
+    assert_eq!(by_distance, by_quality);
+}
+
+#[test]
 fn every_format_encodes() {
     let photo = fixture("quality/gradient_sunset_8bit.png");
     for (format, loader) in [

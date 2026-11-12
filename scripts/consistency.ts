@@ -48,6 +48,8 @@ const CASES: Case[] = [
     { fixture: 'quality/jpeg_420_90.jpg', options: { format: 'jpeg', chroma: '444', quality: 90 } },
     { fixture: 'quality/checker_rb_444.png', options: { format: 'webp', lossless: true } },
     { fixture: 'quality/checker_rb_444.png', options: { format: 'jxl', quality: 90 } },
+    // A far distance: a side that ignored it would encode at Q75 (distance 2.35), 20 apart on this image.
+    { fixture: 'quality/checker_rb_444.png', options: { format: 'jxl', distance: 9.5 } },
     { fixture: 'quality/gradient_sunset_8bit.png', options: { format: 'png' } },
     { fixture: 'quality/gradient_sunset_8bit.png', options: { format: 'jpeg' } },
     { fixture: 'quality/avif_8bit_420_alpha.avif', options: { format: 'webp', lossless: true } },

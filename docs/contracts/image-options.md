@@ -17,7 +17,8 @@
 | 字段 | 取值 | 默认 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `format` | `avif` `jxl` `webp` `jpeg` `png` `heic` | 必填 | |
-| `quality` | 1–100 | AVIF/HEIC 60，JXL/WebP 80，JPEG 82 | 不能与 `lossless` 同用；PNG 没有该项 |
+| `quality` | 1–100 | AVIF/HEIC 60，JXL/WebP 80，JPEG 82（给了 `distance` 时不填） | 不能与 `lossless` 同用；PNG 没有该项 |
+| `distance` | 0.1–25，最多两位小数 | 不填 | 仅 JXL：直接指定 libjxl 的 Butteraugli distance，越小越清晰，1.0 约为视觉无损。不能与 `quality`、`lossless` 同用（distance 0 即无损，用 `lossless` 表示）。`quality` 本身也是经 libvips 按 libjxl 的公式换算成 distance 的（Q ≥ 30 时为 `0.1 + (100 − Q) × 0.09`，Q100 为 0 即无损），所以 Q80 与 distance 1.9 编出的文件逐字节相同 |
 | `lossless` | bool | `false` | JPEG 不可用 |
 | `effort` | 1–10 | 编码器自身的默认 | 1 最快，10 体积最小；JPEG 没有该项。不填时不传给编码器，各格式的默认见[转码链路](/compute/pipeline#每种格式由谁编码) |
 | `resize` | `{width?, height?, fit, enlarge}` | 不缩放 | 宽高 1–16384，至少给一个；`fit` 为 `inside`（默认）/`cover`/`fill`，后两者需同时给宽高；`enlarge` 默认 `false` |
@@ -27,11 +28,11 @@
 | `chroma` | `420` `444` | 自动 | 仅 AVIF/HEIC/JPEG，不能与 `lossless` 同用 |
 | `bit_depth` | AVIF/HEIC：`8` `10` `12`；JXL：`8` `16` | 跟随源图（AVIF/HEIC：8-bit 源 → 8，更高位深 → 10；JXL：8-bit 整数、16-bit 整数或 32-bit 浮点，与源相同） | 仅 AVIF/HEIC/JXL。对 JXL 的浮点源指定位深会转成整数，0–1 以外的值被截断 |
 
-未知字段、默认字段写成 `null` 都会被拒绝；可选字段（`quality`、`effort`、`resize`、`chroma`、`bit_depth`）写 `null` 等同于未填写。
+未知字段、默认字段写成 `null` 都会被拒绝；可选字段（`quality`、`distance`、`effort`、`resize`、`chroma`、`bit_depth`）写 `null` 等同于未填写。
 
 ## 规范化与产物键
 
-规范化会先校验，再把所有默认值显式填上，因此"省略默认值"和"显式写出默认值"得到相同结果。`effort` 例外：它的默认是编码器自己的，规范化后仍为未填写，显式写出的任何值都是另一种意图。存库和派发给 worker 的都是规范化后的参数。
+规范化会先校验，再把所有默认值显式填上，因此"省略默认值"和"显式写出默认值"得到相同结果。`effort` 例外：它的默认是编码器自己的，规范化后仍为未填写，显式写出的任何值都是另一种意图。`distance` 原样保留，不与 `quality` 互相换算：给了 `distance` 就不再补默认 `quality`。它在各实现内部以百分位整数保存，JSON 中整数值写成 `2` 而不是 `2.0`，以保证 Rust 与 Go 写出相同的字节。存库和派发给 worker 的都是规范化后的参数。
 
 产物键只在 Go 侧计算：
 

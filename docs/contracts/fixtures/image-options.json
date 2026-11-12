@@ -86,6 +86,36 @@
     "canonical": { "format": "jxl", "lossless": true, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 8 }
   },
   {
+    "name": "jxl distance replaces the default quality",
+    "input": { "format": "jxl", "distance": 1.5 },
+    "canonical": { "format": "jxl", "distance": 1.5, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "jxl distance with two decimals",
+    "input": { "format": "jxl", "distance": 0.55, "effort": 7 },
+    "canonical": { "format": "jxl", "distance": 0.55, "lossless": false, "effort": 7, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "whole jxl distance is written without a fraction",
+    "input": { "format": "jxl", "distance": 2.0 },
+    "canonical": { "format": "jxl", "distance": 2, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "jxl distance at its limits",
+    "input": { "format": "jxl", "distance": 0.1, "bit_depth": 16 },
+    "canonical": { "format": "jxl", "distance": 0.1, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "bit_depth": 16 }
+  },
+  {
+    "name": "jxl distance 25",
+    "input": { "format": "jxl", "distance": 25 },
+    "canonical": { "format": "jxl", "distance": 25, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
+    "name": "null distance means unset",
+    "input": { "format": "jxl", "distance": null },
+    "canonical": { "format": "jxl", "quality": 80, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
+  },
+  {
     "name": "null resize means no resize",
     "input": { "format": "avif", "resize": null },
     "canonical": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" }
@@ -101,6 +131,17 @@
   { "name": "quality above range", "input": { "format": "avif", "quality": 101 } },
   { "name": "quality with lossless", "input": { "format": "webp", "quality": 80, "lossless": true } },
   { "name": "png quality", "input": { "format": "png", "quality": 80 } },
+  { "name": "distance on webp", "input": { "format": "webp", "distance": 1 } },
+  { "name": "distance on avif", "input": { "format": "avif", "distance": 1 } },
+  { "name": "distance with quality", "input": { "format": "jxl", "distance": 1, "quality": 90 } },
+  { "name": "distance with lossless", "input": { "format": "jxl", "distance": 1, "lossless": true } },
+  { "name": "distance zero", "input": { "format": "jxl", "distance": 0 } },
+  { "name": "distance below range", "input": { "format": "jxl", "distance": 0.09 } },
+  { "name": "distance above range", "input": { "format": "jxl", "distance": 25.01 } },
+  { "name": "distance far above range", "input": { "format": "jxl", "distance": 1e9 } },
+  { "name": "negative distance", "input": { "format": "jxl", "distance": -1 } },
+  { "name": "distance with three decimals", "input": { "format": "jxl", "distance": 1.234 } },
+  { "name": "distance as a string", "input": { "format": "jxl", "distance": "1.5" } },
   { "name": "jpeg lossless", "input": { "format": "jpeg", "lossless": true } },
   { "name": "jpeg effort", "input": { "format": "jpeg", "effort": 5 } },
   { "name": "effort above range", "input": { "format": "avif", "effort": 11 } },

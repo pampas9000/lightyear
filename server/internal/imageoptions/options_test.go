@@ -72,3 +72,20 @@ func TestArtifactKeyIgnoresSpellingButNotIntentOrSource(t *testing.T) {
 		t.Error("different source must change the key")
 	}
 }
+
+// The artifact key hashes these bytes, so they must match the Rust encoder's
+// (see distance_json_bytes in compute-types).
+func TestDistanceJSONBytes(t *testing.T) {
+	for in, want := range map[string]string{
+		"1.5": "1.5", "2.0": "2", "0.1": "0.1", "0.55": "0.55", "12.34": "12.34", "25": "25", "0.29": "0.29",
+	} {
+		var d Distance
+		if err := json.Unmarshal([]byte(in), &d); err != nil {
+			t.Fatalf("%s: %v", in, err)
+		}
+		got, _ := json.Marshal(d)
+		if string(got) != want {
+			t.Errorf("%s: got %s, want %s", in, got, want)
+		}
+	}
+}

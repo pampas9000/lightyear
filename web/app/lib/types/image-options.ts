@@ -1,6 +1,10 @@
 /* Generated from docs/contracts/schemas/image-options.schema.json by: task gen:types. Do not edit. */
 
 export type Chroma = "420" | "444";
+/**
+ * JXL Butteraugli distance, 0.1–25 with at most two decimals.
+ */
+export type Distance = number;
 export type OutputFormat = "avif" | "jxl" | "webp" | "jpeg" | "png" | "heic";
 
 export interface ImageOptions {
@@ -17,6 +21,11 @@ export interface ImageOptions {
    * What happens to the source's color profile.
    */
   color?: "keep" | "srgb";
+  /**
+   * JXL only: target Butteraugli distance instead of `quality` (lower is
+   * better; 1 is visually lossless). Not used with `quality` or `lossless`.
+   */
+  distance?: Distance | null;
   dynamic_range?: "keep" | "sdr";
   /**
    * 1 (fastest) – 10 (smallest). Not available for JPEG. Unset uses each

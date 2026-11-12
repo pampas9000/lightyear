@@ -156,7 +156,9 @@ function save(image: Image, o: ImageOptions, hasGainMap: boolean): Uint8Array {
     let keep = KEEP.icc
     if (o.metadata === 'keep') keep |= KEEP.exif | KEEP.xmp | KEEP.iptc
     if (keepGainMap) keep |= KEEP.gainmap
-    const quality = o.lossless || o.format === 'png' ? undefined : o.quality ?? DEFAULT_QUALITY[o.format] ?? undefined
+    const distance = o.format === 'jxl' && !o.lossless ? (o.distance ?? undefined) : undefined
+    const quality =
+        o.lossless || o.format === 'png' || distance != null ? undefined : o.quality ?? DEFAULT_QUALITY[o.format] ?? undefined
     const common = { keep, ...(quality != null ? { Q: quality } : {}) }
     const deep = image.format === 'ushort' || image.format === 'float'
     const subsample = o.chroma === '420' ? 'on' : o.chroma === '444' ? 'off' : 'auto'
@@ -172,7 +174,12 @@ function save(image: Image, o: ImageOptions, hasGainMap: boolean): Uint8Array {
                 subsample_mode: subsample,
             })
         case 'jxl':
-            return jxlPixels(image, o.bit_depth).jxlsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 1, 9) })
+            return jxlPixels(image, o.bit_depth).jxlsaveBuffer({
+                ...common,
+                ...(distance != null ? { distance } : {}),
+                lossless: !!o.lossless,
+                ...effort('effort', o, 1, 9),
+            })
         case 'webp':
             return image.webpsaveBuffer({ ...common, lossless: !!o.lossless, ...effort('effort', o, 0, 6) })
         case 'png':

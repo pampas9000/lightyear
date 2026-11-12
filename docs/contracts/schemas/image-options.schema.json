@@ -35,6 +35,17 @@
       "$ref": "#/$defs/ColorIntent",
       "default": "keep"
     },
+    "distance": {
+      "description": "JXL only: target Butteraugli distance instead of `quality` (lower is\nbetter; 1 is visually lossless). Not used with `quality` or `lossless`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Distance"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "dynamic_range": {
       "$ref": "#/$defs/DynamicRange",
       "default": "keep"
@@ -108,6 +119,12 @@
           "const": "srgb"
         }
       ]
+    },
+    "Distance": {
+      "description": "JXL Butteraugli distance, 0.1–25 with at most two decimals.",
+      "type": "number",
+      "maximum": 25,
+      "minimum": 0.1
     },
     "DynamicRange": {
       "oneOf": [

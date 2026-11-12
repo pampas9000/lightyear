@@ -97,6 +97,71 @@ pub enum Metadata {
     Strip,
 }
 
+/// JXL Butteraugli distance, held in hundredths so options stay `Eq` and
+/// `Hash` and every implementation agrees on the canonical value. JSON
+/// carries it as a plain number with at most two decimals; whole values are
+/// written without a fraction (`2`, not `2.0`), as Go's encoder does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Distance(u16);
+
+impl Distance {
+    /// 0.1. Distance 0 is lossless, which is spelled `lossless`.
+    pub const MIN: Self = Self(10);
+    /// 25, the largest distance libjxl accepts.
+    pub const MAX: Self = Self(2500);
+
+    pub const fn from_hundredths(hundredths: u16) -> Self {
+        Self(hundredths)
+    }
+
+    pub const fn hundredths(self) -> u16 {
+        self.0
+    }
+
+    pub fn get(self) -> f64 {
+        f64::from(self.0) / 100.0
+    }
+}
+
+impl Serialize for Distance {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.0 % 100 == 0 {
+            serializer.serialize_u16(self.0 / 100)
+        } else {
+            serializer.serialize_f64(self.get())
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Distance {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = f64::deserialize(deserializer)?;
+        let scaled = value * 100.0;
+        let hundredths = scaled.round();
+        if !(0.0..=f64::from(u16::MAX)).contains(&hundredths) || (scaled - hundredths).abs() > 1e-6 {
+            return Err(serde::de::Error::custom(
+                "distance must be 0.1–25 with at most two decimals",
+            ));
+        }
+        Ok(Self(hundredths as u16))
+    }
+}
+
+impl JsonSchema for Distance {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Distance".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "JXL Butteraugli distance, 0.1–25 with at most two decimals.",
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 25
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Hash)]
 pub enum Chroma {
     #[serde(rename = "420")]
@@ -113,6 +178,10 @@ pub struct ImageOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1, max = 100))]
     pub quality: Option<u8>,
+    /// JXL only: target Butteraugli distance instead of `quality` (lower is
+    /// better; 1 is visually lossless). Not used with `quality` or `lossless`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance: Option<Distance>,
     /// Not available for JPEG.
     #[serde(default)]
     pub lossless: bool,
@@ -169,6 +238,20 @@ impl ImageOptions {
                 return reject("png has no quality setting");
             }
         }
+        if let Some(distance) = self.distance {
+            if !(Distance::MIN..=Distance::MAX).contains(&distance) {
+                return reject("distance must be 0.1–25 with at most two decimals");
+            }
+            if self.format != Jxl {
+                return reject("distance applies to jxl only");
+            }
+            if self.quality.is_some() {
+                return reject("distance cannot be combined with quality");
+            }
+            if self.lossless {
+                return reject("distance cannot be combined with lossless");
+            }
+        }
         if self.lossless && self.format == Jpeg {
             return reject("jpeg cannot be lossless");
         }
@@ -216,10 +299,11 @@ impl ImageOptions {
     }
 
     /// Validates and fills every default, so equal intents serialize equally.
-    /// `effort` stays unset: its default is the encoder's own.
+    /// `effort` stays unset: its default is the encoder's own. A `distance`
+    /// is kept as given and not converted to or from `quality`.
     pub fn canonicalize(mut self) -> Result<Self, OptionsError> {
         self.validate()?;
-        if self.quality.is_none() && !self.lossless {
+        if self.quality.is_none() && self.distance.is_none() && !self.lossless {
             self.quality = self.format.default_quality();
         }
         Ok(self)
@@ -250,6 +334,24 @@ mod tests {
             committed, generated,
             "schema is stale; run UPDATE_SCHEMAS=1 cargo test -p compute-types"
         );
+    }
+
+    /// The artifact key hashes these bytes, so they must match the Go
+    /// encoder's (see TestDistanceJSONBytes in server/internal/imageoptions).
+    #[test]
+    fn distance_json_bytes() {
+        for (input, expected) in [
+            ("1.5", "1.5"),
+            ("2.0", "2"),
+            ("0.1", "0.1"),
+            ("0.55", "0.55"),
+            ("12.34", "12.34"),
+            ("25", "25"),
+            ("0.29", "0.29"),
+        ] {
+            let distance: Distance = serde_json::from_str(input).unwrap();
+            assert_eq!(serde_json::to_string(&distance).unwrap(), expected, "{input}");
+        }
     }
 
     #[test]

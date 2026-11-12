@@ -9,12 +9,18 @@ import type { ImageOptions, OutputFormat } from "~/lib/types/image-options";
 import {
     DEFAULT_QUALITY,
     FORMATS,
+    MAX_DISTANCE,
+    MIN_DISTANCE,
     bitDepths,
+    clampDistance,
+    distanceToQuality,
     hasBitDepth,
     hasChroma,
+    hasDistance,
     hasEffort,
     hasLossless,
     hasQuality,
+    qualityToDistance,
     sanitize,
 } from "~/lib/image-options";
 
@@ -46,11 +52,32 @@ const resizeEnabled = computed(() => !!options.value.resize);
 const repackHint = computed(() => {
     if (options.value.resize || (options.value.color ?? "keep") !== "keep") return "jxl_repack_blocked";
     return (options.value.metadata ?? "strip") === "keep" ? "jxl_repack_hint" : "jxl_repack_strip_hint";
-});const quality = computed(() => options.value.quality ?? DEFAULT_QUALITY[options.value.format] ?? 0);
+});
+const quality = computed(() => options.value.quality ?? DEFAULT_QUALITY[options.value.format] ?? 0);
+// JXL only: set means the encode targets a Butteraugli distance instead of quality.
+const distance = computed(() => (hasDistance(options.value) ? options.value.distance ?? null : null));
+// The slider covers the useful range; the number field reaches up to 25.
+const DISTANCE_SLIDER_MAX = 10;
 // Unset means each encoder's own default; the slider rests mid-range until moved.
 const effort = computed(() => options.value.effort);
 
-const setFormat = (format: OutputFormat) => update({ format, quality: undefined });
+const setFormat = (format: OutputFormat) => update({ format, quality: undefined, distance: undefined });
+// Switching carries the setting across with libvips' own mapping, so the
+// encode does not change until the value is moved.
+const setTarget = (target: "quality" | "distance") => {
+    if (target === "distance" && distance.value == null)
+        update({ quality: undefined, distance: qualityToDistance(quality.value) });
+    else if (target === "quality" && distance.value != null)
+        update({ distance: undefined, quality: distanceToQuality(distance.value) });
+};
+const onDistanceInput = (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    const n = Number(input.value);
+    const next = input.value !== "" && Number.isFinite(n) ? clampDistance(n) : distance.value;
+    if (next == null) return;
+    update({ distance: next });
+    input.value = String(next); // show the clamped value even when it equals the old one
+};
 const setResize = (patch: Partial<NonNullable<ImageOptions["resize"]>>) =>
     update({ resize: { fit: "inside", enlarge: false, ...options.value.resize, ...patch } });
 const toggleResize = (on: boolean) =>
@@ -119,12 +146,34 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
             </p>
 
             <div v-if="hasQuality(options)" class="space-y-2">
-                <div class="flex justify-between items-center text-xs">
-                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
-                    <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ quality }}</span>
+                <div v-if="hasDistance(options)" class="grid grid-cols-2 gap-1.5" role="group" :aria-label="$t('image_options.target')">
+                    <button v-for="m in ['quality', 'distance'] as const" :key="m" type="button" :disabled="disabled"
+                        :aria-pressed="(distance != null) === (m === 'distance')"
+                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                        :class="chip((distance != null) === (m === 'distance'))"
+                        @click="setTarget(m)">{{ $t(`image_options.${m}`) }}</button>
                 </div>
-                <Slider :model-value="[quality]" :min="1" :max="100" :step="1" :disabled="disabled"
-                    @update:model-value="(v) => update({ quality: v?.[0] })" />
+                <template v-if="distance != null">
+                    <div class="flex justify-between items-center text-xs">
+                        <Label for="jxl-distance" class="text-xs font-semibold text-ink">{{ $t("image_options.distance") }}</Label>
+                        <Input id="jxl-distance" type="number" inputmode="decimal" :min="MIN_DISTANCE" :max="MAX_DISTANCE" step="0.01"
+                            :model-value="distance" :disabled="disabled"
+                            class="h-7 w-20 px-2 text-xs font-mono text-right tabular-nums"
+                            @change="onDistanceInput" />
+                    </div>
+                    <Slider :model-value="[Math.min(distance, DISTANCE_SLIDER_MAX)]" :min="MIN_DISTANCE" :max="DISTANCE_SLIDER_MAX"
+                        :step="0.05" :disabled="disabled" :aria-label="$t('image_options.distance')"
+                        @update:model-value="(v) => v && update({ distance: v[0] })" />
+                    <p class="text-[11px] text-ink-subtle">{{ $t("image_options.distance_hint") }}</p>
+                </template>
+                <template v-else>
+                    <div class="flex justify-between items-center text-xs">
+                        <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
+                        <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ quality }}</span>
+                    </div>
+                    <Slider :model-value="[quality]" :min="1" :max="100" :step="1" :disabled="disabled"
+                        @update:model-value="(v) => update({ quality: v?.[0] })" />
+                </template>
             </div>
 
             <div v-if="hasEffort(options.format)" class="space-y-2">
