@@ -26,7 +26,7 @@ pub enum OutputFormat {
 impl OutputFormat {
     /// Quality used when the request leaves it out; `None` for formats
     /// without a quality setting.
-    fn default_quality(self) -> Option<u8> {
+    pub fn default_quality(self) -> Option<u8> {
         match self {
             Self::Avif | Self::Heic => Some(60),
             Self::Jxl | Self::Webp => Some(80),

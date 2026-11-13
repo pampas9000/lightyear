@@ -6,10 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"strings"
 	"time"
 
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
 	taskqueue "transcoder/server/internal/task"
@@ -103,7 +102,7 @@ func (s *Service) claim(ctx context.Context, id uuid.UUID, now time.Time) (*mode
 		outputKey := OutputKey(job.OwnerID, job.ID, attemptID, string(job.Options.Format))
 		payload, err := json.Marshal(taskqueue.Dispatch{
 			V: taskqueue.Version, JobID: job.ID.String(), AttemptID: attemptID.String(),
-			Op: job.Operation, Options: job.Options, SourceKey: source.Path, OutputKey: outputKey,
+			Op: job.Operation, Options: job.Options, Target: job.Target, SourceKey: source.Path, OutputKey: outputKey,
 		})
 		if err != nil {
 			return err
@@ -178,15 +177,22 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			}
 			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": now.Add(LeaseDuration)}).Error
 		case taskqueue.ResultCompleted:
-			return s.complete(tx, job, &attempt, r.Artifact, now)
+			return s.complete(tx, job, &attempt, r, now)
 		case taskqueue.ResultFailed:
 			code, message, retryable := "internal_error", "worker reported failure", false
 			if r.Error != nil {
 				code, message, retryable = r.Error.Code, r.Error.Message, r.Error.Retryable
 			}
-			if err := tx.Model(&attempt).Updates(map[string]any{
+			attemptUpdates := map[string]any{
 				"status": models.AttemptFailed, "finished_at": now, "error_code": code,
-			}).Error; err != nil {
+			}
+			if r.EncodeRounds != nil {
+				attemptUpdates["encode_rounds"] = *r.EncodeRounds
+			}
+			if r.ComputeMS != nil {
+				attemptUpdates["compute_ms"] = *r.ComputeMS
+			}
+			if err := tx.Model(&attempt).Updates(attemptUpdates).Error; err != nil {
 				return err
 			}
 			return s.retryOrFail(tx, job, code, message, retryable, now)
@@ -196,7 +202,8 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 	})
 }
 
-func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt, artifact *taskqueue.Artifact, now time.Time) error {
+func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt, r taskqueue.Result, now time.Time) error {
+	artifact := r.Artifact
 	if artifact == nil || artifact.Key != attempt.OutputKey || artifact.Size <= 0 ||
 		artifact.Mime == "" || artifact.Width <= 0 || artifact.Height <= 0 {
 		return fmt.Errorf("%w: artifact missing, invalid or outside the attempt", ErrInvalidResult)
@@ -205,19 +212,56 @@ func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt
 	if err := tx.Select("name").First(&source, "id = ?", job.SourceFileID).Error; err != nil {
 		return err
 	}
-	name := strings.TrimSuffix(source.Name, filepath.Ext(source.Name)) + "." + extension(string(job.Options.Format))
+	var siblingMulti int64
+	if err := tx.Model(&models.Job{}).Where("task_id = ? AND output_index > 0", job.TaskID).Limit(1).Count(&siblingMulti).Error; err != nil {
+		return err
+	}
+	name := compression.OutputFilename(source.Name, job.Options.Format, job.OutputName, job.OutputIndex, siblingMulti > 0)
 	output := models.File{OwnerID: job.OwnerID, Name: name, Path: artifact.Key, Status: "UPLOADED",
 		Size: artifact.Size, MimeType: artifact.Mime, Width: artifact.Width, Height: artifact.Height, UploadedAt: &now}
 	if err := tx.Create(&output).Error; err != nil {
 		return err
 	}
-	if err := tx.Model(attempt).Updates(map[string]any{"status": models.AttemptCompleted, "finished_at": now}).Error; err != nil {
+	attemptUpdates := map[string]any{"status": models.AttemptCompleted, "finished_at": now}
+	if r.EncodeRounds != nil {
+		attemptUpdates["encode_rounds"] = *r.EncodeRounds
+	}
+	if r.ComputeMS != nil {
+		attemptUpdates["compute_ms"] = *r.ComputeMS
+	}
+	if err := tx.Model(attempt).Updates(attemptUpdates).Error; err != nil {
 		return err
 	}
-	if err := tx.Model(job).Updates(map[string]any{
-		"status": models.JobCompleted, "progress": 100, "output_file_id": output.ID,
-		"lease_expires_at": nil, "error_code": "", "error_message": "",
-	}).Error; err != nil {
+	resolved := job.Options
+	if r.ResolvedOptions != nil {
+		canonical, err := r.ResolvedOptions.Canonicalize()
+		if err != nil || canonical.Format != job.Options.Format {
+			return fmt.Errorf("%w: invalid resolved_options", ErrInvalidResult)
+		}
+		resolved = canonical
+	}
+	targetMet := r.TargetMet
+	if targetMet == nil && job.Target != nil {
+		targetMet = compression.IsTargetMet(artifact.Size, job.Target)
+	}
+	jobUpdates := map[string]any{
+		"status":           models.JobCompleted,
+		"progress":         100,
+		"output_file_id":   output.ID,
+		"resolved_options": resolved,
+		"target_met":       targetMet,
+		"lease_expires_at": nil,
+		"error_code":       "",
+		"error_message":    "",
+	}
+	if r.Achieved != nil {
+		jobUpdates["achieved"] = *r.Achieved
+	} else if job.Target != nil {
+		jobUpdates["achieved"] = compression.Achieved{Bytes: new(artifact.Size)}
+	} else {
+		jobUpdates["achieved"] = nil
+	}
+	if err := tx.Model(job).Updates(jobUpdates).Error; err != nil {
 		return err
 	}
 	return jobstate.Aggregate(tx, job.TaskID)

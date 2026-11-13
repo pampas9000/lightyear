@@ -25,5 +25,6 @@ func (s *Service) GetJob(ctx context.Context, ownerID, id uuid.UUID) (*models.Jo
 		First(&j, "id = ? AND owner_id = ?", id, ownerID).Error; err != nil {
 		return nil, err
 	}
+	j.PopulateDerived()
 	return &j, nil
 }

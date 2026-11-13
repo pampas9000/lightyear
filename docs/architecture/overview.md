@@ -39,10 +39,10 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定 |
 | `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256、状态 `UPLOADING`/`UPLOADED`/…） |
 | `draft_files` | 已上传但尚未提交任务的文件 |
-| `workflows` | 命名的 `ImageOptions` 预设 |
+| `workflows` | 命名的多输出预设（`outputs` 数组，每项含 `ImageOptions` 与可选压缩 `target`） |
 | `tasks` | 一次提交；含 `idempotency_key` 与请求指纹，状态由 jobs 聚合 |
-| `jobs` | 一个源文件 → 一个产物：`operation`（目前只有 `image.convert`）、规范化后的 `options`、`source_file_id`、`output_file_id`、`artifact_key`、重试计数、当前 attempt 与租约 |
-| `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`。先写 attempt 再发消息，因此它同时充当 outbox |
+| `jobs` | 一个源文件 + 一份输出规格 → 一个产物：`operation`（目前只有 `image.convert`）、`output_index`/`output_name`、规范化后的 `options`、可选 `target`、实际执行的 `resolved_options`、`target_met`、`achieved`、`source_file_id`、`output_file_id`、`artifact_key`、重试计数、当前 attempt 与租约 |
+| `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`、可选 `encode_rounds`/`compute_ms`。先写 attempt 再发消息，因此它同时充当 outbox |
 
 产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。
 
@@ -61,13 +61,13 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 
 ### 产物复用
 
-创建任务时，同一用户、同一源文件、同一规范化参数如果已有完成的产物，job 直接标记为完成并指向该产物，不再派发。键的计算见 [ImageOptions §产物键](/contracts/image-options#规范化与产物键)。
+创建任务时，同一用户、同一源文件、同一规范化参数如果已有完成的产物，job 直接标记为完成并指向该产物，不再派发（带参数搜索的 `target` 请求额外将 `target` 计入复用键 `compression-target/v1`；普通或仅校验 `target` 的请求沿用 `image-options/v2`，并按新 job 的 `target` 重算 `target_met` 与 `achieved`）。键的计算见 [ImageOptions §产物键](/contracts/image-options#规范化与产物键)。
 
 ## 存储与上传
 
 - S3 兼容存储（R2 友好：path-style、region 默认 `auto`）。
 - 上传走预签名直传：不超过 10 MB 的文件单次 PUT，SHA-256 签进 URL，由存储校验内容；更大的文件走分片，初始化时一次签好全部分片。初始化时带 SHA-256，命中本人已上传的文件则直接复用（秒传）。分片上传的 SHA-256 由客户端上报，存储不校验。
-- 下载走 15 分钟预签名 URL。
+- 下载走 15 分钟预签名 URL（签名带入 `ResponseContentDisposition`，使用文件名称作为附件下载文件名）。
 - API 每小时清理过期的上传与陈旧草稿：对象已存在但未调用完成接口的上传会被补记为 `UPLOADED`；被任务引用的文件不会被清理。
 
 ## 扩展点（尚未实现）

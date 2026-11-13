@@ -153,6 +153,16 @@ func rejectNulls(raw []byte, fields []string, nested string, nestedFields []stri
 // Parse decodes strictly (unknown fields and nulls for defaulted fields are
 // errors, as in the Rust decoder) and canonicalizes.
 func Parse(raw []byte) (Options, error) {
+	return parse(raw, true)
+}
+
+// ParseForTarget decodes strictly and fills non-quality defaults while leaving
+// omitted quality and distance nil so target search can pick them.
+func ParseForTarget(raw []byte) (Options, error) {
+	return parse(raw, false)
+}
+
+func parse(raw []byte, fillDefaultQuality bool) (Options, error) {
 	if err := rejectNulls(raw, requiredTop, "resize", requiredResize); err != nil {
 		return Options{}, err
 	}
@@ -165,7 +175,7 @@ func Parse(raw []byte) (Options, error) {
 	if err := d.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return Options{}, fmt.Errorf("%w: unexpected trailing JSON", ErrInvalid)
 	}
-	return o.Canonicalize()
+	return o.canonicalize(fillDefaultQuality)
 }
 
 func invalid(msg string) error { return fmt.Errorf("%w: %s", ErrInvalid, msg) }
@@ -278,10 +288,18 @@ func (o Options) Validate() error {
 // Effort stays unset: its default is the encoder's own. A distance is kept as
 // given and not converted to or from quality.
 func (o Options) Canonicalize() (Options, error) {
+	return o.canonicalize(true)
+}
+
+func (o Options) CanonicalizeForTarget() (Options, error) {
+	return o.canonicalize(false)
+}
+
+func (o Options) canonicalize(fillDefaultQuality bool) (Options, error) {
 	if err := o.Validate(); err != nil {
 		return Options{}, err
 	}
-	if o.Quality == nil && o.Distance == nil && !o.Lossless && defaultQuality[o.Format] != 0 {
+	if fillDefaultQuality && o.Quality == nil && o.Distance == nil && !o.Lossless && defaultQuality[o.Format] != 0 {
 		q := defaultQuality[o.Format]
 		o.Quality = &q
 	}

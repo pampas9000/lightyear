@@ -89,3 +89,24 @@ func TestDistanceJSONBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestParseForTargetLeavesOmittedQualityNil(t *testing.T) {
+	o, err := ParseForTarget([]byte(`{"format":"avif"}`))
+	if err != nil {
+		t.Fatalf("ParseForTarget: %v", err)
+	}
+	if o.Quality != nil || o.Distance != nil {
+		t.Fatalf("expected nil quality/distance, got q=%v d=%v", o.Quality, o.Distance)
+	}
+	if o.Metadata != MetadataStrip || o.Color != ColorKeep {
+		t.Fatalf("expected non-quality defaults to be populated: %+v", o)
+	}
+
+	explicit, err := ParseForTarget([]byte(`{"format":"avif","quality":75}`))
+	if err != nil {
+		t.Fatalf("ParseForTarget explicit: %v", err)
+	}
+	if explicit.Quality == nil || *explicit.Quality != 75 {
+		t.Fatalf("expected explicit quality 75 to be preserved, got %v", explicit.Quality)
+	}
+}

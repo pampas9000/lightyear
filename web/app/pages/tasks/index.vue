@@ -140,7 +140,32 @@ const formatTimeAgo = (date: string) => {
 
 const getTaskSummaryLabel = (task: Task) => {
     if (!task.jobs || task.jobs.length === 0 || !task.jobs[0]) return 'UNKNOWN'
-    return describe(task.jobs[0].options)
+    const first = describe(task.jobs[0].options, task.jobs[0].target)
+    const distinctFormats = Array.from(new Set(task.jobs.map(j => j.options?.format?.toUpperCase()).filter(Boolean)))
+    const hasMulti = task.jobs.some(j => (j.output_index ?? 0) > 0 || !!j.output_name)
+    if (hasMulti && distinctFormats.length > 1) return distinctFormats.join(' + ')
+    return first
+}
+
+const getTaskCompressionBadge = (task: Task) => {
+    if (task.status !== 'COMPLETED' || !task.jobs || task.jobs.length === 0) return null
+    const srcSizes = new Map<string, number>()
+    let totalOut = 0
+    for (const j of task.jobs) {
+        if (j.status !== 'COMPLETED') continue
+        const src = j.compression?.source_bytes ?? j.source_file?.size ?? 0
+        const out = j.compression?.output_bytes ?? j.output_file?.size ?? 0
+        if (src > 0 && out > 0) {
+            if (!srcSizes.has(j.source_file_id)) srcSizes.set(j.source_file_id, src)
+            totalOut += out
+        }
+    }
+    let totalSrc = 0
+    for (const sz of srcSizes.values()) totalSrc += sz
+    if (totalSrc <= 0 || totalOut <= 0) return null
+    const larger = totalOut > totalSrc
+    const pct = Math.round((Math.abs(totalSrc - totalOut) / totalSrc) * 100)
+    return { larger, label: `${larger ? '+' : '-'}${pct}%` }
 }
 
 const getTaskProgress = (task: Task) => {
@@ -275,6 +300,13 @@ const getMediaFlow = (task: Task) => {
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium flex-wrap">
                                     <span class="font-medium text-ink-muted bg-surface-2 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase">
                                         {{ getTaskSummaryLabel(task) }}
+                                    </span>
+                                    <span
+                                        v-if="getTaskCompressionBadge(task)"
+                                        class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold"
+                                        :class="getTaskCompressionBadge(task)?.larger ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'"
+                                    >
+                                        {{ getTaskCompressionBadge(task)?.label }}
                                     </span>
                                     <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
                                     <span class="text-xs text-ink-subtle font-mono">

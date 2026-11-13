@@ -150,7 +150,17 @@
         "toast_cancel_success": "Tâche annulée",
         "toast_cancel_failed": "Impossible d'annuler la tâche",
         "cancelled_banner_title": "Tâche annulée",
-        "cancelled_banner_desc": "Tous les jobs en attente ou en cours de cette tâche ont été interrompus. Vous pouvez relancer tous les jobs à tout moment."
+        "cancelled_banner_desc": "Tous les jobs en attente ou en cours de cette tâche ont été interrompus. Vous pouvez relancer tous les jobs à tout moment.",
+        "completed_banner_grew_desc": "{count} fichier(s) traité(s) avec succès ; la taille totale a augmenté de {delta} (+{ratio} %).",
+        "completed_badge": "{count} terminé(s)",
+        "larger_than_source": "Plus volumineux que l'original",
+        "target_met": "Cible atteinte",
+        "target_missed": "Cible non atteinte",
+        "resolved_label": "Résolu",
+        "outputs_count": "{count} sorties",
+        "avg_per_output_total": "moy./sortie · {total} au total",
+        "completed_banner_multi_desc": "{count} sorties générées à partir de {input} source(s) (total {output}), réduisant la taille moyenne par sortie de {ratio} %.",
+        "completed_banner_multi_grew_desc": "{count} sorties générées à partir de {input} source(s) (total {output}), avec une taille moyenne par sortie de +{ratio} %."
     },
     "wasm_sandbox": {
         "title": "Transcodage d'images local",
@@ -236,6 +246,11 @@
         "chroma": "Sous-échantillonnage chroma",
         "bit_depth": "Profondeur de bits",
         "auto": "Auto",
-        "follow_source": "Comme la source"
+        "follow_source": "Comme la source",
+        "target_size": "Taille cible maximale",
+        "target_size_hint": "Recherche automatiquement la meilleure qualité respectant cette limite.",
+        "target_size_check_hint": "Vérifie la limite après encodage sans recherche itérative.",
+        "target_max_bytes": "Taille max.",
+        "auto_from_target": "Auto (selon cible)"
     }
 }

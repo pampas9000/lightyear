@@ -1,6 +1,6 @@
 # 队列契约（Redis Streams，v2）
 
-orchestrator 与 worker 之间的消息格式。双侧实现是 `server/internal/task/queue.go` 与 `compute/crates/types/src/protocol.rs`，两边都用 `docs/contracts/fixtures/{dispatch,results}-v2.json` 做往返测试，**修改必须成对提交并同时更新 fixtures**。
+orchestrator 与 worker 之间的消息格式。双侧实现是 `server/internal/task/queue.go` 与 `compute/crates/types/src/protocol.rs`，两边都用 `docs/contracts/fixtures/{dispatch,dispatch-target,results}-v2.json` 做往返测试，**修改必须成对提交并同时更新 fixtures**。
 
 Redis 只负责投递；执行所有权、超时与重试都由数据库决定，见[可靠性设计](/architecture/reliability)。
 
@@ -39,7 +39,8 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `v` | 协议版本，必须为 `2`；worker 丢弃其他版本 |
 | `job_id` / `attempt_id` | UUID；结果必须原样带回 |
 | `op` | 操作；image worker 只接受 `image.convert` |
-| `options` | **规范化后**的 [`ImageOptions`](/contracts/image-options)，所有默认值已填上 |
+| `options` | **规范化后**的 [`ImageOptions`](/contracts/image-options)，所有默认值已填上；当附带 `target` 触发搜索时，`quality`/`distance` 保持省略 |
+| `target` | 可选，压缩目标（目前支持 `max_bytes`）；见 `dispatch-target-v2.json` |
 | `source_key` | 源文件在存储桶中的 key |
 | `output_key` | 产物必须写入的 key，按 attempt 唯一 |
 
@@ -54,7 +55,16 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 ```json
 {
   "v": 2, "job_id": "…", "attempt_id": "…", "status": "COMPLETED", "progress": 100,
-  "artifact": { "key": "outputs/<owner>/<job>/<attempt>.avif", "size": 1234, "mime": "image/avif", "width": 1600, "height": 900 }
+  "artifact": { "key": "outputs/<owner>/<job>/<attempt>.avif", "size": 98400, "mime": "image/avif", "width": 800, "height": 450 },
+  "resolved_options": {
+    "format": "avif", "quality": 72, "lossless": false,
+    "resize": { "width": 800, "fit": "inside", "enlarge": false },
+    "color": "keep", "dynamic_range": "keep", "metadata": "strip", "chroma": "420"
+  },
+  "target_met": true,
+  "achieved": { "bytes": 98400 },
+  "encode_rounds": 7,
+  "compute_ms": 420
 }
 ```
 
@@ -65,10 +75,10 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 }
 ```
 
-| `status` | 含义 | 必带字段 |
+| `status` | 含义 | 必带与可选字段 |
 | :--- | :--- | :--- |
 | `RUNNING` | 开始执行与心跳（每 20 秒）；续租约，可更新进度 | — |
-| `COMPLETED` | 产物已上传 | `artifact`，其 `key` 必须等于派发的 `output_key` |
+| `COMPLETED` | 产物已上传 | 必带 `artifact`（`key` 须等于派发 `output_key`）；带 `target` 时附带可选 `resolved_options`（含选中的 `quality`/`distance` 与 `chroma`）、`target_met`、`achieved`（`{bytes}`）、`encode_rounds`、`compute_ms` |
 | `FAILED` | 执行失败 | `error` |
 
 `progress` 为 0–100 的可选整数，只会前进。

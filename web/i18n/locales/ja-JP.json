@@ -150,7 +150,17 @@
         "toast_cancel_success": "タスクをキャンセルしました",
         "toast_cancel_failed": "タスクのキャンセルに失敗しました",
         "cancelled_banner_title": "タスクはキャンセルされました",
-        "cancelled_banner_desc": "このタスクの待機中および実行中のジョブはすべて中止されました。いつでもすべてのジョブを再実行できます。"
+        "cancelled_banner_desc": "このタスクの待機中および実行中のジョブはすべて中止されました。いつでもすべてのジョブを再実行できます。",
+        "completed_banner_grew_desc": "{count} 件のファイルを処理しました。合計サイズは {delta} (+{ratio}%) 増加しました。",
+        "completed_badge": "{count} 完了",
+        "larger_than_source": "元ファイルより大きい",
+        "target_met": "目標達成",
+        "target_missed": "目標未達",
+        "resolved_label": "実績",
+        "outputs_count": "{count} 出力",
+        "avg_per_output_total": "1出力あたり平均 · 合計 {total}",
+        "completed_banner_multi_desc": "合計 {input} の元画像から {count} 件の出力を生成しました（出力合計 {output}、1出力あたり平均 {ratio}% 削減）。",
+        "completed_banner_multi_grew_desc": "合計 {input} の元画像から {count} 件の出力を生成しました（出力合計 {output}、1出力あたり平均 +{ratio}%）。"
     },
     "wasm_sandbox": {
         "title": "ローカル画像変換",
@@ -236,6 +246,11 @@
         "chroma": "クロマサブサンプリング",
         "bit_depth": "ビット深度",
         "auto": "自動",
-        "follow_source": "ソースに合わせる"
+        "follow_source": "ソースに合わせる",
+        "target_size": "目標ファイルサイズ",
+        "target_size_hint": "サイズ上限内で最も高い品質を自動探索します。",
+        "target_size_check_hint": "エンコード後にサイズ上限を満たすか検証します。",
+        "target_max_bytes": "最大サイズ",
+        "auto_from_target": "自動（目標基準）"
     }
 }

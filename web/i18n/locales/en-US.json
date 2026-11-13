@@ -150,7 +150,17 @@
         "toast_cancel_success": "Task cancelled successfully",
         "toast_cancel_failed": "Failed to cancel task",
         "cancelled_banner_title": "Task Cancelled",
-        "cancelled_banner_desc": "All pending and running jobs in this task were aborted. You can restart all jobs anytime."
+        "cancelled_banner_desc": "All pending and running jobs in this task were aborted. You can restart all jobs anytime.",
+        "completed_banner_grew_desc": "Successfully processed {count} file(s); total size increased by {delta} (+{ratio}%).",
+        "completed_badge": "{count} done",
+        "larger_than_source": "Larger than source",
+        "target_met": "Target met",
+        "target_missed": "Target missed",
+        "resolved_label": "Resolved",
+        "outputs_count": "{count} outputs",
+        "avg_per_output_total": "avg/output · {total} total",
+        "completed_banner_multi_desc": "Generated {count} outputs from {input} source(s) (total {output}), reducing average size per output by {ratio}%.",
+        "completed_banner_multi_grew_desc": "Generated {count} outputs from {input} source(s) (total {output}), with average size per output +{ratio}%."
     },
     "wasm_sandbox": {
         "title": "Local Image Transcoding",
@@ -236,6 +246,11 @@
         "chroma": "Chroma subsampling",
         "bit_depth": "Bit depth",
         "auto": "Auto",
-        "follow_source": "Source"
+        "follow_source": "Source",
+        "target_size": "Target file size",
+        "target_size_hint": "Automatically picks the highest quality that fits within the limit.",
+        "target_size_check_hint": "Checks whether the output meets the limit without searching.",
+        "target_max_bytes": "Max size",
+        "auto_from_target": "Auto (by target)"
     }
 }

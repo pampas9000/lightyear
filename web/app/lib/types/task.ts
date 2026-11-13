@@ -24,10 +24,33 @@ export interface File extends Base {
     owner_id: string;
 }
 
+export interface CompressionTarget {
+    max_bytes?: number;
+}
+
+export interface CompressionAchieved {
+    bytes?: number;
+}
+
+export interface CompressionStats {
+    source_bytes: number;
+    output_bytes: number;
+    ratio: number;
+    saved_ratio: number;
+    larger_than_source: boolean;
+}
+
 export interface Job extends Base {
     status: TaskStatus;
     operation: string;
+    output_index?: number;
+    output_name?: string;
     options: ImageOptions;
+    target?: CompressionTarget;
+    resolved_options?: ImageOptions;
+    target_met?: boolean;
+    achieved?: CompressionAchieved;
+    compression?: CompressionStats;
     progress: number;
     attempts: number;
     max_attempts: number;
@@ -49,9 +72,15 @@ export interface Task extends Base {
     workflow_id?: string;
 }
 
+export interface WorkflowOutput {
+    name?: string;
+    options: ImageOptions;
+    target?: CompressionTarget;
+}
+
 export interface Workflow extends Base {
     name: string;
-    options: ImageOptions;
+    outputs: WorkflowOutput[];
     owner_id: string;
 }
 

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { RotateCcw, Loader2, Check, Code2, SlidersHorizontal } from '@lucide/vue'
 import ImageOptionsForm from '@/components/ImageOptionsForm.vue'
 import type { ImageOptions } from '~/lib/types/image-options'
+import type { CompressionTarget } from '~/lib/types/task'
 import { defaultOptions, sanitize } from '~/lib/image-options'
 
 const props = defineProps<{
@@ -20,16 +21,18 @@ const props = defineProps<{
     taskId: string
     targetJobId?: string
     initialOptions?: ImageOptions
+    initialTarget?: CompressionTarget | null
     failedCount?: number
     isRetrying?: boolean
 }>()
 
 const emit = defineEmits<{
     (e: 'update:open', val: boolean): void
-    (e: 'submit', payload: { options?: ImageOptions; retryAll: boolean; jobIds?: string[] }): void
+    (e: 'submit', payload: { options?: ImageOptions; target?: CompressionTarget | null; retryAll: boolean; jobIds?: string[] }): void
 }>()
 
 const options = ref<ImageOptions>(defaultOptions())
+const target = ref<CompressionTarget | undefined>(undefined)
 const changeOptions = ref(false)
 const retryAllJobs = ref(false)
 const showRawJson = ref(false)
@@ -40,6 +43,7 @@ watch(
     (open) => {
         if (!open) return
         options.value = sanitize(props.initialOptions ?? defaultOptions())
+        target.value = props.initialTarget?.max_bytes ? { max_bytes: props.initialTarget.max_bytes } : undefined
         changeOptions.value = false
         retryAllJobs.value = false
         showRawJson.value = false
@@ -47,8 +51,10 @@ watch(
 )
 
 const handleSubmit = () => {
+    const canModifyParams = !!props.targetJobId
     emit('submit', {
-        options: changeOptions.value ? sanitize(options.value) : undefined,
+        options: canModifyParams && changeOptions.value ? sanitize(options.value) : undefined,
+        target: canModifyParams && changeOptions.value ? (target.value?.max_bytes ? target.value : null) : undefined,
         retryAll: retryAllJobs.value,
         jobIds: props.targetJobId ? [props.targetJobId] : undefined,
     })
@@ -101,30 +107,39 @@ const handleSubmit = () => {
                     </div>
                 </div>
 
-                <!-- Same or changed options -->
-                <div class="grid grid-cols-2 gap-2">
-                    <button v-for="change in [false, true]" :key="String(change)" type="button" @click="changeOptions = change"
-                        class="px-3 py-2 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between cursor-pointer"
-                        :class="changeOptions === change
-                            ? 'bg-surface-1 border-primary text-primary shadow-xs ring-1 ring-primary font-bold'
-                            : 'bg-transparent border-hairline text-ink-subtle hover:bg-surface-2 hover:text-ink'">
-                        <span>{{ change ? '修改参数' : '沿用原参数' }}</span>
-                        <Check v-if="changeOptions === change" class="w-3.5 h-3.5 text-primary stroke-[2.5]" />
-                    </button>
-                </div>
-
-                <ImageOptionsForm v-if="changeOptions" v-model="options" :disabled="isRetrying" jpeg-repack />
-
-                <div v-if="changeOptions" class="pt-2">
-                    <button type="button" @click="showRawJson = !showRawJson"
-                        class="text-xs font-mono font-semibold text-ink-subtle hover:text-primary flex items-center gap-1.5 cursor-pointer transition-colors">
-                        <Code2 class="w-3.5 h-3.5" />
-                        <span>{{ showRawJson ? '收起 JSON' : '查看提交的 options' }}</span>
-                    </button>
-                    <div v-if="showRawJson" class="mt-2 p-3 rounded-lg bg-surface-2 text-ink font-mono text-[11px] overflow-x-auto border border-hairline shadow-inner">
-                        <pre>{{ JSON.stringify(sanitize(options), null, 2) }}</pre>
+                <!-- Same or changed options (restricted to single-job retry) -->
+                <template v-if="targetJobId">
+                    <div class="grid grid-cols-2 gap-2">
+                        <button v-for="change in [false, true]" :key="String(change)" type="button" @click="changeOptions = change"
+                            class="px-3 py-2 rounded-lg text-xs font-semibold border transition-all text-left flex items-center justify-between cursor-pointer"
+                            :class="changeOptions === change
+                                ? 'bg-surface-1 border-primary text-primary shadow-xs ring-1 ring-primary font-bold'
+                                : 'bg-transparent border-hairline text-ink-subtle hover:bg-surface-2 hover:text-ink'">
+                            <span>{{ change ? '修改参数' : '沿用原参数' }}</span>
+                            <Check v-if="changeOptions === change" class="w-3.5 h-3.5 text-primary stroke-[2.5]" />
+                        </button>
                     </div>
-                </div>
+
+                    <ImageOptionsForm
+                        v-if="changeOptions"
+                        v-model="options"
+                        v-model:target="target"
+                        target-support
+                        :disabled="isRetrying"
+                        jpeg-repack
+                    />
+
+                    <div v-if="changeOptions" class="pt-2">
+                        <button type="button" @click="showRawJson = !showRawJson"
+                            class="text-xs font-mono font-semibold text-ink-subtle hover:text-primary flex items-center gap-1.5 cursor-pointer transition-colors">
+                            <Code2 class="w-3.5 h-3.5" />
+                            <span>{{ showRawJson ? '收起 JSON' : '查看提交的 options' }}</span>
+                        </button>
+                        <div v-if="showRawJson" class="mt-2 p-3 rounded-lg bg-surface-2 text-ink font-mono text-[11px] overflow-x-auto border border-hairline shadow-inner">
+                            <pre>{{ JSON.stringify({ options: sanitize(options), ...(target?.max_bytes ? { target } : {}) }, null, 2) }}</pre>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             <SheetFooter class="px-6 py-3.5 border-t border-hairline bg-surface-1/80 backdrop-blur-md shrink-0 flex flex-row items-center justify-between gap-3">

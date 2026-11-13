@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/orchestrator"
 	taskservice "transcoder/server/internal/services/task"
@@ -345,5 +346,82 @@ func TestParallelSiblingCompletionAggregatesTask(t *testing.T) {
 	f.db.First(&task, "id = ?", f.task.ID)
 	if task.Status != models.TaskCompleted {
 		t.Fatalf("task status %s", task.Status)
+	}
+}
+
+func TestTargetDispatchAndMultiOutputCompletion(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	owner := uuid.New()
+	file := models.File{OwnerID: owner, Status: "UPLOADED", Name: "portrait.png", Size: 150000, Path: "uploads/" + uuid.NewString() + ".png"}
+	if err := db.Create(&file).Error; err != nil {
+		t.Fatal(err)
+	}
+	tasks := taskservice.NewService(db, nil)
+	parent, err := tasks.CreateTask(t.Context(), taskservice.CreateTaskInput{
+		OwnerID: owner,
+		Items:   []taskservice.TaskItemInput{{FileID: file.ID}},
+		Outputs: json.RawMessage(`[
+			{"name":"preview","options":{"format":"avif"},"target":{"max_bytes":50000}},
+			{"options":{"format":"webp","quality":80}}
+		]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := &fakeQueue{}
+	svc := orchestrator.NewService(db, queue)
+	f := fixture{db, queue, svc, tasks, parent}
+	f.dispatch(t)
+	if len(queue.sent) != 2 {
+		t.Fatalf("expected 2 dispatches, got %d", len(queue.sent))
+	}
+	j0 := f.job(t, 0)
+	j1 := f.job(t, 1)
+
+	resolvedOpts := j0.Options
+	resolvedOpts.Quality = new(68)
+	// Mismatched format in resolved_options must be rejected without completing the job.
+	badRes := completed(j0, f.attempt(t, j0).OutputKey)
+	badOpts := resolvedOpts
+	badOpts.Format = imageoptions.FormatPNG
+	badOpts.Quality = nil
+	badRes.ResolvedOptions = &badOpts
+	if err := svc.ProcessResult(t.Context(), badRes); !errors.Is(err, orchestrator.ErrInvalidResult) {
+		t.Fatalf("expected ErrInvalidResult for mismatched resolved_options format, got %v", err)
+	}
+	if f.job(t, 0).Status != models.JobProcessing {
+		t.Fatalf("rejected result must leave job processing, got %s", f.job(t, 0).Status)
+	}
+
+	res0 := completed(j0, f.attempt(t, j0).OutputKey)
+	res0.Artifact.Size = 48000
+	res0.ResolvedOptions = &resolvedOpts
+	res0.TargetMet = new(true)
+	res0.EncodeRounds = new(6)
+	res0.ComputeMS = new(int64(310))
+	if err := svc.ProcessResult(t.Context(), res0); err != nil {
+		t.Fatal(err)
+	}
+	res1 := completed(j1, f.attempt(t, j1).OutputKey)
+	res1.Artifact.Size = 60000
+	res1.Artifact.Mime = "image/webp"
+	if err := svc.ProcessResult(t.Context(), res1); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := tasks.GetTask(t.Context(), owner, parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Jobs[0].OutputFile.Name != "portrait.preview.avif" || got.Jobs[1].OutputFile.Name != "portrait.2.webp" {
+		t.Fatalf("unexpected multi-output names: %q, %q", got.Jobs[0].OutputFile.Name, got.Jobs[1].OutputFile.Name)
+	}
+	if got.Jobs[0].ResolvedOptions == nil || *got.Jobs[0].ResolvedOptions.Quality != 68 ||
+		got.Jobs[0].TargetMet == nil || !*got.Jobs[0].TargetMet ||
+		got.Jobs[0].Compression == nil || got.Jobs[0].Compression.OutputBytes != 48000 {
+		t.Fatalf("job 0 target metadata missing: %+v", got.Jobs[0])
+	}
+	if a := f.attempt(t, j0); a.EncodeRounds == nil || *a.EncodeRounds != 6 || a.ComputeMS == nil || *a.ComputeMS != 310 {
+		t.Fatalf("attempt telemetry not stored: %+v", a)
 	}
 }

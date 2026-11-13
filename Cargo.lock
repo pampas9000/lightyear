@@ -576,6 +576,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute-optimize"
+version = "0.1.0"
+dependencies = [
+ "compute-imageops",
+ "compute-types",
+ "serde_json",
+]
+
+[[package]]
 name = "compute-types"
 version = "0.1.0"
 dependencies = [
@@ -591,6 +600,7 @@ dependencies = [
  "anyhow",
  "aws-sdk-s3",
  "compute-imageops",
+ "compute-optimize",
  "compute-types",
  "config",
  "dotenvy",

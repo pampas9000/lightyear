@@ -8,6 +8,8 @@ use crate::job::{self, Context};
 use crate::queue::Queue;
 use crate::redis_connection;
 use compute_types::protocol::{Dispatch, JobResult, ResultError, Status, VERSION};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::Duration;
 
 /// Must stay well under the orchestrator's lease (two minutes).
@@ -84,7 +86,11 @@ impl Worker {
             eprintln!("Failed to report start of {attempt}: {e}");
         }
 
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let progress = Arc::new(AtomicU8::new(0));
         let mut beats = self.queue.clone();
+        let watcher_cancel = cancel_flag.clone();
+        let watcher_progress = progress.clone();
         let watcher = async {
             let mut heartbeat = tokio::time::interval(HEARTBEAT);
             heartbeat.tick().await;
@@ -92,12 +98,14 @@ impl Worker {
             loop {
                 tokio::select! {
                     _ = heartbeat.tick() => {
+                        running.progress = Some(watcher_progress.load(Ordering::Relaxed));
                         if let Err(e) = beats.publish(&running).await {
                             eprintln!("Heartbeat for {attempt} failed: {e}");
                         }
                     }
                     _ = poll.tick() => {
                         if beats.is_cancelled(&attempt).await.unwrap_or(false) {
+                            watcher_cancel.store(true, Ordering::Relaxed);
                             return;
                         }
                     }
@@ -105,10 +113,10 @@ impl Worker {
             }
         };
         let outcome = tokio::select! {
-            outcome = job::run(&self.ctx, &dispatch) => outcome,
+            outcome = job::run(&self.ctx, &dispatch, cancel_flag, progress) => outcome,
             () = watcher => {
-                // Dropping the job future stops downloads and uploads; a libvips
-                // call already running finishes in the background, unpublished.
+                // Stopping search via cancel_flag exits between rounds; any active
+                // libvips encode finishes in the background, unpublished.
                 println!("Attempt {attempt} was cancelled while running");
                 return;
             }
@@ -116,9 +124,18 @@ impl Worker {
 
         let mut result = JobResult::for_dispatch(&dispatch, Status::Completed);
         match outcome {
-            Ok(artifact) => {
+            Ok(done) => {
                 result.progress = Some(100);
-                result.artifact = Some(artifact);
+                result.artifact = Some(done.artifact);
+                result.resolved_options = done.resolved_options;
+                result.target_met = done.target_met;
+                result.achieved = done.achieved;
+                result.encode_rounds = Some(done.encode_rounds);
+                result.compute_ms = Some(done.compute_ms);
+            }
+            Err(crate::error::ComputeError::Cancelled) => {
+                println!("Attempt {attempt} cancelled during processing");
+                return;
             }
             Err(err) => {
                 eprintln!("Attempt {attempt} failed: {err} [{}]", err.code());
@@ -177,6 +194,8 @@ mod tests {
     fn parses_only_current_well_formed_dispatches() {
         let fixture = include_str!("../../../docs/contracts/fixtures/dispatch-v2.json");
         assert!(parse(fixture).is_some());
+        let target_fixture = include_str!("../../../docs/contracts/fixtures/dispatch-target-v2.json");
+        assert!(parse(target_fixture).is_some());
         assert!(parse(&fixture.replace("\"v\": 2", "\"v\": 1")).is_none());
         assert!(parse(&fixture.replace("0198a000-0000-7000-8000-000000000002", "nope")).is_none());
         assert!(parse("{}").is_none());

@@ -32,6 +32,10 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-10 | `dynamic_range=keep` 在输出格式无法携带 gain map 时输出 SDR 基础图，而不是报错 | 否则最常见的"手机照片转 AVIF"默认会失败；PQ/HLG 源图仍一律拒绝 |
 | 2026-10-12 | 浏览器沙盒暂不支持 HEIC（读写都不做），HEIC 只走服务端 | 官方 wasm-vips 以 `WITH_LIBDE265=OFF` 构建；自编带 libde265 的 wasm-vips 需维护构建且有 HEVC 专利风险；libheif-js 只出 8-bit，ICC/Exif/XMP 要自己从 ISOBMFF 解析透传，与服务端难以一致 |
 | 2026-10-27 | 编码平时走 libvips；服务端 AVIF 改为直接调用 libavif。默认速度档跟随实际调用的编码器：走 libvips 用 libvips 默认，走 libavif 用 libavif 默认（speed 6），走 libjxl 用 libjxl 默认（effort 7）；用户未填 `effort` 时不传 | [编码器对比](/engineering-notes/encoder-comparison)：JXL 经 libvips 与 `cjxl` 逐字节相同，没有理由绕开；AVIF 照片与 `avifenc` 持平，但 libvips `heifsave` 固定关闭 intrabc，截图大 13%–40%。默认值不自造映射，与所用库的文档一致 |
+| 2026-11-13 | 压缩能力不进 `ImageOptions`，而是在 `image.convert` 上与 `options` 并列加可选 `target`（`max_bytes` / `min_ssimu2`）；格式必须由用户指定，不做多格式择优，按 `Accept` 协商留给以后的 CDN 式取图；搜索放在 `compute-imageops` 之外的新 crate（`compute-optimize`），结果回传 `resolved_options` | `ImageOptions` 保持单轮确定性指令，浏览器沙盒与 `test:consistency` 不受影响；最终产物必须与 `process(源图, resolved_options)` 逐字节相同 |
+| 2026-11-13 | 一次任务支持"一份文件多种输出"（`outputs` 数组），每份输出对应一个普通 `image.convert` job，预设 `Workflow` 同步保存整组输出 | 复用现有产物复用、单 job 重试、取消、`PARTIALLY_FAILED` 聚合与并行 worker；单源图重复解码（主要是 HEIC）初期可接受，需要时再做单次解码多输出合并 |
+| 2026-11-13 | `target` 规则：给了 `quality`、`distance` 或 `lossless: true` 时不搜索、只检查；`format: png` 带 `target` 报 400；`max_bytes` 与 `min_ssimu2` 同在且都能满足时取刚达标的最小体积，冲突时体积优先；达不到目标时交付最小结果并标 `target_met: false`；`larger_than_source` 无条件按字节对比打标，不退回原图 | 避免隐式退回原图泄露默认 `strip` 的元数据或违背格式/缩放意图；保证与 `ratio`、`saved_ratio` 口径一致 |
+| 2026-11-13 | 队列协议在 `v2` 上新增可选字段（`target`、`resolved_options`、`target_met`、`achieved`、`encode_rounds`、`compute_ms`）；第 1 期搜索任务共用 `q:image`，`Attempt` 记队列名、编码轮数与耗时 | 尚无线上运行，可直接在 `v2` 上向后兼容扩字段；`Attempt` 已按次记录队列，第 2 期做 `min_ssimu2` 或出现队头阻塞时只需按配置改投独立队列 |
 
 ## 执行步骤
 
@@ -175,6 +179,22 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 10.9 | `bit_depth` 开放 12（AVIF/HEIC）并开放给 JXL（8 或 16）：Schema 改为枚举，Rust/Go 校验按格式区分，fixtures、表单、沙盒、文档同步；未填时的默认不变，产物键前缀不变。JPEG → JXL 的 `cjxl` 旁路只在未指定或指定 8 时使用 | ✅ |
 | 10.10 | JXL 的 10/12-bit：libvips 8.18 的 `jxlsave bitdepth` 写出的像素偏暗（10-bit 暗 64 倍，12-bit 暗 16 倍），暂不开放。可选做法：等 libvips 修复，或像 AVIF 一样加 libjxl 的 C 包装层（浏览器沙盒无法同步） | ⬜ |
 | 10.11 | 浮点源（scRGB）转整数位深时截断 0–1 以外的值，且不参考内嵌 ICC；需要色调映射或按 ICC 转换时再处理，与 HDR 通道一并考虑 | ⬜ |
+
+### 第 11 步：压缩目标与多输出
+
+规则摘要：格式必须指定；不搜索的 job（无 `target`，或给了 `quality` / `distance` / `lossless: true`）沿用 `image-options/v2` 共用产物，需要搜索的 job 用新前缀（哈希源文件 + 规范化参数 + `target` + 搜索算法版本）；搜索产物必须与 `process(源图, resolved_options)` 逐字节相同。
+
+| # | 项目 | 状态 |
+|---|---|---|
+| 11.1 | **第 0 期（随第 9 步 `/v1`）**：job 返回 `compression`（`source_bytes`、`output_bytes`、`ratio = output/input`、`saved_ratio = (input-output)/input`、`larger_than_source`）与 `resolved_options`（未搜索时可从 `options` 回落）；`larger_than_source` 一律按 `output_bytes > source_bytes` 计算；任务列表接口补齐输出文件预加载或冗余字节数 | ✅ |
+| 11.2 | **第 0 期（下载文件名）**：`GetPresignedURL` 签入 `ResponseContentDisposition`（取 `file.Name`），避免跨域 `<a download>` 被浏览器忽略或直链缺少友好文件名 | ✅ |
+| 11.3 | **第 1 期（多输出与预设）**：`CreateTask` 支持 `options` / `outputs` / `workflow_id` 三选一；`outputs[]` 每项含可选 `name`（合法字符校验且最终文件名后缀在任务内不撞名）、`options`、可选 `target: { max_bytes }`；限制输出份数与"文件数 × 输出数"总 job 数；job 记录 `output_name` 与 `output_index`，单输出仍写为 `a.avif`，多输出写为 `a.<name\|序号>.avif`；`Workflow` 改为保存一组输出；幂等指纹计入 `outputs` 与 `target` | ✅ |
+| 11.4 | **第 1 期（规范化、键与复用）**：Go 侧先判断是否需要搜索（有 `target` 且未给 `quality` / `distance` / `lossless`），搜索时不填默认 `quality`；`format: png` 带 `target` 报 400；需要搜索的 job 用新产物键前缀；`reuseOutput` 命中时复制 `resolved_options`（不创建 `Attempt`），并按当前 job 的 `target` 与源文件重算 `target_met`、`achieved` 与 `compression` | ✅ |
+| 11.5 | **第 1 期（重试与 Web 控制台）**：不带参数时可批量原样重跑；带新 `options` 或 `target` 时仅允许针对单个 job；Web 第一期只做单输出加可选 `target`（启用体积目标时 `quality` 显示为"自动"），修正任务详情页（不重复累加原图体积、格式卡与数量区分文件数与输出数）并同步六种语言翻译 | ✅ |
+| 11.6 | **第 1 期（模型与队列协议 v2）**：`models.go`、`schema.go`、`overview.md`、`http-api.md` 增加 `target`、`resolved_options`、`target_met`、`achieved`、`output_name`、`output_index` 与 `Attempt` 上的 `encode_rounds` / `compute_ms`；`protocol.rs`、`queue.go`、`fixtures/{dispatch,results}-v2.json` 与 `queue.md` 在 `v2` 上新增对应可选字段；第 1 期共用 `q:image` | ✅ |
+| 11.7 | **第 1 期（搜索实现 `compute-optimize`）**：`compute-imageops` 拆出并公开"解码、缩放与色彩转换并落进内存"（防止关闭缓存后每轮重复解码）与"编码"原语，`process` 签名和行为不变；新 crate `compute-optimize` 单向依赖 `compute-imageops`，二分 `quality`（1–100，约 7 轮）或 JXL `distance`（0.1–25，精度 0.05，约 9 轮），从所有试过的结果里挑最优，达不到时交付最小结果并标 `target_met: false`；未指定 `chroma` 时沿用 `Q ≥ 90` 切换 4:4:4 规则并把胜出轮次实际 `chroma` 写进 `resolved_options`；JPEG→JXL 满足旁路条件（无缩放、`color=keep`、位深 ≤ 8）时先试 `cjxl` 无损旁路，命中则 `resolved_options` 记 `lossless: true`；每轮之间检查取消标记（`AtomicBool`）并上报进度；测试验证搜索产物与 `process(源图, resolved_options)` 逐字节相同 | ✅ |
+| 11.8 | **第 2 期（`min_ssimu2` 与队列隔离）**：评估 Rust 端 SSIMULACRA2 实现的准确度、速度与内存，定下 16 位、广色域、alpha 处理方式与像素上限；参照图取"缩放与色彩转换之后、编码之前"的内存图像；双目标都能满足时取刚达 `min_ssimu2` 的最小体积，冲突时体积优先；`reuseOutput` 在只检查 `min_ssimu2` 时仅复用已带 `achieved.ssimu2` 的记录；搜索任务切分独立队列与 worker 池 | ⬜ |
+| 11.9 | **第 3 期（多输出体验增强）**：Web 控制台多输出编辑器；必要时让 worker 一次解码源图输出多份产物（主要减少 HEIC 重复解码） | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 

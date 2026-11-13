@@ -8,22 +8,27 @@ import (
 )
 
 func TestDispatchFixtureRoundTrips(t *testing.T) {
-	raw, err := os.ReadFile("../../../docs/contracts/fixtures/dispatch-v2.json")
-	if err != nil {
-		t.Fatal(err)
+	for _, path := range []string{
+		"../../../docs/contracts/fixtures/dispatch-v2.json",
+		"../../../docs/contracts/fixtures/dispatch-target-v2.json",
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload Dispatch
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.V != Version || payload.Options.Format != "avif" {
+			t.Fatalf("unexpected dispatch: %+v", payload)
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSONEqual(t, raw, encoded)
 	}
-	var payload Dispatch
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.V != Version || payload.Options.Format != "avif" {
-		t.Fatalf("unexpected dispatch: %+v", payload)
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertJSONEqual(t, raw, encoded)
 }
 
 func TestResultFixturesRoundTrip(t *testing.T) {

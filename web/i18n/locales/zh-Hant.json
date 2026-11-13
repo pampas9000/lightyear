@@ -150,7 +150,17 @@
         "toast_cancel_success": "任務已成功取消",
         "toast_cancel_failed": "取消任務失敗",
         "cancelled_banner_title": "任務已被取消",
-        "cancelled_banner_desc": "該任務的所有排隊與執行作業已終止。您可以隨時重新調度全部作業。"
+        "cancelled_banner_desc": "該任務的所有排隊與執行作業已終止。您可以隨時重新調度全部作業。",
+        "completed_banner_grew_desc": "共成功處理 {count} 個檔案，整體體積增加了 {delta} (+{ratio}%)。",
+        "completed_badge": "{count} 完成",
+        "larger_than_source": "大於原圖",
+        "target_met": "已達目標",
+        "target_missed": "未達目標",
+        "resolved_label": "實際",
+        "outputs_count": "{count} 份輸出",
+        "avg_per_output_total": "平均每份 · 輸出共 {total}",
+        "completed_banner_multi_desc": "共生成 {count} 份輸出（原圖合計 {input} → 輸出合計 {output}），平均每份節省 {ratio}% 體積。",
+        "completed_banner_multi_grew_desc": "共生成 {count} 份輸出（原圖合計 {input} → 輸出合計 {output}），平均每份體積增加 +{ratio}%。"
     },
     "wasm_sandbox": {
         "title": "本地圖像轉碼",
@@ -236,6 +246,11 @@
         "chroma": "色度抽樣",
         "bit_depth": "位元深度",
         "auto": "自動",
-        "follow_source": "跟隨來源"
+        "follow_source": "跟隨來源",
+        "target_size": "目標體積上限",
+        "target_size_hint": "在不超過目標體積的前提下自動搜尋最佳畫質。",
+        "target_size_check_hint": "僅在編碼後檢查是否達到目標體積。",
+        "target_max_bytes": "最大體積",
+        "auto_from_target": "自動（依目標）"
     }
 }

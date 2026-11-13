@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 
 	"transcoder/server/internal/api/response"
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/services/workflow"
 
@@ -35,7 +36,9 @@ func (h *WorkflowHandler) Install(router fiber.Router) {
 
 type CreateWorkflowRequest struct {
 	Name    string          `json:"name"`
-	Options json.RawMessage `json:"options"`
+	Outputs json.RawMessage `json:"outputs,omitempty"`
+	Options json.RawMessage `json:"options,omitempty"`
+	Target  json.RawMessage `json:"target,omitempty"`
 }
 
 func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
@@ -57,7 +60,9 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 	wf, err := h.service.CreateWorkflow(c.Context(), workflow.CreateWorkflowInput{
 		OwnerID: ownerID,
 		Name:    req.Name,
+		Outputs: req.Outputs,
 		Options: req.Options,
+		Target:  req.Target,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Workflow created.", wf)
@@ -66,7 +71,11 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 	switch {
 	case errors.Is(err, workflow.ErrNameRequired):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
-	case errors.Is(err, imageoptions.ErrInvalid):
+	case errors.Is(err, workflow.ErrOutputsRequired),
+		errors.Is(err, imageoptions.ErrInvalid),
+		errors.Is(err, compression.ErrInvalidTarget),
+		errors.Is(err, compression.ErrInvalidOutputs),
+		errors.Is(err, compression.ErrTooManyOutputs):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	}
 
@@ -107,7 +116,9 @@ func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 
 type UpdateWorkflowRequest struct {
 	Name    string          `json:"name"`
-	Options json.RawMessage `json:"options"`
+	Outputs json.RawMessage `json:"outputs,omitempty"`
+	Options json.RawMessage `json:"options,omitempty"`
+	Target  json.RawMessage `json:"target,omitempty"`
 }
 
 func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
@@ -130,7 +141,9 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 	wf, err := h.service.UpdateWorkflow(c.Context(), ownerID, parsedID, workflow.CreateWorkflowInput{
 		OwnerID: ownerID,
 		Name:    req.Name,
+		Outputs: req.Outputs,
 		Options: req.Options,
+		Target:  req.Target,
 	})
 	if err == nil {
 		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflow updated.", wf)
@@ -139,7 +152,11 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 	switch {
 	case errors.Is(err, workflow.ErrNameRequired):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "name is required.", response.ValidationDetail{Field: "name", Reason: "required"})
-	case errors.Is(err, imageoptions.ErrInvalid):
+	case errors.Is(err, workflow.ErrOutputsRequired),
+		errors.Is(err, imageoptions.ErrInvalid),
+		errors.Is(err, compression.ErrInvalidTarget),
+		errors.Is(err, compression.ErrInvalidOutputs),
+		errors.Is(err, compression.ErrTooManyOutputs):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, workflow.ErrWorkflowNotFound):
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")

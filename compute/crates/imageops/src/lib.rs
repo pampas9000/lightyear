@@ -71,6 +71,24 @@ pub struct Output {
     pub height: u32,
 }
 
+/// Decoded, oriented, resized, color-converted image materialized in memory so
+/// callers can run multiple encodes without re-decoding when libvips cache is
+/// disabled.
+pub struct PreparedImage {
+    image: VipsImage,
+    has_gain_map: bool,
+}
+
+impl PreparedImage {
+    pub fn width(&self) -> u32 {
+        self.image.get_width() as u32
+    }
+
+    pub fn height(&self) -> u32 {
+        self.image.get_height() as u32
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The options themselves are invalid.
@@ -121,12 +139,7 @@ fn init() {
     });
 }
 
-/// Processes `input` according to `options`.
-pub fn process(input: &[u8], options: &ImageOptions, settings: &Settings) -> Result<Output, Error> {
-    let options = options
-        .clone()
-        .canonicalize()
-        .map_err(|e| Error::Invalid(e.0))?;
+fn inspect(input: &[u8], settings: &Settings) -> Result<(VipsImage, String, bool), Error> {
     init();
 
     // Header only: libvips decodes lazily, so size checks happen before pixels.
@@ -147,6 +160,72 @@ pub fn process(input: &[u8], options: &ImageOptions, settings: &Settings) -> Res
         ));
     }
     let has_gain_map = source.get_typeof("gainmap-data").unwrap_or(0) != 0;
+    Ok((source, loader, has_gain_map))
+}
+
+/// Runs the JPEG → JXL lossless `cjxl` bypass if source and options qualify.
+pub fn try_jpeg_to_jxl_bypass(
+    input: &[u8],
+    options: &ImageOptions,
+    settings: &Settings,
+) -> Result<Option<Output>, Error> {
+    let options = options
+        .clone()
+        .canonicalize()
+        .map_err(|e| Error::Invalid(e.0))?;
+    let (source, loader, has_gain_map) = inspect(input, settings)?;
+    bypass::jpeg_to_jxl(input, &source, &loader, has_gain_map, &options)
+}
+
+/// Decodes, auto-rotates, resizes, color-converts, and renders pixels into
+/// memory once so callers can encode repeatedly without re-decoding.
+pub fn prepare(
+    input: &[u8],
+    options: &ImageOptions,
+    settings: &Settings,
+) -> Result<PreparedImage, Error> {
+    options.validate().map_err(|e| Error::Invalid(e.0))?;
+    let (source, _loader, has_gain_map) = inspect(input, settings)?;
+    let image = decode(input, &source, options)?
+        .copy_memory()
+        .map_err(|e| vips_error("render image", e))?;
+    Ok(PreparedImage {
+        image,
+        has_gain_map,
+    })
+}
+
+/// Encodes an already prepared in-memory image using `options`.
+pub fn encode(
+    prepared: &PreparedImage,
+    options: &ImageOptions,
+    settings: &Settings,
+) -> Result<Output, Error> {
+    let options = options
+        .clone()
+        .canonicalize()
+        .map_err(|e| Error::Invalid(e.0))?;
+    let bytes = encode::save(
+        &prepared.image,
+        &options,
+        prepared.has_gain_map,
+        settings.avif_encoder,
+    )?;
+    Ok(Output {
+        bytes,
+        mime: encode::mime(options.format),
+        width: prepared.width(),
+        height: prepared.height(),
+    })
+}
+
+/// Processes `input` according to `options`.
+pub fn process(input: &[u8], options: &ImageOptions, settings: &Settings) -> Result<Output, Error> {
+    let options = options
+        .clone()
+        .canonicalize()
+        .map_err(|e| Error::Invalid(e.0))?;
+    let (source, loader, has_gain_map) = inspect(input, settings)?;
 
     if let Some(output) = bypass::jpeg_to_jxl(input, &source, &loader, has_gain_map, &options)? {
         return Ok(output);

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"transcoder/server/internal/imageoptions"
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/models"
 
 	"gorm.io/gorm"
@@ -17,23 +17,45 @@ import (
 
 var (
 	ErrNameRequired     = errors.New("name is required")
+	ErrOutputsRequired  = errors.New("exactly one of outputs or options is required")
 	ErrWorkflowNotFound = errors.New("workflow not found")
 )
 
 type CreateWorkflowInput struct {
 	OwnerID uuid.UUID
 	Name    string
-	// Options is the raw request body field, decoded strictly.
+	// Outputs is preferred; Options (+ optional Target) is a single-output shorthand.
+	Outputs json.RawMessage
 	Options json.RawMessage
+	Target  json.RawMessage
 }
 
-func (input CreateWorkflowInput) resolve() (string, imageoptions.Options, error) {
+func (input CreateWorkflowInput) resolve() (string, compression.WorkflowOutputs, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return "", imageoptions.Options{}, ErrNameRequired
+		return "", nil, ErrNameRequired
 	}
-	options, err := imageoptions.Parse(input.Options)
-	return name, options, err
+	hasOutputs := compression.HasJSONValue(input.Outputs)
+	hasOptions := compression.HasJSONValue(input.Options)
+	hasTarget := compression.HasJSONValue(input.Target)
+	if hasOutputs == hasOptions {
+		return "", nil, ErrOutputsRequired
+	}
+	if hasOutputs && hasTarget {
+		return "", nil, fmt.Errorf("%w: target is only allowed alongside top-level options", ErrOutputsRequired)
+	}
+	if hasOutputs {
+		specs, err := compression.ParseOutputsJSON(input.Outputs)
+		if err != nil {
+			return "", nil, err
+		}
+		return name, compression.WorkflowOutputs(specs), nil
+	}
+	spec, err := compression.ParseSingleOutput(input.Options, input.Target)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, compression.WorkflowOutputs{spec}, nil
 }
 
 type Service struct {
@@ -45,11 +67,11 @@ func NewService(db *gorm.DB) *Service {
 }
 
 func (s *Service) CreateWorkflow(ctx context.Context, input CreateWorkflowInput) (*models.Workflow, error) {
-	name, options, err := input.resolve()
+	name, outputs, err := input.resolve()
 	if err != nil {
 		return nil, err
 	}
-	wf := &models.Workflow{OwnerID: input.OwnerID, Name: name, Options: options}
+	wf := &models.Workflow{OwnerID: input.OwnerID, Name: name, Outputs: outputs}
 
 	if err := s.db.WithContext(ctx).Create(wf).Error; err != nil {
 		return nil, fmt.Errorf("create workflow record: %w", err)
@@ -70,7 +92,7 @@ func (s *Service) GetWorkflow(ctx context.Context, ownerID, id uuid.UUID) (*mode
 }
 
 func (s *Service) UpdateWorkflow(ctx context.Context, ownerID, id uuid.UUID, input CreateWorkflowInput) (*models.Workflow, error) {
-	name, options, err := input.resolve()
+	name, outputs, err := input.resolve()
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +104,7 @@ func (s *Service) UpdateWorkflow(ctx context.Context, ownerID, id uuid.UUID, inp
 		return nil, fmt.Errorf("fetch workflow: %w", err)
 	}
 
-	wf.Name, wf.Options = name, options
+	wf.Name, wf.Outputs = name, outputs
 
 	if err := s.db.WithContext(ctx).Save(&wf).Error; err != nil {
 		return nil, fmt.Errorf("update workflow record: %w", err)

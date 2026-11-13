@@ -3,7 +3,7 @@
 //! The codes are part of the result contract read by the orchestrator and the
 //! web console, so they must stay stable.
 
-use compute_imageops::Error as OpsError;
+use compute_optimize::Error as OptimizeError;
 
 #[derive(Debug)]
 pub enum ComputeError {
@@ -17,6 +17,7 @@ pub enum ComputeError {
     ProcessingFailed(String),
     /// Object storage failed; usually transient.
     StorageFailed(String),
+    Cancelled,
     Internal(String),
 }
 
@@ -28,6 +29,7 @@ impl std::fmt::Display for ComputeError {
             Self::SourceUnavailable(m) => ("source unavailable", m),
             Self::ProcessingFailed(m) => ("processing failed", m),
             Self::StorageFailed(m) => ("storage failed", m),
+            Self::Cancelled => ("cancelled", &String::new()),
             Self::Internal(m) => ("internal error", m),
         };
         write!(f, "{kind}: {msg}")
@@ -44,6 +46,7 @@ impl ComputeError {
             Self::SourceUnavailable(_) => "source_unavailable",
             Self::ProcessingFailed(_) => "processing_failed",
             Self::StorageFailed(_) => "storage_failed",
+            Self::Cancelled => "cancelled",
             Self::Internal(_) => "internal_error",
         }
     }
@@ -55,12 +58,13 @@ impl ComputeError {
     }
 }
 
-impl From<OpsError> for ComputeError {
-    fn from(err: OpsError) -> Self {
+impl From<OptimizeError> for ComputeError {
+    fn from(err: OptimizeError) -> Self {
         match err {
-            OpsError::Invalid(m) => Self::InvalidRequest(m),
-            OpsError::Unsupported(m) => Self::UnsupportedInput(m),
-            OpsError::Failed(m) => Self::ProcessingFailed(m),
+            OptimizeError::Invalid(m) => Self::InvalidRequest(m),
+            OptimizeError::Unsupported(m) => Self::UnsupportedInput(m),
+            OptimizeError::Failed(m) => Self::ProcessingFailed(m),
+            OptimizeError::Cancelled => Self::Cancelled,
         }
     }
 }

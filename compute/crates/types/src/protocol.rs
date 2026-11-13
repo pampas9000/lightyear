@@ -17,6 +17,25 @@ pub const RESULTS_MAX_LEN: usize = 100_000;
 /// `CANCEL_KEY_PREFIX` + attempt ID exists when the attempt should be abandoned.
 pub const CANCEL_KEY_PREFIX: &str = "cancel:attempt:";
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Target {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
+}
+
+impl Target {
+    pub fn is_empty(&self) -> bool {
+        self.max_bytes.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Achieved {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Dispatch {
     pub v: u32,
@@ -24,6 +43,8 @@ pub struct Dispatch {
     pub attempt_id: String,
     pub op: String,
     pub options: ImageOptions,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<Target>,
     pub source_key: String,
     pub output_key: String,
 }
@@ -63,6 +84,16 @@ pub struct JobResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact: Option<Artifact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_options: Option<ImageOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_met: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub achieved: Option<Achieved>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encode_rounds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ResultError>,
 }
 
@@ -75,6 +106,11 @@ impl JobResult {
             status,
             progress: None,
             artifact: None,
+            resolved_options: None,
+            target_met: None,
+            achieved: None,
+            encode_rounds: None,
+            compute_ms: None,
             error: None,
         }
     }
@@ -86,15 +122,19 @@ mod tests {
     use serde_json::Value;
 
     const DISPATCH: &str = include_str!("../../../../docs/contracts/fixtures/dispatch-v2.json");
+    const DISPATCH_TARGET: &str =
+        include_str!("../../../../docs/contracts/fixtures/dispatch-target-v2.json");
     const RESULTS: &str = include_str!("../../../../docs/contracts/fixtures/results-v2.json");
 
     #[test]
     fn dispatch_fixture_round_trips() {
-        let dispatch: Dispatch = serde_json::from_str(DISPATCH).unwrap();
-        assert_eq!(dispatch.v, VERSION);
-        assert_eq!(dispatch.op, "image.convert");
-        let expected: Value = serde_json::from_str(DISPATCH).unwrap();
-        assert_eq!(serde_json::to_value(dispatch).unwrap(), expected);
+        for raw in [DISPATCH, DISPATCH_TARGET] {
+            let dispatch: Dispatch = serde_json::from_str(raw).unwrap();
+            assert_eq!(dispatch.v, VERSION);
+            assert_eq!(dispatch.op, "image.convert");
+            let expected: Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(serde_json::to_value(dispatch).unwrap(), expected);
+        }
     }
 
     #[test]

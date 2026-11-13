@@ -64,7 +64,7 @@ func (h *FileHandler) GetDownloadURL(c fiber.Ctx) error {
 	}
 
 	// Generate a 15-minute presigned download URL
-	url, err := h.storage.GetPresignedURL(c.Context(), h.bucket, file.Path, false, 15*time.Minute)
+	url, err := h.storage.GetPresignedURL(c.Context(), h.bucket, file.Path, file.Name, false, 15*time.Minute)
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to generate download URL", map[string]any{"reason": err.Error()})
 	}

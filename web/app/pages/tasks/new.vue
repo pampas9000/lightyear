@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import ImageOptionsForm from "@/components/ImageOptionsForm.vue";
 import type { SourceProbeSummary } from "@/components/ImageOptionsForm.vue";
+import type { CompressionTarget } from "~/lib/types/task";
 import type { ImageOptions } from "~/lib/types/image-options";
 import { defaultOptions, describe, sanitize } from "~/lib/image-options";
 import {
@@ -52,13 +53,16 @@ useHead({
 const router = useRouter();
 const api = useApi();
 
-// Output options for every file in the task.
+// Output options and optional target for every file in the task.
 const options = ref<ImageOptions>(defaultOptions());
+const target = ref<CompressionTarget | undefined>(undefined);
 
 // Saved option sets (workflows). While the form still matches the applied
 // workflow the task references it; any edit submits explicit options instead.
 const workflows = ref<Workflow[]>([]);
 const selectedWorkflowId = ref("none");
+const selectedWorkflow = computed(() => workflows.value.find((w) => w.id === selectedWorkflowId.value));
+const isMultiOutputWorkflow = computed(() => (selectedWorkflow.value?.outputs?.length ?? 0) > 1);
 const workflowDirty = ref(false);
 const isApplyingWorkflow = ref(false);
 const showPresetSave = ref(false);
@@ -139,6 +143,7 @@ const saveDraft = () => {
     const draft = {
         selectedServerFileIds,
         options: options.value,
+        target: target.value,
         updatedAt: Date.now(),
         pendingSubmission: pendingSubmission.value,
     };
@@ -159,6 +164,7 @@ const loadAndReconcileDraft = async () => {
         const draft = JSON.parse(stored);
         if (!draft) return;
         if (draft.options?.format) options.value = sanitize(draft.options);
+        if (draft.target?.max_bytes) target.value = { max_bytes: draft.target.max_bytes };
         if (draft.pendingSubmission) {
             pendingSubmission.value = draft.pendingSubmission;
             idempotencyKey.value = draft.pendingSubmission.idempotencyKey;
@@ -566,7 +572,15 @@ const generateRequestSnapshot = () => {
     return JSON.stringify({
         items,
         options: sanitize(options.value),
+        ...(target.value?.max_bytes ? { target: target.value } : {}),
     });
+};
+
+const describeWorkflow = (wf: Workflow) => {
+    const first = wf.outputs?.[0];
+    if (!first) return "";
+    const base = describe(first.options, first.target);
+    return wf.outputs.length > 1 ? `${base} (+${wf.outputs.length - 1})` : base;
 };
 
 const fetchWorkflows = async () => {
@@ -581,14 +595,16 @@ const fetchWorkflows = async () => {
 
 const applyWorkflow = async (id: string) => {
     const wf = workflows.value.find((w) => w.id === id);
-    if (!wf) {
+    const first = wf?.outputs?.[0];
+    if (!wf || !first) {
         selectedWorkflowId.value = "none";
         workflowDirty.value = false;
         return;
     }
     isApplyingWorkflow.value = true;
     try {
-        options.value = sanitize(wf.options);
+        options.value = sanitize(first.options);
+        target.value = first.target?.max_bytes ? { max_bytes: first.target.max_bytes } : undefined;
         selectedWorkflowId.value = wf.id;
         workflowDirty.value = false;
         toast.success(`已应用预设「${wf.name}」`);
@@ -609,7 +625,15 @@ const savePreset = async () => {
     try {
         await api("/workflows", {
             method: "POST",
-            body: { name, options: sanitize(options.value) },
+            body: {
+                name,
+                outputs: [
+                    {
+                        options: sanitize(options.value),
+                        ...(target.value?.max_bytes ? { target: target.value } : {}),
+                    },
+                ],
+            },
         });
         toast.success(`预设「${name}」已保存`);
         presetName.value = "";
@@ -626,12 +650,20 @@ const savePreset = async () => {
 const updatePreset = async () => {
     if (selectedWorkflowId.value === "none") return;
     const wf = workflows.value.find((w) => w.id === selectedWorkflowId.value);
-    if (!wf) return;
+    if (!wf || (wf.outputs?.length ?? 0) > 1) return;
     isSavingPreset.value = true;
     try {
         await api(`/workflows/${wf.id}`, {
             method: "PUT",
-            body: { name: wf.name, options: sanitize(options.value) },
+            body: {
+                name: wf.name,
+                outputs: [
+                    {
+                        options: sanitize(options.value),
+                        ...(target.value?.max_bytes ? { target: target.value } : {}),
+                    },
+                ],
+            },
         });
         workflowDirty.value = false;
         toast.success(`预设「${wf.name}」已更新为当前参数`);
@@ -668,7 +700,7 @@ const deletePreset = async () => {
 // The task still submits explicit params in that case; the link only survives
 // while the form matches the stored preset.
 watch(
-    options,
+    [options, target],
     () => {
         if (isApplyingWorkflow.value) return;
         if (selectedWorkflowId.value !== "none") {
@@ -850,12 +882,12 @@ const handleDrop = (e: DragEvent) => {
                                 <SelectContent class="bg-surface-3 border-hairline rounded-lg">
                                     <SelectItem value="none">不使用预设（手动参数）</SelectItem>
                                     <SelectItem v-for="wf in workflows" :key="wf.id" :value="wf.id">
-                                        {{ wf.name }} · {{ describe(wf.options) }}
+                                        {{ wf.name }} · {{ describeWorkflow(wf) }}
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
                             <Button
-                                v-if="selectedWorkflowId !== 'none'"
+                                v-if="selectedWorkflowId !== 'none' && !isMultiOutputWorkflow"
                                 type="button"
                                 size="sm"
                                 variant="outline"
@@ -879,7 +911,17 @@ const handleDrop = (e: DragEvent) => {
                             </Button>
                         </div>
                         <p
-                            v-if="selectedWorkflowId !== 'none' && workflowDirty"
+                            v-if="selectedWorkflowId !== 'none' && isMultiOutputWorkflow"
+                            class="text-[11px] font-medium text-amber-600 dark:text-amber-400"
+                        >
+                            {{
+                                workflowDirty
+                                    ? "多输出预设的参数已修改：提交将按当前单输出参数执行；如需保存修改可另存为新预设。"
+                                    : `多输出预设（共 ${selectedWorkflow?.outputs?.length} 份输出）：当前仅预览第 1 份，直接提交仍生成全部 ${selectedWorkflow?.outputs?.length} 份；网页端暂不支持就地更新多输出预设。`
+                            }}
+                        </p>
+                        <p
+                            v-else-if="selectedWorkflowId !== 'none' && workflowDirty"
                             class="text-[11px] font-medium text-amber-600 dark:text-amber-400"
                         >
                             参数已修改：提交将使用当前参数；可点击「更新预设」覆盖原预设。
@@ -907,6 +949,8 @@ const handleDrop = (e: DragEvent) => {
 
                     <ImageOptionsForm
                         v-model="options"
+                        v-model:target="target"
+                        target-support
                         :source-probe="firstFileProbe"
                         :disabled="isParamsDisabled"
                         jpeg-repack

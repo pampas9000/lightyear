@@ -150,7 +150,17 @@
         "toast_cancel_success": "Aufgabe abgebrochen",
         "toast_cancel_failed": "Aufgabe konnte nicht abgebrochen werden",
         "cancelled_banner_title": "Aufgabe abgebrochen",
-        "cancelled_banner_desc": "Alle wartenden und laufenden Jobs dieser Aufgabe wurden beendet. Sie können alle Jobs jederzeit neu starten."
+        "cancelled_banner_desc": "Alle wartenden und laufenden Jobs dieser Aufgabe wurden beendet. Sie können alle Jobs jederzeit neu starten.",
+        "completed_banner_grew_desc": "{count} Datei(en) erfolgreich verarbeitet; die Gesamtgröße ist um {delta} (+{ratio} %) gestiegen.",
+        "completed_badge": "{count} fertig",
+        "larger_than_source": "Größer als Original",
+        "target_met": "Ziel erreicht",
+        "target_missed": "Ziel verfehlt",
+        "resolved_label": "Effektiv",
+        "outputs_count": "{count} Ausgaben",
+        "avg_per_output_total": "Ø/Ausgabe · {total} gesamt",
+        "completed_banner_multi_desc": "{count} Ausgaben aus {input} Quelle(n) erzeugt (gesamt {output}), durchschnittliche Größe pro Ausgabe um {ratio} % reduziert.",
+        "completed_banner_multi_grew_desc": "{count} Ausgaben aus {input} Quelle(n) erzeugt (gesamt {output}), durchschnittliche Größe pro Ausgabe +{ratio} %."
     },
     "wasm_sandbox": {
         "title": "Lokale Bildtranskodierung",
@@ -236,6 +246,11 @@
         "chroma": "Chroma-Subsampling",
         "bit_depth": "Bittiefe",
         "auto": "Automatisch",
-        "follow_source": "Wie Quelle"
+        "follow_source": "Wie Quelle",
+        "target_size": "Ziel-Dateigröße",
+        "target_size_hint": "Sucht automatisch die höchste Qualität innerhalb des Größenlimits.",
+        "target_size_check_hint": "Prüft das Größenlimit nach der Kodierung ohne Suche.",
+        "target_max_bytes": "Max. Größe",
+        "auto_from_target": "Auto (nach Ziel)"
     }
 }

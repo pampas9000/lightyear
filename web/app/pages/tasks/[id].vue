@@ -2,8 +2,9 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useApi } from '~/composables/useApi'
-import type { Task, Job, File, TaskStatus } from '~/lib/types/task'
+import type { Task, Job, File, TaskStatus, CompressionTarget } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
+import { describe, formatShortBytes } from '~/lib/image-options'
 import { toast } from 'vue-sonner'
 import {
     ChevronLeft, Loader2, Calendar, Clock,
@@ -152,34 +153,103 @@ const formatBytes = (bytes: number | undefined) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-const getSavingsRatio = (inputSize: number | undefined, outputSize: number | undefined) => {
-    if (!inputSize || !outputSize) return 0
-    const savings = inputSize - outputSize
-    return Math.max(0, Math.round((savings / inputSize) * 100))
+const getJobSavings = (job: Job) => {
+    const src = job.compression?.source_bytes ?? job.source_file?.size ?? 0
+    const out = job.compression?.output_bytes ?? job.output_file?.size ?? 0
+    if (!src || !out) return null
+    const larger = job.compression?.larger_than_source ?? out > src
+    const pct = Math.round((Math.abs(src - out) / src) * 100)
+    return {
+        larger,
+        pct,
+        label: `${larger ? '+' : '-'}${pct}%`,
+    }
 }
 
 const getTotalSavings = computed(() => {
     if (!task.value?.jobs || task.value.jobs.length === 0) return null
-    let totalInput = 0
+    const sourceSizes = new Map<string, number>()
+    let pairedInput = 0
     let totalOutput = 0
-    let hasCompleted = false
-    
-    task.value.jobs.forEach(job => {
+    let completedCount = 0
+
+    for (const job of task.value.jobs) {
         if (job.status === 'COMPLETED') {
-            totalInput += job.source_file?.size || 0
-            totalOutput += job.output_file?.size || 0
-            hasCompleted = true
+            const src = job.compression?.source_bytes ?? job.source_file?.size ?? 0
+            const out = job.compression?.output_bytes ?? job.output_file?.size ?? 0
+            if (src > 0 && out > 0) {
+                if (!sourceSizes.has(job.source_file_id)) {
+                    sourceSizes.set(job.source_file_id, src)
+                }
+                pairedInput += src
+                totalOutput += out
+                completedCount += 1
+            }
         }
-    })
-    
-    if (!hasCompleted || totalInput === 0) return null
-    const ratio = getSavingsRatio(totalInput, totalOutput)
+    }
+
+    let totalInput = 0
+    for (const sz of sourceSizes.values()) {
+        totalInput += sz
+    }
+
+    if (completedCount === 0 || totalInput === 0 || pairedInput === 0) return null
+    const multi = completedCount > sourceSizes.size
+    const base = multi ? pairedInput : totalInput
+    const saved = base - totalOutput
+    const larger = totalOutput > base
+    const ratio = Math.round((Math.abs(saved) / base) * 100)
     return {
         input: totalInput,
         output: totalOutput,
+        multi,
+        completedCount,
         ratio,
-        saved: totalInput - totalOutput
+        saved,
+        absDelta: Math.abs(saved),
+        larger,
     }
+})
+
+const uniqueSourceFilesCount = computed(() =>
+    new Set((task.value?.jobs || []).map(j => j.source_file_id)).size,
+)
+
+const hasMultiOutputs = computed(() =>
+    Boolean(task.value?.jobs?.some(j => (j.output_index ?? 0) > 0 || !!j.output_name)),
+)
+
+const uniqueFormatsLabel = computed(() => {
+    const fmts = Array.from(
+        new Set((task.value?.jobs || []).map(j => j.options?.format?.toUpperCase()).filter(Boolean)),
+    )
+    return fmts.length > 0 ? fmts.join(' · ') : '—'
+})
+
+const uniqueOutputSpecs = computed(() => {
+    const jobs = task.value?.jobs || []
+    const byKey = new Map<string, { index: number; name?: string; options: ImageOptions; target?: CompressionTarget; resolved?: ImageOptions }>()
+    for (const job of jobs) {
+        const key = `${job.output_index ?? 0}:${job.output_name ?? ''}`
+        if (!byKey.has(key)) {
+            byKey.set(key, {
+                index: job.output_index ?? 0,
+                name: job.output_name,
+                options: job.options,
+                target: job.target,
+                resolved: job.resolved_options,
+            })
+        }
+    }
+    return Array.from(byKey.values()).sort((a, b) => a.index - b.index)
+})
+
+const effectiveJobForRetry = computed(() => {
+    const jobs = task.value?.jobs || []
+    if (selectedJobForRetry.value) {
+        return jobs.find(j => j.id === selectedJobForRetry.value)
+    }
+    return jobs.length === 1 ? jobs[0] : undefined
 })
 
 const getTaskProgress = computed(() => {
@@ -249,15 +319,24 @@ const formatFilename = (name: string | undefined) => {
 }
 
 // Label/value pairs for the parameters card.
-const optionEntries = (o?: ImageOptions) => {
+const optionEntries = (o?: ImageOptions, target?: CompressionTarget, resolved?: ImageOptions) => {
     if (!o) return []
     const r = o.resize
     const resize = r ? (r.width && r.height ? `${r.width}×${r.height} ${r.fit ?? 'inside'}` : `≤${r.width ?? r.height}px`) + (r.enlarge ? ' ↑' : '') : '—'
-    return [
+    const qualityDisplay = (() => {
+        if (o.lossless) return $t('image_options.lossless')
+        if (target?.max_bytes && o.quality == null && o.distance == null) {
+            if (resolved?.quality != null) return `${$t('image_options.auto')} (Q${resolved.quality})`
+            if (resolved?.distance != null) return `${$t('image_options.auto')} (d${resolved.distance})`
+            return $t('image_options.auto')
+        }
+        return String(o.quality ?? '—')
+    })()
+    const entries: Array<[string, string]> = [
         ['format', o.format.toUpperCase()],
         o.distance != null
             ? ['distance', String(o.distance)]
-            : ['quality', o.lossless ? $t('image_options.lossless') : String(o.quality ?? '—')],
+            : ['quality', qualityDisplay],
         ['effort', o.format === 'jpeg' ? '—' : String(o.effort ?? $t('image_options.effort_default'))],
         ['resize', resize],
         ['color', $t(`image_options.color_${o.color ?? 'keep'}`)],
@@ -265,7 +344,11 @@ const optionEntries = (o?: ImageOptions) => {
         ['metadata', $t(`image_options.metadata_${o.metadata ?? 'strip'}`)],
         ['chroma', o.chroma ? `4:${o.chroma.slice(1, 2)}:${o.chroma.slice(2)}` : $t('image_options.auto')],
         ['bit_depth', o.bit_depth ? `${o.bit_depth}-bit` : $t('image_options.follow_source')],
-    ] as const
+    ]
+    if (target?.max_bytes) {
+        entries.push(['target_size', `≤ ${formatShortBytes(target.max_bytes)}`])
+    }
+    return entries
 }
 
 const copyUuid = () => {
@@ -446,11 +529,12 @@ const handleDirectRetry = async (jobIds?: string[]) => {
     }
 }
 
-const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll: boolean; jobIds?: string[] }) => {
+const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?: CompressionTarget | null; retryAll: boolean; jobIds?: string[] }) => {
     isRetrying.value = true
     try {
         const body: Record<string, unknown> = { retry_all: payload.retryAll }
         if (payload.options) body.options = payload.options
+        if (payload.target !== undefined) body.target = payload.target
         if (payload.jobIds && payload.jobIds.length > 0) {
             body.job_ids = payload.jobIds
             body.retry_all = false
@@ -607,7 +691,20 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                         <h3 class="text-xs font-semibold text-ink uppercase tracking-wider">{{ $t('task_detail.completed_banner_title') }}</h3>
                     </div>
                     <p class="text-xs text-ink-subtle font-medium">
-                        {{ $t('task_detail.completed_banner_desc', { count: completedJobsCount, saved: formatBytes(getTotalSavings.saved), ratio: getTotalSavings.ratio }) }}
+                        <template v-if="getTotalSavings.multi">
+                            {{
+                                getTotalSavings.larger
+                                    ? $t('task_detail.completed_banner_multi_grew_desc', { count: getTotalSavings.completedCount, input: formatBytes(getTotalSavings.input), output: formatBytes(getTotalSavings.output), ratio: getTotalSavings.ratio })
+                                    : $t('task_detail.completed_banner_multi_desc', { count: getTotalSavings.completedCount, input: formatBytes(getTotalSavings.input), output: formatBytes(getTotalSavings.output), ratio: getTotalSavings.ratio })
+                            }}
+                        </template>
+                        <template v-else>
+                            {{
+                                getTotalSavings.larger
+                                    ? $t('task_detail.completed_banner_grew_desc', { count: completedJobsCount, delta: formatBytes(getTotalSavings.absDelta), ratio: getTotalSavings.ratio })
+                                    : $t('task_detail.completed_banner_desc', { count: completedJobsCount, saved: formatBytes(getTotalSavings.saved), ratio: getTotalSavings.ratio })
+                            }}
+                        </template>
                     </p>
                 </div>
                 <button
@@ -712,7 +809,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                         <Layers class="w-4 h-4 text-ink-subtle opacity-50" stroke-width="1.5" />
                     </div>
                     <div class="flex items-baseline gap-2 mt-2">
-                        <span class="text-xl font-bold tracking-tight text-ink uppercase">{{ task.jobs?.[0]?.options?.format || '—' }}</span>
+                        <span class="text-xl font-bold tracking-tight text-ink uppercase">{{ uniqueFormatsLabel }}</span>
                     </div>
                 </div>
 
@@ -723,10 +820,13 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                         <FileVideo class="w-4 h-4 text-ink-subtle opacity-50" stroke-width="1.5" />
                     </div>
                     <div class="flex items-baseline gap-2 mt-2">
-                        <span class="text-xl font-bold tracking-tight text-ink">{{ task.jobs?.length || 0 }}</span>
+                        <span class="text-xl font-bold tracking-tight text-ink">{{ hasMultiOutputs ? uniqueSourceFilesCount : (task.jobs?.length || 0) }}</span>
                         <span class="text-xs font-medium text-ink-subtle">{{ $t('task_detail.files_unit') }}</span>
+                        <span v-if="hasMultiOutputs" class="text-xs font-medium text-ink-subtle">
+                            · {{ $t('task_detail.outputs_count', { count: task.jobs?.length || 0 }) }}
+                        </span>
                         <span class="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 ml-auto" v-if="completedJobsCount > 0">
-                            {{ completedJobsCount }} 完成
+                            {{ $t('task_detail.completed_badge', { count: completedJobsCount }) }}
                         </span>
                     </div>
                 </div>
@@ -739,8 +839,20 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                     </div>
                     <div class="flex items-baseline gap-1.5 mt-2">
                         <template v-if="getTotalSavings">
-                            <span class="text-xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">-{{ getTotalSavings.ratio }}%</span>
-                            <span class="text-xs font-medium text-ink-subtle truncate">({{ formatBytes(getTotalSavings.saved) }})</span>
+                            <span
+                                class="text-xl font-bold tracking-tight tabular-nums"
+                                :class="getTotalSavings.larger ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'"
+                            >
+                                {{ getTotalSavings.larger ? '+' : '-' }}{{ getTotalSavings.ratio }}%
+                            </span>
+                            <span class="text-xs font-medium text-ink-subtle truncate">
+                                <template v-if="getTotalSavings.multi">
+                                    ({{ $t('task_detail.avg_per_output_total', { total: formatBytes(getTotalSavings.output) }) }})
+                                </template>
+                                <template v-else>
+                                    ({{ getTotalSavings.larger ? `+${formatBytes(getTotalSavings.absDelta)}` : formatBytes(getTotalSavings.saved) }})
+                                </template>
+                            </span>
                         </template>
                         <template v-else-if="task.status === 'PROCESSING' || task.status === 'PENDING'">
                             <span class="text-xs font-medium text-ink-subtle animate-pulse">{{ $t('task_detail.calculating') }}</span>
@@ -784,16 +896,44 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
 
                 <div class="p-5">
                     <!-- Standard Structured Key-Value Capsules -->
-                    <div v-if="!showRawJson" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-                        <div v-for="[key, val] in optionEntries(task.jobs[0].options)" :key="key" class="space-y-1 bg-surface-2 p-2.5 rounded-lg border border-hairline">
-                            <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider truncate">{{ $t(`image_options.${key}`) }}</div>
-                            <div class="text-xs font-semibold text-ink truncate">{{ val }}</div>
+                    <div v-if="!showRawJson">
+                        <div v-if="uniqueOutputSpecs.length <= 1" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                            <div
+                                v-for="[key, val] in optionEntries(uniqueOutputSpecs[0]?.options, uniqueOutputSpecs[0]?.target, task.jobs?.[0]?.resolved_options)"
+                                :key="key"
+                                class="space-y-1 bg-surface-2 p-2.5 rounded-lg border border-hairline"
+                            >
+                                <div class="text-[10px] font-semibold text-ink-subtle uppercase tracking-wider truncate">{{ $t(`image_options.${key}`) }}</div>
+                                <div class="text-xs font-semibold text-ink truncate">{{ val }}</div>
+                            </div>
+                        </div>
+                        <div v-else class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div
+                                v-for="spec in uniqueOutputSpecs"
+                                :key="`${spec.index}-${spec.name ?? ''}`"
+                                class="space-y-1 bg-surface-2 p-3 rounded-lg border border-hairline"
+                            >
+                                <div class="text-[10px] font-mono font-semibold text-ink-subtle uppercase tracking-wider truncate">
+                                    {{ spec.name || `#${spec.index + 1}` }}
+                                </div>
+                                <div class="text-xs font-mono font-semibold text-ink truncate">
+                                    {{ describe(spec.options, spec.target) }}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Raw JSON Code Inspector -->
                     <div v-else class="space-y-2">
-                        <pre class="p-4 rounded-lg bg-surface-2 border border-hairline text-xs font-mono text-ink overflow-x-auto selection:bg-primary/20 leading-relaxed">{{ JSON.stringify(task.jobs[0].options, null, 2) }}</pre>
+                        <pre class="p-4 rounded-lg bg-surface-2 border border-hairline text-xs font-mono text-ink overflow-x-auto selection:bg-primary/20 leading-relaxed">{{
+                            JSON.stringify(
+                                uniqueOutputSpecs.length > 1
+                                    ? uniqueOutputSpecs.map(s => ({ ...(s.name ? { name: s.name } : {}), options: s.options, ...(s.target ? { target: s.target } : {}) }))
+                                    : { options: task.jobs[0].options, ...(task.jobs[0].target ? { target: task.jobs[0].target } : {}), ...(task.jobs[0].resolved_options ? { resolved_options: task.jobs[0].resolved_options } : {}) },
+                                null,
+                                2,
+                            )
+                        }}</pre>
                     </div>
                 </div>
             </div>
@@ -873,8 +1013,20 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                                     <span class="text-sm font-semibold text-ink truncate max-w-[280px] sm:max-w-[440px]" :title="job.source_file?.name">
                                         {{ formatFilename(job.source_file?.name) }}
                                     </span>
+                                    <span
+                                        v-if="hasMultiOutputs || job.output_name"
+                                        class="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-surface-2 text-ink border border-hairline"
+                                    >
+                                        {{ job.output_name || `#${(job.output_index ?? 0) + 1}` }}
+                                    </span>
                                     <span class="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.2 rounded bg-surface-2 text-ink-subtle border border-hairline">
                                         {{ job.options?.format }}
+                                    </span>
+                                    <span
+                                        v-if="job.target?.max_bytes"
+                                        class="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded bg-surface-2 text-ink-subtle border border-hairline"
+                                    >
+                                        ≤{{ formatShortBytes(job.target.max_bytes) }}
                                     </span>
                                     <Badge variant="secondary" class="rounded font-medium text-[10px] px-1.5 py-0.2 border capitalize tracking-normal" :class="getJobStatusStyle(job.status)">
                                         {{ $t('status.' + job.status) }}
@@ -888,8 +1040,42 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
                                     <!-- Completed Output Size -->
                                     <template v-if="job.status === 'COMPLETED' && job.output_file?.size">
                                         <span>·</span>
-                                        <span class="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
-                                            {{ formatBytes(job.output_file.size) }} (-{{ getSavingsRatio(job.source_file?.size, job.output_file.size) }}%)
+                                        <span
+                                            class="font-mono font-semibold"
+                                            :class="getJobSavings(job)?.larger ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'"
+                                        >
+                                            {{ formatBytes(job.output_file.size) }}
+                                            <template v-if="getJobSavings(job)">({{ getJobSavings(job)?.label }})</template>
+                                        </span>
+                                        <span
+                                            v-if="getJobSavings(job)?.larger"
+                                            class="text-[10px] font-medium px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                        >
+                                            {{ $t('task_detail.larger_than_source') }}
+                                        </span>
+                                        <span
+                                            v-if="job.resolved_options?.quality != null && job.options?.quality == null"
+                                            class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-2 text-ink-subtle border border-hairline"
+                                        >
+                                            {{ $t('task_detail.resolved_label') }} Q{{ job.resolved_options.quality }}
+                                        </span>
+                                        <span
+                                            v-else-if="job.resolved_options?.distance != null && job.options?.distance == null"
+                                            class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-surface-2 text-ink-subtle border border-hairline"
+                                        >
+                                            {{ $t('task_detail.resolved_label') }} d{{ job.resolved_options.distance }}
+                                        </span>
+                                        <span
+                                            v-if="job.target_met === true"
+                                            class="text-[10px] font-medium px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                        >
+                                            {{ $t('task_detail.target_met') }}
+                                        </span>
+                                        <span
+                                            v-else-if="job.target_met === false"
+                                            class="text-[10px] font-medium px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                        >
+                                            {{ $t('task_detail.target_missed') }}
                                         </span>
                                     </template>
 
@@ -974,7 +1160,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
 
                             <!-- Adjust Parameters & Retry Drawer Trigger (Targeted to this single job) -->
                             <button
-                                v-if="job.status === 'FAILED' || job.status === 'CANCELLED'"
+                                v-if="job.status === 'FAILED' || job.status === 'CANCELLED' || (job.status === 'COMPLETED' && job.target_met === false)"
                                 @click="openRetryDrawer(job.id)"
                                 class="h-8 px-2.5 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink-subtle hover:text-ink rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
                                 title="针对此作业单独调参重试"
@@ -1048,8 +1234,9 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; retryAll
         <TaskRetryDrawer
             v-model:open="showRetryDrawer"
             :task-id="taskId"
-            :target-job-id="selectedJobForRetry || undefined"
-            :initial-options="(task?.jobs?.find(j => j.id === selectedJobForRetry) ?? task?.jobs?.[0])?.options"
+            :target-job-id="effectiveJobForRetry?.id"
+            :initial-options="effectiveJobForRetry?.options ?? task?.jobs?.[0]?.options"
+            :initial-target="effectiveJobForRetry?.target ?? task?.jobs?.[0]?.target"
             :failed-count="failedJobsCount"
             :is-retrying="isRetrying"
             @submit="handleRetryFromDrawer"

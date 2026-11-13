@@ -7,6 +7,7 @@ import (
 	"context"
 	"time"
 
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 
 	"github.com/redis/go-redis/v9"
@@ -32,6 +33,7 @@ type Dispatch struct {
 	AttemptID string               `json:"attempt_id"`
 	Op        string               `json:"op"`
 	Options   imageoptions.Options `json:"options"`
+	Target    *compression.Target  `json:"target,omitempty"`
 	SourceKey string               `json:"source_key"`
 	OutputKey string               `json:"output_key"`
 }
@@ -59,13 +61,18 @@ type ResultError struct {
 }
 
 type Result struct {
-	V         int          `json:"v"`
-	JobID     string       `json:"job_id"`
-	AttemptID string       `json:"attempt_id"`
-	Status    ResultStatus `json:"status"`
-	Progress  *int         `json:"progress,omitempty"`
-	Artifact  *Artifact    `json:"artifact,omitempty"`
-	Error     *ResultError `json:"error,omitempty"`
+	V               int                   `json:"v"`
+	JobID           string                `json:"job_id"`
+	AttemptID       string                `json:"attempt_id"`
+	Status          ResultStatus          `json:"status"`
+	Progress        *int                  `json:"progress,omitempty"`
+	Artifact        *Artifact             `json:"artifact,omitempty"`
+	ResolvedOptions *imageoptions.Options `json:"resolved_options,omitempty"`
+	TargetMet       *bool                 `json:"target_met,omitempty"`
+	Achieved        *compression.Achieved `json:"achieved,omitempty"`
+	EncodeRounds    *int                  `json:"encode_rounds,omitempty"`
+	ComputeMS       *int64                `json:"compute_ms,omitempty"`
+	Error           *ResultError          `json:"error,omitempty"`
 }
 
 // Queue is what the orchestrator needs from Redis.

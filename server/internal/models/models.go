@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/pkg/util"
 
@@ -138,16 +139,23 @@ const OpImageConvert = "image.convert"
 // Job is one unit of work: one source file turned into one output.
 type Job struct {
 	Base
-	OwnerID      uuid.UUID            `gorm:"type:uuid;not null;index" json:"owner_id"`
-	TaskID       uuid.UUID            `gorm:"type:uuid;not null;index" json:"task_id"`
-	WorkflowID   *uuid.UUID           `gorm:"type:uuid" json:"workflow_id,omitempty"`
-	Operation    string               `gorm:"type:varchar(32);not null" json:"operation"`
-	Options      imageoptions.Options `gorm:"type:jsonb;not null" json:"options"`
-	SourceFileID uuid.UUID            `gorm:"type:uuid;not null;index" json:"source_file_id"`
-	SourceFile   *File                `gorm:"foreignKey:SourceFileID" json:"source_file,omitempty"`
-	OutputFileID *uuid.UUID           `gorm:"type:uuid;index" json:"output_file_id,omitempty"`
-	OutputFile   *File                `gorm:"foreignKey:OutputFileID" json:"output_file,omitempty"`
-	// ArtifactKey identifies (source, canonical options) for reusing outputs.
+	OwnerID         uuid.UUID             `gorm:"type:uuid;not null;index" json:"owner_id"`
+	TaskID          uuid.UUID             `gorm:"type:uuid;not null;index" json:"task_id"`
+	WorkflowID      *uuid.UUID            `gorm:"type:uuid" json:"workflow_id,omitempty"`
+	OutputIndex     int                   `gorm:"not null;default:0" json:"output_index"`
+	OutputName      string                `gorm:"type:varchar(64);not null;default:''" json:"output_name,omitempty"`
+	Operation       string                `gorm:"type:varchar(32);not null" json:"operation"`
+	Options         imageoptions.Options  `gorm:"type:jsonb;not null" json:"options"`
+	Target          *compression.Target   `gorm:"type:jsonb" json:"target,omitempty"`
+	ResolvedOptions *imageoptions.Options `gorm:"type:jsonb" json:"resolved_options,omitempty"`
+	TargetMet       *bool                 `json:"target_met,omitempty"`
+	Achieved        *compression.Achieved `gorm:"type:jsonb" json:"achieved,omitempty"`
+	Compression     *compression.Stats    `gorm:"-" json:"compression,omitempty"`
+	SourceFileID    uuid.UUID             `gorm:"type:uuid;not null;index" json:"source_file_id"`
+	SourceFile      *File                 `gorm:"foreignKey:SourceFileID" json:"source_file,omitempty"`
+	OutputFileID    *uuid.UUID            `gorm:"type:uuid;index" json:"output_file_id,omitempty"`
+	OutputFile      *File                 `gorm:"foreignKey:OutputFileID" json:"output_file,omitempty"`
+	// ArtifactKey identifies (source, canonical options[, target]) for reusing outputs.
 	ArtifactKey      string     `gorm:"type:varchar(64);index" json:"-"`
 	Status           JobStatus  `gorm:"type:job_status;not null;default:'PENDING';index:idx_jobs_due,priority:1" json:"status"`
 	NextRunAt        *time.Time `gorm:"index:idx_jobs_due,priority:2" json:"next_run_at,omitempty"`
@@ -158,6 +166,27 @@ type Job struct {
 	LeaseExpiresAt   *time.Time `gorm:"index" json:"lease_expires_at,omitempty"`
 	ErrorCode        string     `gorm:"type:varchar(64)" json:"error_code,omitempty"`
 	ErrorMessage     string     `json:"error_message,omitempty"`
+}
+
+// PopulateDerived fills API response fields derived from job relations.
+func (j *Job) PopulateDerived() {
+	if j == nil {
+		return
+	}
+	if j.Status == JobCompleted && j.ResolvedOptions == nil {
+		resolved := j.Options
+		j.ResolvedOptions = &resolved
+	}
+	if j.Status == JobCompleted && j.SourceFile != nil && j.OutputFile != nil {
+		j.Compression = compression.BuildStats(j.SourceFile.Size, j.OutputFile.Size)
+	}
+}
+
+// PopulateJobsDerived fills API response fields on each job in jobs.
+func PopulateJobsDerived(jobs []Job) {
+	for i := range jobs {
+		jobs[i].PopulateDerived()
+	}
 }
 
 type AttemptStatus string
@@ -183,6 +212,8 @@ type Attempt struct {
 	DispatchedAt *time.Time    `json:"dispatched_at,omitempty"`
 	StartedAt    *time.Time    `json:"started_at,omitempty"`
 	FinishedAt   *time.Time    `json:"finished_at,omitempty"`
+	EncodeRounds *int          `json:"encode_rounds,omitempty"`
+	ComputeMS    *int64        `json:"compute_ms,omitempty"`
 	ErrorCode    string        `gorm:"type:varchar(64)" json:"error_code,omitempty"`
 }
 
@@ -201,8 +232,8 @@ type Task struct {
 // Workflow is a saved set of output options.
 type Workflow struct {
 	Base
-	Name    string               `gorm:"not null" json:"name"`
-	Options imageoptions.Options `gorm:"type:jsonb;not null" json:"options"`
-	OwnerID uuid.UUID            `gorm:"not null" json:"owner_id"`
-	Owner   User                 `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	Name    string                      `gorm:"not null" json:"name"`
+	Outputs compression.WorkflowOutputs `gorm:"type:jsonb;not null" json:"outputs"`
+	OwnerID uuid.UUID                   `gorm:"not null" json:"owner_id"`
+	Owner   User                        `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 }

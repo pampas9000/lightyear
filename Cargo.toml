@@ -2,6 +2,7 @@
 members = [
     "compute/crates/types",
     "compute/crates/imageops",
+    "compute/crates/optimize",
     "compute/worker",
 ]
 resolver = "2"
@@ -14,6 +15,7 @@ license = "MIT"
 [workspace.dependencies]
 compute-types = { path = "compute/crates/types" }
 compute-imageops = { path = "compute/crates/imageops" }
+compute-optimize = { path = "compute/crates/optimize" }
 
 # Common dependencies
 serde = { version = "1.0", features = ["derive"] }

@@ -49,24 +49,32 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 ### 创建
 
+单输出或兼容预设时可使用 `options`（可选附带 `target`）或 `workflow_id`；需要一次提交生成多份输出或为输出命名时使用 `outputs`：
+
 ```json
 {
-  "items": [{ "file_id": "0198…" }, { "file_id": "0198…" }],
-  "options": { "format": "avif", "quality": 60, "resize": { "width": 1600 } },
+  "items": [{ "file_id": "0198…" }],
+  "outputs": [
+    { "name": "preview", "options": { "format": "avif", "resize": { "width": 800 } }, "target": { "max_bytes": 102400 } },
+    { "name": "fallback", "options": { "format": "webp", "quality": 80 } }
+  ],
   "idempotency_key": "upload-batch-42"
 }
 ```
 
-- `options` 与 `workflow_id` **二选一**；`options` 按 [ImageOptions](/contracts/image-options) 严格解析并规范化后存入每个 job。
-- 每个 item 生成一个 job；文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
-- 已有相同产物（同一源文件、同一规范化参数）的 job 直接完成。
-- `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、`options`、文件集合）不同则 `409`。
+- `outputs`、`options`（可配可选 `target`）、`workflow_id` **三选一**（给出 `target` 时必须同时给出 `options`，不可与 `outputs` 或 `workflow_id` 混用）。
+- `outputs` 为 1–10 项数组，每项含必填 `options`、可选 `name`（正则 `[A-Za-z0-9_-]{1,64}`，同任务内不可重复，且不可与未命名项自动分配的 `1..N` 序号碰撞）以及可选 `target`（第 1 期 `{ "max_bytes": <正整数> }`）。
+- 每条 `(item, output)` 生成一个 job；`items` 最多 100 个，总 job 数 `len(items) * len(outputs)` 最多 200。文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
+- `format: "png"` 不支持 `target`。对非 PNG 格式：当 `target` 非空且省略 `quality`/`distance` 且 `lossless: false` 时，worker 在该格式内部二分搜索参数并输出 `resolved_options`（产物复用键前缀 `compression-target/v1`）；若显式指定了 `quality`/`distance` 或 `lossless: true`，则仅做确定性单次编码并检查 `target_met`（产物复用键沿用 `image-options/v2`）。
+- 产物文件名：单输出为 `<stem>.<ext>`，多输出为 `<stem>.<name|index+1>.<ext>`（`jpeg` 使用 `jpg`）。
+- 已有相同产物（同一源文件、同一规范化参数，搜索任务还含 `target`）的 job 直接完成，并按新 job 的 `target` 重算 `target_met` 与 `achieved`。
+- `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、规范化输出集合、文件集合）不同则 `409`。
 
 | 情况 | 响应 |
 | :--- | :--- |
 | `items` 为空 | `400 error.param.required` |
-| 超过 100 个 item | `400 error.param.invalid` |
-| `options` 与 `workflow_id` 都给或都没给；`options` 非法；`idempotency_key` 过长 | `400 error.param.invalid` |
+| 超过 100 个 item、超过 10 个 output、或总 job 数超过 200 | `400 error.param.invalid` |
+| `outputs` / `options` / `workflow_id` 缺失或冲突；`name` 非法/重名/序号碰撞；`options` 或 `target` 非法（含 `png` 带 `target`）；`idempotency_key` 过长 | `400 error.param.invalid` |
 | 文件不存在或未上传完成 | `400 error.param.invalid` |
 | `workflow_id` 不存在 | `400 error.param.invalid` |
 | 同 key 不同内容 | `409 error.param.invalid` |
@@ -74,12 +82,14 @@ Fiber session，存储在 Redis。两种等价凭据：
 ### 重试
 
 ```json
-{ "job_ids": ["0198…"], "retry_all": false, "options": { "format": "webp" } }
+{ "job_ids": ["0198…"], "retry_all": false, "options": { "format": "webp" }, "target": { "max_bytes": 102400 } }
 ```
 
 - 都不给：重试所有 `FAILED` 的 job。
 - `job_ids`：重试指定的 job；`retry_all: true`：重试所有已结束的 job（完成、失败、取消）。
-- `options` 可选，给出时替换这些 job 的参数。
+- `options`、`target` 可选：给出 `options` 时替换参数；`target` 传对象时设置/替换目标，显式传 `null` 时清除目标。替换参数或更改/清除目标时，必须只指定单个 `job_ids`（不允许对批量任务统一替换参数）；保留原参数时不限制单选。
+- 若原 job 无 `target` 且非 `lossless`，重试时仅传 `target` 而省略 `options`，会清除原 `options` 中的 `quality`/`distance` 并触发目标搜索；若希望保留原固定 `quality`/`distance` 仅做目标校验，需同时显式传入 `options`。
+- 替换参数后也会清除上一次运行的 `resolved_options`、`target_met`、`achieved`。
 - 有未结束的 job 被点名时返回 `409`；没有可重试的 job 返回 `400`。
 
 ### Job 字段
@@ -87,27 +97,35 @@ Fiber session，存储在 Redis。两种等价凭据：
 ```json
 {
   "id": "…", "task_id": "…", "operation": "image.convert",
-  "options": { "format": "avif", "quality": 60, "lossless": false, "color": "keep", "dynamic_range": "keep", "metadata": "strip" },
-  "source_file_id": "…", "source_file": { "name": "a.jpg", "size": 123, "width": 4000, "height": 3000 },
-  "output_file_id": "…", "output_file": { "name": "a.avif", "size": 45, "mime_type": "image/avif" },
+  "output_index": 0, "output_name": "preview",
+  "options": { "format": "avif", "lossless": false, "resize": { "width": 800, "fit": "inside", "enlarge": false }, "color": "keep", "dynamic_range": "keep", "metadata": "strip" },
+  "target": { "max_bytes": 102400 },
+  "resolved_options": { "format": "avif", "quality": 72, "lossless": false, "resize": { "width": 800, "fit": "inside", "enlarge": false }, "color": "keep", "dynamic_range": "keep", "metadata": "strip", "chroma": "420" },
+  "target_met": true,
+  "achieved": { "bytes": 98400 },
+  "compression": { "source_bytes": 245760, "output_bytes": 98400, "ratio": 0.400390625, "saved_ratio": 0.599609375, "larger_than_source": false },
+  "source_file_id": "…", "source_file": { "name": "a.jpg", "size": 245760, "width": 4000, "height": 3000 },
+  "output_file_id": "…", "output_file": { "name": "a.preview.avif", "size": 98400, "mime_type": "image/avif" },
   "status": "COMPLETED", "progress": 100, "attempts": 1, "max_attempts": 3,
   "error_code": "", "error_message": ""
 }
 ```
 
-`options` 总是规范化后的完整形式。`error_code` 取值见[队列契约 §错误码](/contracts/queue#错误码)，另有 `execution_timeout` 与 `cancelled`。
+- 无搜索的普通任务上，`options` 为规范化后的完整形式；有目标搜索时 `options` 省略被搜索的 `quality`/`distance`，任务完成后 `resolved_options` 总是给出实际采用的参数（未搜索时回退为 `options`）。
+- `compression` 仅在 job 已完成且同时关联到 `source_file` 与 `output_file`（二者在 `GET /api/tasks`、`GET /api/tasks/:id`、`GET /api/jobs/:id` 上均已预加载）且双方字节数均大于 0 时返回；`larger_than_source = output_bytes > source_bytes` 无条件计算。
+- `error_code` 取值见[队列契约 §错误码](/contracts/queue#错误码)，另有 `execution_timeout` 与 `cancelled`。
 
 ## 预设（Workflows）
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `POST` | `/api/workflows` | `{name, options}` |
+| `POST` | `/api/workflows` | `{name, outputs}`（也兼容单输出简写 `{name, options, target?}`） |
 | `GET` | `/api/workflows` | 当前用户的预设 |
 | `GET` | `/api/workflows/:id` | 详情 |
-| `PUT` | `/api/workflows/:id` | `{name, options}` |
+| `PUT` | `/api/workflows/:id` | `{name, outputs}`（或单输出简写） |
 | `DELETE` | `/api/workflows/:id` | 删除 |
 
-`options` 与任务中的规则相同。
+`outputs` 内的 `name`、`options` 与 `target` 规则同任务创建，保存时统一规范化为 `outputs` 数组。
 
 ## 上传（S3 预签名直传）
 
@@ -129,7 +147,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件） |
+| `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件；签名包含基于 `file.Name` 的 `ResponseContentDisposition` attachment 头） |
 | `GET` | `/api/drafts/list` | 草稿（游标分页 `?cursor=`） |
 | `POST` | `/api/drafts/:id/delete` | 删除草稿及其存储对象 |
 | `GET` | `/api/jobs/:id` | 单个 job |

@@ -2,6 +2,7 @@
 // canonicalizes again; these only keep the form from offering settings that do
 // not apply (see docs/contracts/image-options.md).
 import type { ImageOptions, OutputFormat } from '~/lib/types/image-options'
+import type { CompressionTarget } from '~/lib/types/task'
 
 export const FORMATS: OutputFormat[] = ['avif', 'jxl', 'webp', 'jpeg', 'png', 'heic']
 
@@ -73,13 +74,32 @@ export function sanitize(o: ImageOptions): ImageOptions {
     return out
 }
 
-/** Short human-readable summary, e.g. "AVIF · Q60 · ≤1600px". */
-export function describe(o: ImageOptions | undefined | null): string {
+export function formatShortBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+    if (bytes >= 1024 * 1024) {
+        const mb = bytes / (1024 * 1024)
+        return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`
+    }
+    if (bytes >= 1024) {
+        const kb = bytes / 1024
+        return `${Number.isInteger(kb) ? kb : kb.toFixed(1)} KB`
+    }
+    return `${Math.round(bytes)} B`
+}
+
+/** Short human-readable summary, e.g. "AVIF · Q60 · ≤1600px" or "AVIF · ≤100 KB". */
+export function describe(o: ImageOptions | undefined | null, target?: CompressionTarget | null): string {
     if (!o) return ''
     const parts = [o.format.toUpperCase()]
     if (o.lossless) parts.push('lossless')
     else if (o.distance != null && hasDistance(o)) parts.push(`d${o.distance}`)
-    else if (hasQuality(o)) parts.push(`Q${o.quality ?? DEFAULT_QUALITY[o.format]}`)
+    else if (hasQuality(o)) {
+        if (target?.max_bytes && o.quality == null) parts.push(`≤${formatShortBytes(target.max_bytes)}`)
+        else parts.push(`Q${o.quality ?? DEFAULT_QUALITY[o.format]}`)
+    }
+    if (target?.max_bytes && (o.lossless || o.quality != null || o.distance != null)) {
+        parts.push(`≤${formatShortBytes(target.max_bytes)}`)
+    }
     const r = o.resize
     if (r && (r.width || r.height)) {
         if (r.width && r.height) parts.push(`${r.width}×${r.height} ${r.fit ?? 'inside'}`)

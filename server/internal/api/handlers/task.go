@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"transcoder/server/internal/api/response"
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/services/task"
 
@@ -98,6 +99,8 @@ type CreateTaskRequest struct {
 	WorkflowID     *uuid.UUID           `json:"workflow_id,omitempty"`
 	Items          []task.TaskItemInput `json:"items"`
 	Options        json.RawMessage      `json:"options,omitempty"`
+	Target         json.RawMessage      `json:"target,omitempty"`
+	Outputs        json.RawMessage      `json:"outputs,omitempty"`
 	IdempotencyKey string               `json:"idempotency_key,omitempty"`
 }
 
@@ -116,6 +119,8 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		WorkflowID:     req.WorkflowID,
 		Items:          req.Items,
 		Options:        req.Options,
+		Target:         req.Target,
+		Outputs:        req.Outputs,
 		IdempotencyKey: req.IdempotencyKey,
 	})
 	if err == nil {
@@ -123,8 +128,15 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 	}
 
 	switch {
-	case errors.Is(err, imageoptions.ErrInvalid), errors.Is(err, task.ErrOptionsRequired),
-		errors.Is(err, task.ErrTooManyItems), errors.Is(err, task.ErrIdempotencyKey):
+	case errors.Is(err, imageoptions.ErrInvalid),
+		errors.Is(err, compression.ErrInvalidTarget),
+		errors.Is(err, compression.ErrInvalidOutputs),
+		errors.Is(err, compression.ErrTooManyOutputs),
+		errors.Is(err, compression.ErrTooManyJobs),
+		errors.Is(err, task.ErrOptionsRequired),
+		errors.Is(err, task.ErrTargetNotAllowed),
+		errors.Is(err, task.ErrTooManyItems),
+		errors.Is(err, task.ErrIdempotencyKey):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, task.ErrNoItemsProvided):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
@@ -173,6 +185,7 @@ type RetryTaskRequest struct {
 	JobIDs   []uuid.UUID     `json:"job_ids,omitempty"`
 	RetryAll bool            `json:"retry_all,omitempty"`
 	Options  json.RawMessage `json:"options,omitempty"`
+	Target   json.RawMessage `json:"target,omitempty"`
 }
 
 func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
@@ -205,11 +218,15 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 		JobIDs:   req.JobIDs,
 		RetryAll: req.RetryAll,
 		Options:  req.Options,
+		Target:   req.Target,
 	})
 
 	if err != nil {
 		switch {
-		case errors.Is(err, imageoptions.ErrInvalid), errors.Is(err, task.ErrInvalidJobID):
+		case errors.Is(err, imageoptions.ErrInvalid),
+			errors.Is(err, compression.ErrInvalidTarget),
+			errors.Is(err, task.ErrRetrySingleJob),
+			errors.Is(err, task.ErrInvalidJobID):
 			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrJobNotRetryable):
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())

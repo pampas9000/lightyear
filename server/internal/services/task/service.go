@@ -1,6 +1,7 @@
 package task
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
@@ -30,7 +32,9 @@ import (
 var (
 	ErrNoItemsProvided     = errors.New("at least one item is required to create a task")
 	ErrTooManyItems        = errors.New("at most 100 items are allowed per task")
-	ErrOptionsRequired     = errors.New("exactly one of options or workflow_id is required")
+	ErrOptionsRequired     = errors.New("exactly one of options, outputs, or workflow_id is required")
+	ErrTargetNotAllowed    = errors.New("target is only allowed alongside top-level options")
+	ErrRetrySingleJob      = errors.New("changing options or target requires specifying a single job")
 	ErrWorkflowNotFound    = errors.New("workflow not found")
 	ErrInvalidFileID       = errors.New("file_id is required and must not be nil")
 	ErrFileNotFound        = errors.New("file not found or not uploaded")
@@ -42,14 +46,16 @@ var (
 	ErrInvalidJobID        = errors.New("job does not belong to task")
 )
 
-const maxItems = 100
+const maxItems = compression.MaxItems
 
 type CreateTaskInput struct {
 	OwnerID    uuid.UUID
 	WorkflowID *uuid.UUID
 	Items      []TaskItemInput
-	// Options is the raw request body field, decoded strictly.
+	// Options (+ optional Target), Outputs, and WorkflowID are mutually exclusive.
 	Options        json.RawMessage
+	Target         json.RawMessage
+	Outputs        json.RawMessage
 	IdempotencyKey string
 }
 
@@ -72,18 +78,18 @@ func NewService(db *gorm.DB, kv *redis.Client) *Service {
 }
 
 // fingerprint identifies a creation request for idempotency: the same files
-// with the same effective options (job order is irrelevant).
-func fingerprint(workflowID *uuid.UUID, options imageoptions.Options, items []TaskItemInput) (string, error) {
+// with the same effective outputs (item order is irrelevant).
+func fingerprint(workflowID *uuid.UUID, outputs []compression.OutputSpec, items []TaskItemInput) (string, error) {
 	ids := make([]string, len(items))
 	for i, item := range items {
 		ids[i] = item.FileID.String()
 	}
 	slices.Sort(ids)
 	raw, err := json.Marshal(struct {
-		WorkflowID *uuid.UUID           `json:"workflow_id,omitempty"`
-		Options    imageoptions.Options `json:"options"`
-		Files      []string             `json:"files"`
-	}{workflowID, options, ids})
+		WorkflowID *uuid.UUID               `json:"workflow_id,omitempty"`
+		Outputs    []compression.OutputSpec `json:"outputs"`
+		Files      []string                 `json:"files"`
+	}{workflowID, outputs, ids})
 	if err != nil {
 		return "", err
 	}
@@ -91,22 +97,44 @@ func fingerprint(workflowID *uuid.UUID, options imageoptions.Options, items []Ta
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (s *Service) resolveOptions(ctx context.Context, input CreateTaskInput) (imageoptions.Options, error) {
-	hasOptions := len(input.Options) > 0 && string(input.Options) != "null"
-	if hasOptions == (input.WorkflowID != nil) {
-		return imageoptions.Options{}, ErrOptionsRequired
+func (s *Service) resolveOutputs(ctx context.Context, input CreateTaskInput) ([]compression.OutputSpec, error) {
+	hasOptions := compression.HasJSONValue(input.Options)
+	hasOutputs := compression.HasJSONValue(input.Outputs)
+	hasWorkflow := input.WorkflowID != nil
+	sources := 0
+	for _, present := range []bool{hasOptions, hasOutputs, hasWorkflow} {
+		if present {
+			sources++
+		}
+	}
+	if sources != 1 {
+		return nil, ErrOptionsRequired
+	}
+	if !hasOptions && compression.HasJSONValue(input.Target) {
+		return nil, ErrTargetNotAllowed
 	}
 	if hasOptions {
-		return imageoptions.Parse(input.Options)
+		spec, err := compression.ParseSingleOutput(input.Options, input.Target)
+		if err != nil {
+			return nil, err
+		}
+		return []compression.OutputSpec{spec}, nil
+	}
+	if hasOutputs {
+		return compression.ParseOutputsJSON(input.Outputs)
 	}
 	var wf models.Workflow
 	if err := s.db.WithContext(ctx).First(&wf, "id = ? AND owner_id = ?", *input.WorkflowID, input.OwnerID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return imageoptions.Options{}, ErrWorkflowNotFound
+			return nil, ErrWorkflowNotFound
 		}
-		return imageoptions.Options{}, fmt.Errorf("fetch workflow: %w", err)
+		return nil, fmt.Errorf("fetch workflow: %w", err)
 	}
-	return wf.Options, nil
+	canonical, err := compression.ValidateWorkflowOutputs(wf.Outputs)
+	if err != nil {
+		return nil, err
+	}
+	return []compression.OutputSpec(canonical), nil
 }
 
 func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, error) {
@@ -125,11 +153,15 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 	if len(key) > 255 {
 		return nil, ErrIdempotencyKey
 	}
-	options, err := s.resolveOptions(ctx, input)
+	outputs, err := s.resolveOutputs(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	fp, err := fingerprint(input.WorkflowID, options, input.Items)
+	if len(input.Items)*len(outputs) > compression.MaxTotalJobs {
+		return nil, fmt.Errorf("%w: %d items x %d outputs exceeds limit %d",
+			compression.ErrTooManyJobs, len(input.Items), len(outputs), compression.MaxTotalJobs)
+	}
+	fp, err := fingerprint(input.WorkflowID, outputs, input.Items)
 	if err != nil {
 		return nil, err
 	}
@@ -167,14 +199,28 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 		taskID = t.ID
 		now := time.Now()
 		for _, item := range input.Items {
-			job := models.Job{OwnerID: input.OwnerID, TaskID: t.ID, WorkflowID: input.WorkflowID,
-				Operation: models.OpImageConvert, Options: options, SourceFileID: files[item.FileID].ID,
-				Status: models.JobPending, NextRunAt: &now, MaxAttempts: 3}
-			if err := reuseOutput(tx, &job); err != nil {
-				return err
-			}
-			if err := tx.Create(&job).Error; err != nil {
-				return fmt.Errorf("create job: %w", err)
+			fileID := files[item.FileID].ID
+			for outIdx, out := range outputs {
+				job := models.Job{
+					OwnerID:      input.OwnerID,
+					TaskID:       t.ID,
+					WorkflowID:   input.WorkflowID,
+					OutputIndex:  outIdx,
+					OutputName:   out.Name,
+					Operation:    models.OpImageConvert,
+					Options:      out.Options,
+					Target:       out.Target,
+					SourceFileID: fileID,
+					Status:       models.JobPending,
+					NextRunAt:    &now,
+					MaxAttempts:  3,
+				}
+				if err := reuseOutput(tx, &job); err != nil {
+					return err
+				}
+				if err := tx.Create(&job).Error; err != nil {
+					return fmt.Errorf("create job: %w", err)
+				}
 			}
 		}
 		return jobstate.Aggregate(tx, t.ID)
@@ -224,13 +270,14 @@ func lockSourceFiles(tx *gorm.DB, owner uuid.UUID, items []TaskItemInput) (map[u
 // reuseOutput sets the job's artifact key and, when the same owner already has
 // that artifact, completes the job with it instead of queueing work.
 func reuseOutput(tx *gorm.DB, job *models.Job) error {
-	key, err := imageoptions.ArtifactKey(job.SourceFileID.String(), job.Options)
+	key, err := compression.ArtifactKey(job.SourceFileID.String(), job.Options, job.Target)
 	if err != nil {
 		return err
 	}
 	job.ArtifactKey = key
 	var done models.Job
-	err = tx.Joins("JOIN files ON files.id = jobs.output_file_id AND files.status = ?", "UPLOADED").
+	err = tx.Preload("OutputFile").
+		Joins("JOIN files ON files.id = jobs.output_file_id AND files.status = ?", "UPLOADED").
 		Where("jobs.owner_id = ? AND jobs.artifact_key = ? AND jobs.status = ?", job.OwnerID, key, models.JobCompleted).
 		Order("jobs.created_at DESC").First(&done).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -240,17 +287,34 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 		return err
 	}
 	job.Status, job.Progress, job.OutputFileID, job.NextRunAt = models.JobCompleted, 100, done.OutputFileID, nil
+	resolved := done.Options
+	if done.ResolvedOptions != nil {
+		resolved = *done.ResolvedOptions
+	}
+	job.ResolvedOptions = &resolved
+	if done.OutputFile != nil {
+		job.TargetMet = compression.IsTargetMet(done.OutputFile.Size, job.Target)
+		if job.Target != nil {
+			job.Achieved = &compression.Achieved{Bytes: new(done.OutputFile.Size)}
+		} else {
+			job.Achieved = nil
+		}
+	} else {
+		job.TargetMet = nil
+		job.Achieved = nil
+	}
 	return nil
 }
 
 func (s *Service) GetTask(ctx context.Context, ownerID uuid.UUID, id uuid.UUID) (*models.Task, error) {
 	var t models.Task
 	if err := s.db.WithContext(ctx).
-		Preload("Jobs", func(db *gorm.DB) *gorm.DB { return db.Order("id") }).
+		Preload("Jobs", func(db *gorm.DB) *gorm.DB { return db.Order("id, output_index") }).
 		Preload("Jobs.SourceFile").Preload("Jobs.OutputFile").
 		First(&t, "id = ? AND owner_id = ?", id, ownerID).Error; err != nil {
 		return nil, err
 	}
+	models.PopulateJobsDerived(t.Jobs)
 	return &t, nil
 }
 
@@ -259,18 +323,25 @@ type RetryTaskInput struct {
 	TaskID   uuid.UUID
 	JobIDs   []uuid.UUID
 	RetryAll bool
-	// Options, when present, replaces the options of every retried job.
+	// Options and Target, when present, replace the retried job's settings (single job only).
 	Options json.RawMessage
+	Target  json.RawMessage
 }
 
 func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.Task, error) {
-	var replacement *imageoptions.Options
-	if len(input.Options) > 0 && string(input.Options) != "null" {
-		parsed, err := imageoptions.Parse(input.Options)
+	hasOptions := compression.HasJSONValue(input.Options)
+	hasTargetField := len(bytes.TrimSpace(input.Target)) > 0
+	changingParams := hasOptions || hasTargetField
+	if changingParams && (len(input.JobIDs) != 1 || input.RetryAll) {
+		return nil, ErrRetrySingleJob
+	}
+	var parsedTarget *compression.Target
+	if hasTargetField {
+		var err error
+		parsedTarget, err = compression.ParseTarget(input.Target)
 		if err != nil {
 			return nil, err
 		}
-		replacement = &parsed
 	}
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var parent models.Task
@@ -283,7 +354,7 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 		}
 		var jobs []models.Job
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("task_id = ?", parent.ID).Order("id").Find(&jobs).Error; err != nil {
+			Where("task_id = ?", parent.ID).Order("id, output_index").Find(&jobs).Error; err != nil {
 			return err
 		}
 		for _, id := range input.JobIDs {
@@ -306,18 +377,74 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 				}
 				continue
 			}
-			if replacement != nil {
-				j.Options = *replacement
+			if changingParams {
+				newTarget := j.Target
+				if hasTargetField {
+					newTarget = parsedTarget
+				}
+				var (
+					newOpts imageoptions.Options
+					err     error
+				)
+				switch {
+				case hasOptions && newTarget != nil:
+					newOpts, err = imageoptions.ParseForTarget(input.Options)
+				case hasOptions:
+					newOpts, err = imageoptions.Parse(input.Options)
+				case newTarget != nil:
+					opts := j.Options
+					if j.Target == nil && !opts.Lossless {
+						// Adding a target to a non-target job without new options must clear
+						// the old default/fixed quality so the worker searches for the target.
+						opts.Quality = nil
+						opts.Distance = nil
+					}
+					newOpts, err = opts.CanonicalizeForTarget()
+				default:
+					newOpts, err = j.Options.Canonicalize()
+				}
+				if err != nil {
+					return err
+				}
+				if err := compression.ValidateTarget(newOpts, newTarget); err != nil {
+					return err
+				}
+				j.Options, j.Target = newOpts, newTarget
 			}
 			j.Status, j.Progress, j.Attempts, j.NextRunAt = models.JobPending, 0, 0, &now
 			j.CurrentAttemptID, j.LeaseExpiresAt, j.OutputFileID = nil, nil, nil
+			j.ResolvedOptions, j.TargetMet, j.Achieved = nil, nil, nil
 			j.ErrorCode, j.ErrorMessage = "", ""
 			if err := reuseOutput(tx, &j); err != nil {
 				return err
 			}
-			if err := tx.Select("options", "status", "progress", "attempts", "next_run_at", "current_attempt_id",
-				"lease_expires_at", "output_file_id", "error_code", "error_message", "artifact_key").
-				Updates(&j).Error; err != nil {
+			updates := map[string]any{
+				"options":            j.Options,
+				"target":             nil,
+				"resolved_options":   nil,
+				"target_met":         j.TargetMet,
+				"achieved":           nil,
+				"status":             j.Status,
+				"progress":           j.Progress,
+				"attempts":           j.Attempts,
+				"next_run_at":        j.NextRunAt,
+				"current_attempt_id": j.CurrentAttemptID,
+				"lease_expires_at":   j.LeaseExpiresAt,
+				"output_file_id":     j.OutputFileID,
+				"error_code":         j.ErrorCode,
+				"error_message":      j.ErrorMessage,
+				"artifact_key":       j.ArtifactKey,
+			}
+			if j.Target != nil {
+				updates["target"] = *j.Target
+			}
+			if j.ResolvedOptions != nil {
+				updates["resolved_options"] = *j.ResolvedOptions
+			}
+			if j.Achieved != nil {
+				updates["achieved"] = *j.Achieved
+			}
+			if err := tx.Model(&j).Updates(updates).Error; err != nil {
 				return err
 			}
 			selected++
@@ -409,8 +536,15 @@ func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID, params ListT
 	if params.Page > 0 {
 		offset = (params.Page - 1) * limit
 	}
-	if err := query.Preload("Jobs").Preload("Jobs.SourceFile").Order("created_at DESC").Limit(limit).Offset(offset).Find(&tasks).Error; err != nil {
+	if err := query.
+		Preload("Jobs", func(db *gorm.DB) *gorm.DB { return db.Order("id, output_index") }).
+		Preload("Jobs.SourceFile").
+		Preload("Jobs.OutputFile").
+		Order("created_at DESC").Limit(limit).Offset(offset).Find(&tasks).Error; err != nil {
 		return nil, 0, err
+	}
+	for i := range tasks {
+		models.PopulateJobsDerived(tasks[i].Jobs)
 	}
 	return tasks, total, nil
 }

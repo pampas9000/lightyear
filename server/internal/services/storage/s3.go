@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"io"
+	"mime"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -31,8 +33,10 @@ func (s *S3Service) UploadFile(ctx context.Context, bucket, key string, body io.
 	return err
 }
 
-// GetPresignedURL generates a presigned URL for downloading or uploading.
-func (s *S3Service) GetPresignedURL(ctx context.Context, bucket, key string, isUpload bool, expiry time.Duration) (string, error) {
+// GetPresignedURL generates a presigned URL for downloading or uploading. When
+// filename is non-empty on downloads, it signs response-content-disposition so
+// browsers save cross-origin downloads under that name.
+func (s *S3Service) GetPresignedURL(ctx context.Context, bucket, key, filename string, isUpload bool, expiry time.Duration) (string, error) {
 	presignClient := s3.NewPresignClient(s.client, func(o *s3.PresignOptions) {
 		o.Expires = expiry
 	})
@@ -48,10 +52,19 @@ func (s *S3Service) GetPresignedURL(ctx context.Context, bucket, key string, isU
 		return req.URL, nil
 	}
 
-	req, err := presignClient.PresignGetObject(ctx, &s3.GetObjectInput{
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
-	})
+	}
+	if filename != "" {
+		cleanName := filepath.Base(filename)
+		if cleanName != "." && cleanName != "/" {
+			if disp := mime.FormatMediaType("attachment", map[string]string{"filename": cleanName}); disp != "" {
+				input.ResponseContentDisposition = aws.String(disp)
+			}
+		}
+	}
+	req, err := presignClient.PresignGetObject(ctx, input)
 	if err != nil {
 		return "", err
 	}

@@ -102,3 +102,26 @@ func TestPresignPutObjectChecksumEnforcedByStore(t *testing.T) {
 		t.Fatalf("matching body was rejected with status %d", code)
 	}
 }
+
+func TestGetPresignedURLSignsContentDisposition(t *testing.T) {
+	client := s3sdk.New(s3sdk.Options{
+		Region:       "auto",
+		Credentials:  credentials.NewStaticCredentialsProvider("id", "secret", ""),
+		BaseEndpoint: aws.String("https://example.r2.cloudflarestorage.com"),
+		UsePathStyle: true,
+	})
+	svc := NewS3Service(client)
+
+	raw, err := svc.GetPresignedURL(context.Background(), "bucket", "outputs/u/k.avif", "photo.preview.avif", false, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp := u.Query().Get("response-content-disposition")
+	if !strings.Contains(disp, "attachment") || !strings.Contains(disp, "photo.preview.avif") {
+		t.Fatalf("response-content-disposition = %q, want attachment with photo.preview.avif", disp)
+	}
+}

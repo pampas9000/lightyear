@@ -557,3 +557,56 @@ fn fixture_sweep() {
     }
     assert!(unexpected.is_empty(), "{}", unexpected.join("\n"));
 }
+
+#[test]
+fn prepare_and_encode_match_process_byte_for_byte() {
+    let cases = [
+        (
+            fixture("hd_benchmark/landscape_mountains_4k.jpg"),
+            r#"{"format":"avif","quality":68,"resize":{"width":640},"metadata":"keep"}"#,
+        ),
+        (
+            deep_png(),
+            r#"{"format":"avif","quality":75,"bit_depth":10,"color":"srgb"}"#,
+        ),
+        (
+            deep_png(),
+            r#"{"format":"jxl","distance":1.5,"bit_depth":16}"#,
+        ),
+        (
+            fixture("external/aom_apple_gainmap_new.jpg"),
+            r#"{"format":"jpeg","quality":82,"dynamic_range":"keep","metadata":"keep"}"#,
+        ),
+        (
+            fixture("quality/checker_rb_444.png"),
+            r#"{"format":"webp","quality":75}"#,
+        ),
+    ];
+    let settings = Settings::default();
+    for (input, spec) in cases {
+        let o = opts(spec);
+        let direct = process(&input, &o, &settings).unwrap();
+        let prepared = prepare(&input, &o, &settings).unwrap();
+        let split = encode(&prepared, &o, &settings).unwrap();
+        assert_eq!(split.mime, direct.mime, "{spec}");
+        assert_eq!((split.width, split.height), (direct.width, direct.height), "{spec}");
+        assert_eq!(split.bytes, direct.bytes, "{spec}: bytes differ");
+    }
+}
+
+#[test]
+fn explicit_chroma_matches_auto_cutoff_at_quality_90() {
+    let input = fixture("quality/checker_rb_444.png");
+    let settings = Settings::default();
+    for format in ["avif", "heic", "jpeg"] {
+        for (q, expected_chroma) in [(89, "420"), (90, "444")] {
+            let auto_opts = opts(&format!(r#"{{"format":"{format}","quality":{q}}}"#));
+            let explicit_opts = opts(&format!(
+                r#"{{"format":"{format}","quality":{q},"chroma":"{expected_chroma}"}}"#
+            ));
+            let a = process(&input, &auto_opts, &settings).unwrap();
+            let b = process(&input, &explicit_opts, &settings).unwrap();
+            assert_eq!(a.bytes, b.bytes, "{format} Q{q} chroma={expected_chroma}");
+        }
+    }
+}

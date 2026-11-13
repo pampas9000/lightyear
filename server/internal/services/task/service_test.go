@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/testutil"
@@ -113,7 +114,7 @@ func TestWorkflowOptionsAreUsed(t *testing.T) {
 	owner := uuid.New()
 	file := uploadedFile(t, db, owner)
 	options, _ := imageoptions.Parse([]byte(`{"format":"webp","quality":42}`))
-	wf := models.Workflow{OwnerID: owner, Name: "thumbs", Options: options}
+	wf := models.Workflow{OwnerID: owner, Name: "thumbs", Outputs: compression.WorkflowOutputs{{Options: options}}}
 	db.Create(&wf)
 	got, err := NewService(db, nil).CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, WorkflowID: &wf.ID, Items: []TaskItemInput{{FileID: file.ID}}})
 	if err != nil {
@@ -171,7 +172,12 @@ func TestRetryResetsTerminalJobsAndCanReplaceOptions(t *testing.T) {
 	}
 	db.Model(&models.Job{}).Where("id = ?", job.ID).
 		Updates(map[string]any{"status": models.JobFailed, "attempts": 3, "error_code": "processing_failed"})
+	if _, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID,
+		Options: json.RawMessage(`{"format":"jxl"}`)}); !errors.Is(err, ErrRetrySingleJob) {
+		t.Fatalf("modifying options without single job_id must fail with ErrRetrySingleJob, got %v", err)
+	}
 	retried, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID,
+		JobIDs:  []uuid.UUID{job.ID},
 		Options: json.RawMessage(`{"format":"jxl"}`)})
 	if err != nil {
 		t.Fatal(err)
@@ -213,5 +219,168 @@ func TestCancelMarksJobsAndSignalsRunningAttempts(t *testing.T) {
 	}
 	if len(queue.cancelled) != 1 || queue.cancelled[0] != attempt.ID.String() {
 		t.Fatalf("running attempt not signalled: %v", queue.cancelled)
+	}
+}
+
+func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	owner := uuid.New()
+	src := models.File{OwnerID: owner, Name: "hero.png", Path: "uploads/" + uuid.NewString() + ".png", Size: 200000, Status: "UPLOADED"}
+	if err := db.Create(&src).Error; err != nil {
+		t.Fatal(err)
+	}
+	s := NewService(db, nil)
+
+	// Top-level target combined with outputs must be rejected.
+	if _, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Outputs: json.RawMessage(`[{"name":"preview","options":{"format":"avif"}}]`),
+		Target:  json.RawMessage(`{"max_bytes":50000}`),
+	}); !errors.Is(err, ErrTargetNotAllowed) {
+		t.Fatalf("expected ErrTargetNotAllowed, got %v", err)
+	}
+
+	// PNG + target rejected.
+	if _, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Options: json.RawMessage(`{"format":"png"}`),
+		Target:  json.RawMessage(`{"max_bytes":50000}`),
+	}); !errors.Is(err, compression.ErrInvalidTarget) {
+		t.Fatalf("expected ErrInvalidTarget for png, got %v", err)
+	}
+
+	// Multi-output task creation.
+	created, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Outputs: json.RawMessage(`[
+			{"name":"preview","options":{"format":"avif"},"target":{"max_bytes":100000}},
+			{"options":{"format":"webp","quality":80}}
+		]`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.Jobs) != 2 {
+		t.Fatalf("expected 2 jobs, got %d", len(created.Jobs))
+	}
+	if created.Jobs[0].OutputName != "preview" || created.Jobs[0].OutputIndex != 0 || created.Jobs[0].Options.Quality != nil {
+		t.Fatalf("job 0 unexpected: %+v", created.Jobs[0])
+	}
+	if created.Jobs[1].OutputName != "" || created.Jobs[1].OutputIndex != 1 || *created.Jobs[1].Options.Quality != 80 {
+		t.Fatalf("job 1 unexpected: %+v", created.Jobs[1])
+	}
+
+	// Complete first job with resolved_options & oversized output, then reuse it.
+	outFile := models.File{OwnerID: owner, Name: "hero.preview.avif", Path: "outputs/p.avif", Size: 250000, Status: "UPLOADED"}
+	if err := db.Create(&outFile).Error; err != nil {
+		t.Fatal(err)
+	}
+	resolved, _ := imageoptions.Parse([]byte(`{"format":"avif","quality":45}`))
+	db.Model(&models.Job{}).Where("id = ?", created.Jobs[0].ID).Updates(map[string]any{
+		"status":           models.JobCompleted,
+		"progress":         100,
+		"output_file_id":   outFile.ID,
+		"resolved_options": resolved,
+		"target_met":       false,
+		"achieved":         compression.Achieved{Bytes: new(int64(250000))},
+	})
+
+	// ListTasks must preload OutputFile and populate compression + resolved_options.
+	listed, _, err := s.ListTasks(t.Context(), owner, ListTasksParams{Page: 1, Count: 10})
+	if err != nil || len(listed) != 1 || listed[0].Jobs[0].Compression == nil || !listed[0].Jobs[0].Compression.LargerThanSource {
+		t.Fatalf("ListTasks missing compression/LargerThanSource: err=%v listed=%+v", err, listed)
+	}
+
+	// Reusing the same (options, target) copies resolved_options and recomputes target_met.
+	reused, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Options: json.RawMessage(`{"format":"avif"}`),
+		Target:  json.RawMessage(`{"max_bytes":100000}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rj := reused.Jobs[0]
+	if rj.Status != models.JobCompleted || rj.ResolvedOptions == nil || *rj.ResolvedOptions.Quality != 45 ||
+		rj.TargetMet == nil || *rj.TargetMet || rj.Compression == nil || !rj.Compression.LargerThanSource {
+		t.Fatalf("reused job unexpected: %+v", rj)
+	}
+
+	// Fixed quality + looser target reuses existing non-target / check-only artifact and evaluates new target_met.
+	fixedTask, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Options: json.RawMessage(`{"format":"webp","quality":80}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	webpOut := models.File{OwnerID: owner, Name: "hero.webp", Path: "outputs/w.webp", Size: 80000, Status: "UPLOADED"}
+	db.Create(&webpOut)
+	db.Model(&models.Job{}).Where("id = ?", fixedTask.Jobs[0].ID).Updates(map[string]any{
+		"status": models.JobCompleted, "progress": 100, "output_file_id": webpOut.ID,
+	})
+	checkOnly, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Options: json.RawMessage(`{"format":"webp","quality":80}`),
+		Target:  json.RawMessage(`{"max_bytes":90000}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkOnly.Jobs[0].Status != models.JobCompleted || checkOnly.Jobs[0].TargetMet == nil || !*checkOnly.Jobs[0].TargetMet {
+		t.Fatalf("check-only target reuse failed: %+v", checkOnly.Jobs[0])
+	}
+
+	// Retry updating target & clearing target via explicit null.
+	retriedTarget, err := s.RetryTask(t.Context(), RetryTaskInput{
+		OwnerID: owner,
+		TaskID:  reused.ID,
+		JobIDs:  []uuid.UUID{rj.ID},
+		Target:  json.RawMessage(`{"max_bytes":300000}`),
+	})
+	if err != nil || retriedTarget.Jobs[0].Status != models.JobPending || retriedTarget.Jobs[0].Target == nil || *retriedTarget.Jobs[0].Target.MaxBytes != 300000 {
+		t.Fatalf("retry updating target failed: err=%v job=%+v", err, retriedTarget)
+	}
+	db.Model(&models.Job{}).Where("id = ?", rj.ID).Update("status", models.JobFailed)
+	clearedTarget, err := s.RetryTask(t.Context(), RetryTaskInput{
+		OwnerID: owner,
+		TaskID:  reused.ID,
+		JobIDs:  []uuid.UUID{rj.ID},
+		Target:  json.RawMessage(`null`),
+	})
+	if err != nil || clearedTarget.Jobs[0].Target != nil || clearedTarget.Jobs[0].Options.Quality == nil {
+		t.Fatalf("clearing target on retry should restore default quality: err=%v job=%+v", err, clearedTarget)
+	}
+
+	// Adding a target when retrying a previously non-target job (without passing options)
+	// must drop the previously defaulted quality so worker search triggers.
+	nonTarget, err := s.CreateTask(t.Context(), CreateTaskInput{
+		OwnerID: owner,
+		Items:   []TaskItemInput{{FileID: src.ID}},
+		Options: json.RawMessage(`{"format":"avif"}`),
+	})
+	if err != nil || nonTarget.Jobs[0].Options.Quality == nil {
+		t.Fatalf("expected non-target job with default quality: err=%v", err)
+	}
+	ntJob := nonTarget.Jobs[0]
+	db.Model(&models.Job{}).Where("id = ?", ntJob.ID).Update("status", models.JobFailed)
+	addedTarget, err := s.RetryTask(t.Context(), RetryTaskInput{
+		OwnerID: owner,
+		TaskID:  nonTarget.ID,
+		JobIDs:  []uuid.UUID{ntJob.ID},
+		Target:  json.RawMessage(`{"max_bytes":50000}`),
+	})
+	if err != nil {
+		t.Fatalf("retry adding target failed: %v", err)
+	}
+	gotAdded := addedTarget.Jobs[0]
+	if gotAdded.Options.Quality != nil || gotAdded.Options.Distance != nil || !compression.NeedsSearch(gotAdded.Options, gotAdded.Target) {
+		t.Fatalf("expected adding target on retry to clear quality and enable search: %+v", gotAdded.Options)
 	}
 }

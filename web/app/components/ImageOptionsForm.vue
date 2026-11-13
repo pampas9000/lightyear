@@ -6,6 +6,7 @@ import Switch from "@/components/ui/switch/Switch.vue";
 import Slider from "@/components/ui/slider/Slider.vue";
 import { Eye, ChevronDown, ChevronUp } from "@lucide/vue";
 import type { ImageOptions, OutputFormat } from "~/lib/types/image-options";
+import type { CompressionTarget } from "~/lib/types/task";
 import {
     DEFAULT_QUALITY,
     FORMATS,
@@ -14,6 +15,7 @@ import {
     bitDepths,
     clampDistance,
     distanceToQuality,
+    formatShortBytes,
     hasBitDepth,
     hasChroma,
     hasDistance,
@@ -33,6 +35,8 @@ export interface SourceProbeSummary {
 
 const props = defineProps<{
     modelValue: ImageOptions;
+    target?: CompressionTarget | null;
+    targetSupport?: boolean;
     sourceProbe?: SourceProbeSummary | null;
     disabled?: boolean;
     /** Output formats to offer; defaults to all. */
@@ -40,11 +44,50 @@ const props = defineProps<{
     /** The engine repacks JPEG → lossless JXL with cjxl (server only). */
     jpegRepack?: boolean;
 }>();
-const emit = defineEmits<{ (e: "update:modelValue", value: ImageOptions): void }>();
+const emit = defineEmits<{
+    (e: "update:modelValue", value: ImageOptions): void;
+    (e: "update:target", value: CompressionTarget | undefined): void;
+}>();
 
 const options = computed(() => props.modelValue);
 const update = (patch: Partial<ImageOptions>) =>
     emit("update:modelValue", sanitize({ ...props.modelValue, ...patch }));
+
+const targetAllowed = computed(() => !!props.targetSupport && options.value.format !== "png");
+const targetEnabled = computed(() => targetAllowed.value && !!props.target?.max_bytes);
+const targetSearchActive = computed(() => targetEnabled.value && !options.value.lossless);
+const targetUnit = ref<"KB" | "MB">(
+    props.target?.max_bytes && props.target.max_bytes >= 1024 * 1024 && props.target.max_bytes % (1024 * 1024) === 0 ? "MB" : "KB",
+);
+const targetFactor = computed(() => (targetUnit.value === "MB" ? 1024 * 1024 : 1024));
+const targetAmount = computed(() => {
+    const bytes = props.target?.max_bytes;
+    if (!bytes) return 200;
+    const val = bytes / targetFactor.value;
+    return Number.isInteger(val) ? val : Number(val.toFixed(1));
+});
+
+const toggleTarget = (on: boolean) => {
+    if (!on) {
+        emit("update:target", undefined);
+        return;
+    }
+    const existing = props.target?.max_bytes;
+    emit("update:target", { max_bytes: existing && existing > 0 ? existing : 200 * 1024 });
+    update({ quality: undefined, distance: undefined });
+};
+
+const onTargetAmountInput = (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    const val = Number(input.value);
+    if (!Number.isFinite(val) || val <= 0) return;
+    const bytes = Math.max(1024, Math.round(val * targetFactor.value));
+    emit("update:target", { max_bytes: bytes });
+};
+
+const setTargetUnit = (unit: "KB" | "MB") => {
+    targetUnit.value = unit;
+};
 
 const showAdvanced = ref(!!(props.modelValue.chroma || props.modelValue.bit_depth));
 const resizeEnabled = computed(() => !!options.value.resize);
@@ -61,7 +104,12 @@ const DISTANCE_SLIDER_MAX = 10;
 // Unset means each encoder's own default; the slider rests mid-range until moved.
 const effort = computed(() => options.value.effort);
 
-const setFormat = (format: OutputFormat) => update({ format, quality: undefined, distance: undefined });
+const setFormat = (format: OutputFormat) => {
+    if (format === "png" && props.target) {
+        emit("update:target", undefined);
+    }
+    update({ format, quality: undefined, distance: undefined });
+};
 // Switching carries the setting across with libvips' own mapping, so the
 // encode does not change until the value is moved.
 const setTarget = (target: "quality" | "distance") => {
@@ -145,34 +193,81 @@ const fits: Choice<"inside" | "cover" | "fill">[] = [
                 {{ $t(`image_options.${repackHint}`) }}
             </p>
 
-            <div v-if="hasQuality(options)" class="space-y-2">
-                <div v-if="hasDistance(options)" class="grid grid-cols-2 gap-1.5" role="group" :aria-label="$t('image_options.target')">
-                    <button v-for="m in ['quality', 'distance'] as const" :key="m" type="button" :disabled="disabled"
-                        :aria-pressed="(distance != null) === (m === 'distance')"
-                        class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
-                        :class="chip((distance != null) === (m === 'distance'))"
-                        @click="setTarget(m)">{{ $t(`image_options.${m}`) }}</button>
+            <div v-if="targetAllowed" class="space-y-3 pt-1 border-t border-hairline/70">
+                <div class="flex items-center justify-between">
+                    <Label class="text-xs font-semibold text-ink">{{ $t("image_options.target_size") }}</Label>
+                    <Switch :checked="targetEnabled" :disabled="disabled" @update:checked="toggleTarget" />
                 </div>
-                <template v-if="distance != null">
-                    <div class="flex justify-between items-center text-xs">
-                        <Label for="jxl-distance" class="text-xs font-semibold text-ink">{{ $t("image_options.distance") }}</Label>
-                        <Input id="jxl-distance" type="number" inputmode="decimal" :min="MIN_DISTANCE" :max="MAX_DISTANCE" step="0.01"
-                            :model-value="distance" :disabled="disabled"
-                            class="h-7 w-20 px-2 text-xs font-mono text-right tabular-nums"
-                            @change="onDistanceInput" />
+                <template v-if="targetEnabled">
+                    <div class="flex items-center gap-2">
+                        <Label for="target-max-bytes" class="text-[11px] text-ink-subtle shrink-0">{{ $t("image_options.target_max_bytes") }}</Label>
+                        <Input
+                            id="target-max-bytes"
+                            type="number"
+                            inputmode="decimal"
+                            min="1"
+                            step="any"
+                            :model-value="targetAmount"
+                            :disabled="disabled"
+                            class="h-8 text-xs font-mono text-right tabular-nums"
+                            @change="onTargetAmountInput"
+                        />
+                        <div class="grid grid-cols-2 gap-1 shrink-0">
+                            <button
+                                v-for="u in (['KB', 'MB'] as const)"
+                                :key="u"
+                                type="button"
+                                :disabled="disabled"
+                                class="h-8 px-2.5 rounded-md border text-xs font-mono transition-colors cursor-pointer disabled:opacity-40"
+                                :class="chip(targetUnit === u)"
+                                @click="setTargetUnit(u)"
+                            >{{ u }}</button>
+                        </div>
                     </div>
-                    <Slider :model-value="[Math.min(distance, DISTANCE_SLIDER_MAX)]" :min="MIN_DISTANCE" :max="DISTANCE_SLIDER_MAX"
-                        :step="0.05" :disabled="disabled" :aria-label="$t('image_options.distance')"
-                        @update:model-value="(v) => v && update({ distance: v[0] })" />
-                    <p class="text-[11px] text-ink-subtle">{{ $t("image_options.distance_hint") }}</p>
+                    <p class="text-[11px] text-ink-subtle">
+                        {{ options.lossless ? $t("image_options.target_size_check_hint") : $t("image_options.target_size_hint") }}
+                    </p>
+                </template>
+            </div>
+
+            <div v-if="hasQuality(options)" class="space-y-2">
+                <template v-if="targetSearchActive">
+                    <div class="flex justify-between items-center text-xs py-1">
+                        <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
+                        <span class="px-2 py-0.5 rounded-md border border-primary/35 bg-primary-soft text-primary-soft-foreground font-medium text-[11px]">
+                            {{ $t("image_options.auto_from_target") }} · ≤{{ formatShortBytes(props.target?.max_bytes ?? 0) }}
+                        </span>
+                    </div>
                 </template>
                 <template v-else>
-                    <div class="flex justify-between items-center text-xs">
-                        <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
-                        <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ quality }}</span>
+                    <div v-if="hasDistance(options)" class="grid grid-cols-2 gap-1.5" role="group" :aria-label="$t('image_options.target')">
+                        <button v-for="m in ['quality', 'distance'] as const" :key="m" type="button" :disabled="disabled"
+                            :aria-pressed="(distance != null) === (m === 'distance')"
+                            class="min-h-8 px-2 py-1.5 rounded-md border text-xs leading-tight transition-colors cursor-pointer disabled:opacity-40"
+                            :class="chip((distance != null) === (m === 'distance'))"
+                            @click="setTarget(m)">{{ $t(`image_options.${m}`) }}</button>
                     </div>
-                    <Slider :model-value="[quality]" :min="1" :max="100" :step="1" :disabled="disabled"
-                        @update:model-value="(v) => update({ quality: v?.[0] })" />
+                    <template v-if="distance != null">
+                        <div class="flex justify-between items-center text-xs">
+                            <Label for="jxl-distance" class="text-xs font-semibold text-ink">{{ $t("image_options.distance") }}</Label>
+                            <Input id="jxl-distance" type="number" inputmode="decimal" :min="MIN_DISTANCE" :max="MAX_DISTANCE" step="0.01"
+                                :model-value="distance" :disabled="disabled"
+                                class="h-7 w-20 px-2 text-xs font-mono text-right tabular-nums"
+                                @change="onDistanceInput" />
+                        </div>
+                        <Slider :model-value="[Math.min(distance, DISTANCE_SLIDER_MAX)]" :min="MIN_DISTANCE" :max="DISTANCE_SLIDER_MAX"
+                            :step="0.05" :disabled="disabled" :aria-label="$t('image_options.distance')"
+                            @update:model-value="(v) => v && update({ distance: v[0] })" />
+                        <p class="text-[11px] text-ink-subtle">{{ $t("image_options.distance_hint") }}</p>
+                    </template>
+                    <template v-else>
+                        <div class="flex justify-between items-center text-xs">
+                            <Label class="text-xs font-semibold text-ink">{{ $t("image_options.quality") }}</Label>
+                            <span class="font-mono font-medium text-ink-muted text-xs tabular-nums">{{ quality }}</span>
+                        </div>
+                        <Slider :model-value="[quality]" :min="1" :max="100" :step="1" :disabled="disabled"
+                            @update:model-value="(v) => update({ quality: v?.[0] })" />
+                    </template>
                 </template>
             </div>
 
