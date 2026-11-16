@@ -41,6 +41,7 @@ const (
 	CodeTaskNotFound     ResponseCode = "error.task.not_found"
 	CodeUserExists       ResponseCode = "error.user.already_exists"
 	CodeQueueEnqueueFail ResponseCode = "error.queue.enqueue_failed"
+	CodeFileNotFound     ResponseCode = "error.file.not_found"
 
 	// Infrastructure / server errors.
 	CodeDatabaseUnavailable ResponseCode = "error.database.unavailable"

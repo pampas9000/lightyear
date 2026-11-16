@@ -7,6 +7,8 @@ import (
 	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/services/storage"
+	"transcoder/server/internal/services/task"
+	"transcoder/server/internal/services/upload"
 
 	"gorm.io/gorm"
 
@@ -39,11 +41,14 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		IdleTimeout:    7 * 24 * time.Hour,
 	})
 
+	tasks := task.NewService(db, kv)
+	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket)
+
 	return &Router{
 		job:      handlers.NewHandler(db),
 		workflow: handlers.NewWorkflowHandler(db),
-		task:     handlers.NewTaskHandler(db, kv),
-		upload:   handlers.NewUploadHandler(db, cfg, s3Storage),
+		task:     handlers.NewTaskHandler(tasks),
+		upload:   handlers.NewUploadHandler(uploads),
 		draft:    handlers.NewDraftHandler(db, s3Storage, cfg.S3.Bucket),
 		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket),
 		auth:     handlers.NewAuthHandler(db, store, cfg),

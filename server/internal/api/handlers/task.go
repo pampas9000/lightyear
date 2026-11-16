@@ -15,17 +15,14 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 type TaskHandler struct {
 	service *task.Service
 }
 
-func NewTaskHandler(db *gorm.DB, kv *redis.Client) *TaskHandler {
-	return &TaskHandler{
-		service: task.NewService(db, kv),
-	}
+func NewTaskHandler(service *task.Service) *TaskHandler {
+	return &TaskHandler{service: service}
 }
 
 func (h *TaskHandler) Install(router fiber.Router) {
