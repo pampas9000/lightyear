@@ -6,6 +6,7 @@ import (
 	"transcoder/server/internal/api/handlers"
 	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/config"
+	"transcoder/server/internal/services/apikey"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
@@ -27,6 +28,7 @@ type Router struct {
 	draft    *handlers.DraftHandler
 	file     *handlers.FileHandler
 	auth     *handlers.AuthHandler
+	apiKeys  *handlers.APIKeyHandler
 	session  *session.Store
 }
 
@@ -43,6 +45,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 
 	tasks := task.NewService(db, kv)
 	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket)
+	keys := apikey.NewService(db)
 
 	return &Router{
 		job:      handlers.NewHandler(db),
@@ -52,6 +55,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		draft:    handlers.NewDraftHandler(db, s3Storage, cfg.S3.Bucket),
 		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket),
 		auth:     handlers.NewAuthHandler(db, store, cfg),
+		apiKeys:  handlers.NewAPIKeyHandler(keys),
 		session:  store,
 	}
 }
@@ -76,4 +80,5 @@ func (r *Router) Install(app fiber.Router) {
 	r.upload.Install(protected)
 	r.draft.Install(protected)
 	r.file.Install(protected)
+	r.apiKeys.Install(protected)
 }

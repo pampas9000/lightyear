@@ -12,6 +12,7 @@ import (
 	"transcoder/server/pkg/util"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -237,3 +238,18 @@ type Workflow struct {
 	OwnerID uuid.UUID                   `gorm:"not null" json:"owner_id"`
 	Owner   User                        `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 }
+
+// APIKey authenticates /v1 requests. Only the SHA-256 of the key is stored;
+// the plaintext is shown once, when the key is created.
+type APIKey struct {
+	Base
+	OwnerID    uuid.UUID      `gorm:"type:uuid;not null;index" json:"-"`
+	Name       string         `gorm:"type:varchar(64);not null" json:"name"`
+	Prefix     string         `gorm:"type:varchar(16);not null" json:"prefix"`
+	KeyHash    string         `gorm:"type:varchar(64);not null;uniqueIndex" json:"-"`
+	Scopes     pq.StringArray `gorm:"type:text[];not null" json:"scopes"`
+	LastUsedAt *time.Time     `json:"last_used_at"`
+	RevokedAt  *time.Time     `json:"revoked_at"`
+}
+
+func (APIKey) TableName() string { return "api_keys" }

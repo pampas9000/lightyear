@@ -35,6 +35,8 @@ const (
 	CodeUnauthorized   ResponseCode = "error.auth.unauthorized"
 	CodeForbidden      ResponseCode = "error.auth.forbidden"
 	CodeInvalidCreds   ResponseCode = "error.auth.invalid_credentials"
+	// CodeInsufficientScope: the API key is valid but lacks the route's scope.
+	CodeInsufficientScope ResponseCode = "error.auth.insufficient_scope"
 
 	// Resource / domain errors.
 	CodeJobNotFound      ResponseCode = "error.job.not_found"
@@ -42,6 +44,8 @@ const (
 	CodeUserExists       ResponseCode = "error.user.already_exists"
 	CodeQueueEnqueueFail ResponseCode = "error.queue.enqueue_failed"
 	CodeFileNotFound     ResponseCode = "error.file.not_found"
+	CodeAPIKeyNotFound   ResponseCode = "error.api_key.not_found"
+	CodeAPIKeyLimit      ResponseCode = "error.api_key.limit_reached"
 
 	// Infrastructure / server errors.
 	CodeDatabaseUnavailable ResponseCode = "error.database.unavailable"

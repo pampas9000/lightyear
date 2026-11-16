@@ -16,7 +16,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 
 | 组件 | 位置 | 职责 |
 | :--- | :--- | :--- |
-| API | `server/cmd/api` | HTTP API、会话、上传与下载签名、任务与预设持久化 |
+| API | `server/cmd/api` | HTTP API（`/api` 供控制台、会话认证；`/v1` 对外、API Key 认证）、上传与下载签名、任务与预设持久化 |
 | Orchestrator | `server/cmd/worker` | 从数据库领取到期任务并派发、处理 worker 结果、租约恢复 |
 | 迁移 | `server/cmd/migrate` | 建表；`-reset` 删除全部应用表后重建（仅开发） |
 | image worker | `compute/worker` | 从 `q:image` 收派发、下载源图、调用 `compute-imageops`、上传产物、回报结果；**不连数据库** |
@@ -42,6 +42,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | `workflows` | 命名的多输出预设（`outputs` 数组，每项含 `ImageOptions` 与可选压缩 `target`） |
 | `tasks` | 一次提交；含 `idempotency_key` 与请求指纹，状态由 jobs 聚合 |
 | `jobs` | 一个源文件 + 一份输出规格 → 一个产物：`operation`（目前只有 `image.convert`）、`output_index`/`output_name`、规范化后的 `options`、可选 `target`、实际执行的 `resolved_options`、`target_met`、`achieved`、`source_file_id`、`output_file_id`、`artifact_key`、重试计数、当前 attempt 与租约 |
+| `api_keys` | `/v1` 的 API Key：所属用户 `owner_id`、`name`、用于辨认的 `prefix`、`key_hash`（明文的 SHA-256，唯一索引；明文只在创建时返回一次）、`scopes`（`text[]`：`tasks:read`/`tasks:write`）、`last_used_at`、`revoked_at`（吊销为软删除） |
 | `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`、可选 `encode_rounds`/`compute_ms`。先写 attempt 再发消息，因此它同时充当 outbox |
 
 产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。
@@ -73,7 +74,7 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 ## 扩展点（尚未实现）
 
 - **新操作**（AI 放大、生图、编辑）：在 `operation` 加一个值、在 orchestrator 里映射到新的队列（如 `q:gpu`）、部署对应的 worker 池；表结构不变。多输入的操作出现时再给 `jobs` 加输入列。
-- **对外 API 与 MCP**：只做异步，`POST` 返回 202 与任务 ID，下游轮询或接收 webhook。计划见[路线图第 9 步](/roadmap#第-9-步-对外-api-与-mcp-只做异步)。
+- **webhook、URL 源、限流与 MCP**：对外的 `/v1` 已提供 API Key 认证、异步提交（`202` + `Location`）、ETag 轮询、`Idempotency-Key` 与结果下载链接（见 [HTTP API §对外 API](/contracts/http-api#对外-api-v1)）；其余计划见[路线图第 9 步](/roadmap#第-9-步-对外-api-与-mcp-只做异步)。
 
 ## 相关文档
 
