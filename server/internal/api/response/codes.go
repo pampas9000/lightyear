@@ -46,6 +46,10 @@ const (
 	CodeFileNotFound     ResponseCode = "error.file.not_found"
 	CodeAPIKeyNotFound   ResponseCode = "error.api_key.not_found"
 	CodeAPIKeyLimit      ResponseCode = "error.api_key.limit_reached"
+	// CodeIdempotencyConflict: the Idempotency-Key was used with a different request.
+	CodeIdempotencyConflict ResponseCode = "error.idempotency.conflict"
+	// CodeTaskConflict: the task's state does not allow the operation (e.g. retrying an active job).
+	CodeTaskConflict ResponseCode = "error.task.conflict"
 
 	// Infrastructure / server errors.
 	CodeDatabaseUnavailable ResponseCode = "error.database.unavailable"

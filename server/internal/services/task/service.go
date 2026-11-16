@@ -39,7 +39,7 @@ var (
 	ErrInvalidFileID       = errors.New("file_id is required and must not be nil")
 	ErrFileNotFound        = errors.New("file not found or not uploaded")
 	ErrIdempotencyConflict = errors.New("idempotency key conflict: request payload mismatch")
-	ErrIdempotencyKey      = errors.New("idempotency_key is too long")
+	ErrIdempotencyKey      = errors.New("idempotency key is too long (max 255 bytes)")
 	ErrTaskNotFound        = errors.New("task not found")
 	ErrNoJobsToRetry       = errors.New("no failed jobs available to retry")
 	ErrJobNotRetryable     = errors.New("active jobs cannot be retried")
@@ -47,6 +47,9 @@ var (
 )
 
 const maxItems = compression.MaxItems
+
+// MaxIdempotencyKeyLen is the longest accepted idempotency key, in bytes.
+const MaxIdempotencyKeyLen = 255
 
 type CreateTaskInput struct {
 	OwnerID    uuid.UUID
@@ -138,47 +141,55 @@ func (s *Service) resolveOutputs(ctx context.Context, input CreateTaskInput) ([]
 }
 
 func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*models.Task, error) {
+	t, _, err := s.Create(ctx, input)
+	return t, err
+}
+
+// Create is CreateTask that also reports whether the result is the task an
+// earlier request with the same idempotency key created (a replay).
+func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Task, bool, error) {
 	if len(input.Items) == 0 {
-		return nil, ErrNoItemsProvided
+		return nil, false, ErrNoItemsProvided
 	}
 	if len(input.Items) > maxItems {
-		return nil, ErrTooManyItems
+		return nil, false, ErrTooManyItems
 	}
 	for _, item := range input.Items {
 		if item.FileID == uuid.Nil {
-			return nil, ErrInvalidFileID
+			return nil, false, ErrInvalidFileID
 		}
 	}
 	key := strings.TrimSpace(input.IdempotencyKey)
-	if len(key) > 255 {
-		return nil, ErrIdempotencyKey
+	if len(key) > MaxIdempotencyKeyLen {
+		return nil, false, ErrIdempotencyKey
 	}
 	outputs, err := s.resolveOutputs(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if len(input.Items)*len(outputs) > compression.MaxTotalJobs {
-		return nil, fmt.Errorf("%w: %d items x %d outputs exceeds limit %d",
+		return nil, false, fmt.Errorf("%w: %d items x %d outputs exceeds limit %d",
 			compression.ErrTooManyJobs, len(input.Items), len(outputs), compression.MaxTotalJobs)
 	}
 	fp, err := fingerprint(input.WorkflowID, outputs, input.Items)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	existing := func() (*models.Task, error) {
+	existing := func() (*models.Task, bool, error) {
 		var t models.Task
 		err := s.db.WithContext(ctx).Where("idempotency_key = ? AND owner_id = ?", key, input.OwnerID).First(&t).Error
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if t.RequestFingerprint != fp {
-			return nil, ErrIdempotencyConflict
+			return nil, false, ErrIdempotencyConflict
 		}
-		return s.GetTask(ctx, input.OwnerID, t.ID)
+		got, err := s.GetTask(ctx, input.OwnerID, t.ID)
+		return got, err == nil, err
 	}
 	if key != "" {
-		if t, err := existing(); !errors.Is(err, gorm.ErrRecordNotFound) {
-			return t, err
+		if t, replayed, err := existing(); !errors.Is(err, gorm.ErrRecordNotFound) {
+			return t, replayed, err
 		}
 	}
 
@@ -229,9 +240,10 @@ func (s *Service) CreateTask(ctx context.Context, input CreateTaskInput) (*model
 		if key != "" && isUniqueConstraintViolation(err) {
 			return existing()
 		}
-		return nil, err
+		return nil, false, err
 	}
-	return s.GetTask(ctx, input.OwnerID, taskID)
+	t, err := s.GetTask(ctx, input.OwnerID, taskID)
+	return t, false, err
 }
 
 // lockSourceFiles locks drafts before files, in UUID order (cleanup uses the

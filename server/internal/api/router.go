@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"time"
 
 	"transcoder/server/internal/api/handlers"
 	"transcoder/server/internal/api/middleware"
+	v1 "transcoder/server/internal/api/v1"
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/services/apikey"
 	"transcoder/server/internal/services/storage"
@@ -19,7 +21,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Router composes feature-specific API handlers and mounts them under /api.
+// Router composes feature-specific API handlers and mounts them under /api
+// (web console, session auth) and /v1 (public API, API key auth).
 type Router struct {
 	job      *handlers.Handler
 	workflow *handlers.WorkflowHandler
@@ -30,6 +33,8 @@ type Router struct {
 	auth     *handlers.AuthHandler
 	apiKeys  *handlers.APIKeyHandler
 	session  *session.Store
+	keys     *apikey.Service
+	v1       *v1.Handler
 }
 
 // NewRouter wires feature handlers with the dependencies they need.
@@ -46,6 +51,9 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	tasks := task.NewService(db, kv)
 	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket)
 	keys := apikey.NewService(db)
+	sign := func(ctx context.Context, path, filename string, ttl time.Duration) (string, error) {
+		return s3Storage.GetPresignedURL(ctx, cfg.S3.Bucket, path, filename, false, ttl)
+	}
 
 	return &Router{
 		job:      handlers.NewHandler(db),
@@ -57,6 +65,8 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		auth:     handlers.NewAuthHandler(db, store, cfg),
 		apiKeys:  handlers.NewAPIKeyHandler(keys),
 		session:  store,
+		keys:     keys,
+		v1:       v1.New(tasks, uploads, sign),
 	}
 }
 
@@ -81,4 +91,7 @@ func (r *Router) Install(app fiber.Router) {
 	r.draft.Install(protected)
 	r.file.Install(protected)
 	r.apiKeys.Install(protected)
+
+	// Public API: its own routes and representations, API key auth only.
+	r.v1.Install(app, r.keys)
 }
