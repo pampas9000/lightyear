@@ -112,6 +112,13 @@
                                     </div>
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator class="my-1 bg-hairline" />
+                                <DropdownMenuItem as-child
+                                    class="flex items-center gap-2 px-2.5 py-1.5 text-xs text-ink hover:bg-surface-2 focus:bg-surface-2 rounded-md cursor-pointer font-medium transition-colors">
+                                    <NuxtLink to="/settings/api-keys">
+                                        <KeyRound class="w-3.5 h-3.5 shrink-0" />
+                                        <span>{{ $t('nav.api_keys') }}</span>
+                                    </NuxtLink>
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                     @click="logout"
                                     class="flex items-center gap-2 px-2.5 py-1.5 text-xs text-red-500 dark:text-red-400 hover:bg-red-500/10 focus:bg-red-500/10 focus:text-red-500 rounded-md cursor-pointer font-medium transition-colors"
@@ -173,6 +180,7 @@ import {
     LogOut,
     LogIn,
     ChevronsUpDown,
+    KeyRound,
     Video
 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -212,6 +220,7 @@ const navItems = [
 
 const pageTitle = computed(() => {
     if (route.path === '/tasks/new') return t('nav.new_task')
+    if (route.path === '/settings/api-keys') return t('nav.api_keys')
     if (route.path.startsWith('/tasks/')) return t('nav.tasks')
     const item = navItems.find(i => i.to === route.path)
     return item ? t(item.label) : 'Lightyear'

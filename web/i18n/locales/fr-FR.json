@@ -26,7 +26,8 @@
         "tasks": "Tâches",
         "logout": "Se déconnecter",
         "select_language": "Choisir la langue",
-        "local_transcode": "Transcodage local"
+        "local_transcode": "Transcodage local",
+        "api_keys": "Clés API"
     },
     "sidebar": {
         "tagline": "Hub Média Premium",
@@ -252,5 +253,38 @@
         "target_size_check_hint": "Vérifie la limite après encodage sans recherche itérative.",
         "target_max_bytes": "Taille max.",
         "auto_from_target": "Auto (selon cible)"
+    },
+    "api_keys": {
+        "title": "Clés API",
+        "description": "Les clés API authentifient les requêtes vers l’API publique /v1. Envoyez-la dans l’en-tête Authorization :",
+        "sign_in_required": "Connectez-vous pour gérer vos clés API.",
+        "created_title": "Copiez votre nouvelle clé API",
+        "created_warning": "La clé n’est affichée qu’une seule fois. Conservez-la en lieu sûr ; si vous la perdez, révoquez-la et créez-en une nouvelle.",
+        "copy": "Copier",
+        "copied": "Copiée",
+        "done": "Terminé",
+        "create_title": "Créer une clé",
+        "name_label": "Nom",
+        "name_placeholder": "p. ex. pipeline CI",
+        "scopes_label": "Portées",
+        "scope_read": "Lire les tâches",
+        "scope_read_desc": "Lister les tâches et les récupérer avec leurs liens de téléchargement.",
+        "scope_write": "Écrire les tâches",
+        "scope_write_desc": "Téléverser des fichiers et créer, annuler ou relancer des tâches.",
+        "scope_required": "Sélectionnez au moins une portée.",
+        "create_button": "Créer la clé",
+        "list_title": "Vos clés",
+        "empty": "Aucune clé API pour l’instant.",
+        "created_at": "Créée le {date}",
+        "last_used": "Dernière utilisation le {date}",
+        "never_used": "Jamais utilisée",
+        "revoked_at": "Révoquée le {date}",
+        "status_revoked": "Révoquée",
+        "revoke": "Révoquer",
+        "revoke_title": "Révoquer cette clé API ?",
+        "revoke_description": "Les requêtes utilisant « {name} » seront refusées immédiatement. Cette action est irréversible.",
+        "toast_created": "Clé API créée.",
+        "toast_revoked": "Clé API révoquée.",
+        "toast_copy_failed": "Impossible de copier dans le presse-papiers."
     }
 }

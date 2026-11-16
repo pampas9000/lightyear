@@ -26,7 +26,8 @@
         "tasks": "Aufgaben",
         "logout": "Abmelden",
         "select_language": "Sprache auswählen",
-        "local_transcode": "Lokale Transkodierung"
+        "local_transcode": "Lokale Transkodierung",
+        "api_keys": "API-Schlüssel"
     },
     "sidebar": {
         "tagline": "Premium Media Hub",
@@ -252,5 +253,38 @@
         "target_size_check_hint": "Prüft das Größenlimit nach der Kodierung ohne Suche.",
         "target_max_bytes": "Max. Größe",
         "auto_from_target": "Auto (nach Ziel)"
+    },
+    "api_keys": {
+        "title": "API-Schlüssel",
+        "description": "API-Schlüssel authentifizieren Anfragen an die öffentliche /v1-API. Senden Sie ihn im Authorization-Header:",
+        "sign_in_required": "Melden Sie sich an, um Ihre API-Schlüssel zu verwalten.",
+        "created_title": "Neuen API-Schlüssel kopieren",
+        "created_warning": "Der Schlüssel wird nur dieses eine Mal angezeigt. Bewahren Sie ihn sicher auf; wenn Sie ihn verlieren, widerrufen Sie ihn und erstellen Sie einen neuen.",
+        "copy": "Kopieren",
+        "copied": "Kopiert",
+        "done": "Fertig",
+        "create_title": "Schlüssel erstellen",
+        "name_label": "Name",
+        "name_placeholder": "z. B. CI-Pipeline",
+        "scopes_label": "Berechtigungen",
+        "scope_read": "Aufgaben lesen",
+        "scope_read_desc": "Aufgaben auflisten und mit ihren Download-Links abrufen.",
+        "scope_write": "Aufgaben schreiben",
+        "scope_write_desc": "Dateien hochladen sowie Aufgaben erstellen, abbrechen oder wiederholen.",
+        "scope_required": "Wählen Sie mindestens eine Berechtigung aus.",
+        "create_button": "Schlüssel erstellen",
+        "list_title": "Ihre Schlüssel",
+        "empty": "Noch keine API-Schlüssel.",
+        "created_at": "Erstellt {date}",
+        "last_used": "Zuletzt verwendet {date}",
+        "never_used": "Nie verwendet",
+        "revoked_at": "Widerrufen {date}",
+        "status_revoked": "Widerrufen",
+        "revoke": "Widerrufen",
+        "revoke_title": "Diesen API-Schlüssel widerrufen?",
+        "revoke_description": "Anfragen mit „{name}“ werden sofort abgelehnt. Dies kann nicht rückgängig gemacht werden.",
+        "toast_created": "API-Schlüssel erstellt.",
+        "toast_revoked": "API-Schlüssel widerrufen.",
+        "toast_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen."
     }
 }

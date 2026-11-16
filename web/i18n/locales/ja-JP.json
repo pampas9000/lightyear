@@ -26,7 +26,8 @@
         "tasks": "タスク",
         "logout": "ログアウト",
         "select_language": "言語を選択",
-        "local_transcode": "ローカル変換"
+        "local_transcode": "ローカル変換",
+        "api_keys": "API キー"
     },
     "sidebar": {
         "tagline": "プレミアムメディアハブ",
@@ -252,5 +253,38 @@
         "target_size_check_hint": "エンコード後にサイズ上限を満たすか検証します。",
         "target_max_bytes": "最大サイズ",
         "auto_from_target": "自動（目標基準）"
+    },
+    "api_keys": {
+        "title": "API キー",
+        "description": "API キーは公開 /v1 API へのリクエストの認証に使います。Authorization ヘッダーで送信してください：",
+        "sign_in_required": "API キーを管理するにはサインインしてください。",
+        "created_title": "新しい API キーをコピー",
+        "created_warning": "キーが表示されるのはこの一度だけです。安全な場所に保管してください。紛失した場合は無効化して新しく作成してください。",
+        "copy": "コピー",
+        "copied": "コピーしました",
+        "done": "完了",
+        "create_title": "キーを作成",
+        "name_label": "名前",
+        "name_placeholder": "例：CI パイプライン",
+        "scopes_label": "スコープ",
+        "scope_read": "タスクの読み取り",
+        "scope_read_desc": "タスクの一覧を取得し、ダウンロードリンク付きでタスクを取得します。",
+        "scope_write": "タスクの書き込み",
+        "scope_write_desc": "ファイルのアップロードと、タスクの作成・キャンセル・再試行。",
+        "scope_required": "スコープを 1 つ以上選択してください。",
+        "create_button": "キーを作成",
+        "list_title": "あなたのキー",
+        "empty": "API キーはまだありません。",
+        "created_at": "作成 {date}",
+        "last_used": "最終使用 {date}",
+        "never_used": "未使用",
+        "revoked_at": "無効化 {date}",
+        "status_revoked": "無効化済み",
+        "revoke": "無効化",
+        "revoke_title": "この API キーを無効化しますか？",
+        "revoke_description": "「{name}」を使ったリクエストは直ちに拒否されます。この操作は元に戻せません。",
+        "toast_created": "API キーを作成しました。",
+        "toast_revoked": "API キーを無効化しました。",
+        "toast_copy_failed": "クリップボードにコピーできませんでした。"
     }
 }

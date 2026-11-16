@@ -26,7 +26,8 @@
         "tasks": "任務",
         "logout": "退出登錄",
         "select_language": "選擇語言",
-        "local_transcode": "本地轉碼"
+        "local_transcode": "本地轉碼",
+        "api_keys": "API 金鑰"
     },
     "sidebar": {
         "tagline": "專業媒體中樞",
@@ -252,5 +253,38 @@
         "target_size_check_hint": "僅在編碼後檢查是否達到目標體積。",
         "target_max_bytes": "最大體積",
         "auto_from_target": "自動（依目標）"
+    },
+    "api_keys": {
+        "title": "API 金鑰",
+        "description": "API 金鑰用於呼叫對外的 /v1 API，請在 Authorization 請求標頭中攜帶：",
+        "sign_in_required": "登入後即可管理 API 金鑰。",
+        "created_title": "複製新的 API 金鑰",
+        "created_warning": "金鑰只會顯示這一次，請妥善保存。如果遺失，請撤銷後重新建立。",
+        "copy": "複製",
+        "copied": "已複製",
+        "done": "完成",
+        "create_title": "建立金鑰",
+        "name_label": "名稱",
+        "name_placeholder": "例如：CI 流程",
+        "scopes_label": "權限範圍",
+        "scope_read": "讀取任務",
+        "scope_read_desc": "列出任務，並取得任務及其下載連結。",
+        "scope_write": "寫入任務",
+        "scope_write_desc": "上傳檔案，建立、取消或重試任務。",
+        "scope_required": "請至少選擇一個權限範圍。",
+        "create_button": "建立金鑰",
+        "list_title": "我的金鑰",
+        "empty": "尚無 API 金鑰。",
+        "created_at": "建立於 {date}",
+        "last_used": "最近使用 {date}",
+        "never_used": "從未使用",
+        "revoked_at": "撤銷於 {date}",
+        "status_revoked": "已撤銷",
+        "revoke": "撤銷",
+        "revoke_title": "撤銷這個 API 金鑰？",
+        "revoke_description": "使用「{name}」的請求將立即被拒絕，此操作無法復原。",
+        "toast_created": "API 金鑰已建立。",
+        "toast_revoked": "API 金鑰已撤銷。",
+        "toast_copy_failed": "無法複製到剪貼簿。"
     }
 }

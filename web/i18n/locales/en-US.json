@@ -26,7 +26,8 @@
         "tasks": "Tasks",
         "logout": "Logout",
         "select_language": "Select Language",
-        "local_transcode": "Local Transcode"
+        "local_transcode": "Local Transcode",
+        "api_keys": "API Keys"
     },
     "sidebar": {
         "tagline": "Premium Media Hub",
@@ -252,5 +253,38 @@
         "target_size_check_hint": "Checks whether the output meets the limit without searching.",
         "target_max_bytes": "Max size",
         "auto_from_target": "Auto (by target)"
+    },
+    "api_keys": {
+        "title": "API Keys",
+        "description": "API keys authenticate requests to the public /v1 API. Send one in the Authorization header:",
+        "sign_in_required": "Sign in to manage your API keys.",
+        "created_title": "Copy your new API key",
+        "created_warning": "This is the only time the key is shown. Store it somewhere safe; if you lose it, revoke it and create a new one.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "done": "Done",
+        "create_title": "Create a key",
+        "name_label": "Name",
+        "name_placeholder": "e.g. CI pipeline",
+        "scopes_label": "Scopes",
+        "scope_read": "Read tasks",
+        "scope_read_desc": "List tasks and fetch them with their download links.",
+        "scope_write": "Write tasks",
+        "scope_write_desc": "Upload files and create, cancel or retry tasks.",
+        "scope_required": "Select at least one scope.",
+        "create_button": "Create key",
+        "list_title": "Your keys",
+        "empty": "No API keys yet.",
+        "created_at": "Created {date}",
+        "last_used": "Last used {date}",
+        "never_used": "Never used",
+        "revoked_at": "Revoked {date}",
+        "status_revoked": "Revoked",
+        "revoke": "Revoke",
+        "revoke_title": "Revoke this API key?",
+        "revoke_description": "Requests using “{name}” will be rejected immediately. This cannot be undone.",
+        "toast_created": "API key created.",
+        "toast_revoked": "API key revoked.",
+        "toast_copy_failed": "Could not copy to the clipboard."
     }
 }
