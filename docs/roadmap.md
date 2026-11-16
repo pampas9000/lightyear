@@ -153,12 +153,12 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 9.1 | `/v1`：`POST /v1/tasks` → 202 + `Location` + `Retry-After`；`GET` 支持 ETag/304 | ⬜ |
-| 9.2 | API Key + scopes（只存哈希） | ⬜ |
-| 9.3 | `Idempotency-Key` | ⬜ |
+| 9.1 | `/v1`：独立路由组，统一信封与 snake_case；上传、`POST /v1/tasks` → 202 + `Location` + `Retry-After`、列表、取消、重试；`GET /v1/tasks/:id` 支持弱 ETag / `If-None-Match` → 304 | ✅ |
+| 9.2 | API Key + scopes（只存哈希）：`api_keys` 表存 SHA-256 与前缀，明文只在创建时返回一次；`tasks:read` / `tasks:write`；`/api/api-keys` 管理接口与设置页 | ✅ |
+| 9.3 | `Idempotency-Key` 请求头：复用按 owner 的幂等键与指纹，重放返回 202 + `Idempotent-Replayed: true`，内容不同返回 409 | ✅ |
 | 9.4 | webhook：HMAC 签名、指数退避、`webhook_deliveries` | ⬜ |
 | 9.5 | URL 作为源：由 worker 拉取并防 SSRF | ⬜ |
-| 9.6 | 预签名下载 URL | ⬜ |
+| 9.6 | 预签名下载 URL：已完成作业的输出带 `download_url` 与 `download_expires_at`（1 小时），ETag 按 30 分钟时间段变化 | ✅ |
 | 9.7 | 令牌桶限流、attempt 用量、`usage_daily` | ⬜ |
 | 9.8 | MCP：`upload` / `submit_task` / `get_task(wait_seconds)` | ⬜ |
 
