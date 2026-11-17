@@ -50,6 +50,10 @@ const (
 	CodeIdempotencyConflict ResponseCode = "error.idempotency.conflict"
 	// CodeTaskConflict: the task's state does not allow the operation (e.g. retrying an active job).
 	CodeTaskConflict ResponseCode = "error.task.conflict"
+	// CodeFileConflict: the file's state does not allow the operation (e.g. deleting the source of an unfinished job).
+	CodeFileConflict ResponseCode = "error.file.conflict"
+	// CodeFileGone: the file has expired or was deleted; its content is no longer stored.
+	CodeFileGone ResponseCode = "error.file.gone"
 
 	// Infrastructure / server errors.
 	CodeDatabaseUnavailable ResponseCode = "error.database.unavailable"

@@ -25,6 +25,8 @@ type File struct {
 	SHA256     string     `json:"sha256,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UploadedAt *time.Time `json:"uploaded_at,omitempty"`
+	// ExpiresAt is when retention removes the file (UPLOADED files only).
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 
 // OutputFile is a job's product; DownloadURL is set on GET /v1/tasks/:id
@@ -74,6 +76,7 @@ func newFile(f *models.File) *File {
 	return &File{
 		ID: f.ID, Name: f.Name, Status: f.Status, Size: f.Size, MimeType: f.MimeType,
 		Width: f.Width, Height: f.Height, SHA256: f.Hash, CreatedAt: f.CreatedAt, UploadedAt: f.UploadedAt,
+		ExpiresAt: f.ExpiresAt,
 	}
 }
 
@@ -105,7 +108,7 @@ func newTask(t *models.Task) Task {
 
 // downloadable reports whether a job's output can be signed for download.
 func downloadable(j *Job) bool {
-	return j.Status == models.JobCompleted && j.OutputFile != nil && j.OutputFile.Status == "UPLOADED"
+	return j.Status == models.JobCompleted && j.OutputFile != nil && j.OutputFile.Status == models.FileUploaded
 }
 
 // Signer presigns a download of the object at path, saved as filename.

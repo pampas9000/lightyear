@@ -10,6 +10,7 @@ import (
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
 
 	"github.com/gofiber/fiber/v3"
@@ -67,9 +68,11 @@ func respondTaskError(c fiber.Ctx, err error, action string) error {
 	case errors.Is(err, task.ErrIdempotencyConflict):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeIdempotencyConflict,
 			"Idempotency-Key was already used with a different request.")
-	case errors.Is(err, task.ErrJobNotRetryable):
+	case errors.Is(err, task.ErrJobNotRetryable), errors.Is(err, lifecycle.ErrTaskActive):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeTaskConflict, err.Error())
-	case errors.Is(err, task.ErrTaskNotFound), errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, task.ErrSourceUnavailable):
+		return response.RespondError(c, fiber.StatusConflict, response.CodeFileGone, err.Error())
+	case errors.Is(err, task.ErrTaskNotFound), errors.Is(err, lifecycle.ErrTaskNotFound), errors.Is(err, gorm.ErrRecordNotFound):
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 	}
 	return internalError(c, action, err)
@@ -210,4 +213,18 @@ func (h *Handler) RetryTask(c fiber.Ctx) error {
 		return respondTaskError(c, err, "retry task")
 	}
 	return h.accepted(c, t, "Task retry accepted.")
+}
+
+// DeleteTask deletes a finished task with its jobs and the outputs no other
+// task reuses. A task with unfinished jobs is a 409: cancel it first.
+func (h *Handler) DeleteTask(c fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badID(c, "id")
+	}
+	res, err := h.files.DeleteTask(c.Context(), owner(c), id)
+	if err != nil {
+		return respondTaskError(c, err, "delete task")
+	}
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task deleted.", res)
 }

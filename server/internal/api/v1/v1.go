@@ -15,6 +15,7 @@ import (
 	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/apikey"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
 
@@ -38,12 +39,13 @@ const (
 type Handler struct {
 	tasks   *task.Service
 	uploads *upload.Service
+	files   *lifecycle.Service
 	sign    Signer
 	now     func() time.Time
 }
 
-func New(tasks *task.Service, uploads *upload.Service, sign Signer) *Handler {
-	return &Handler{tasks: tasks, uploads: uploads, sign: sign, now: time.Now}
+func New(tasks *task.Service, uploads *upload.Service, files *lifecycle.Service, sign Signer) *Handler {
+	return &Handler{tasks: tasks, uploads: uploads, files: files, sign: sign, now: time.Now}
 }
 
 // Install mounts /v1 on app, authenticated by API key.
@@ -63,6 +65,9 @@ func (h *Handler) Install(app fiber.Router, keys *apikey.Service) {
 	v1.Get("/tasks/:id", read, h.GetTask)
 	v1.Post("/tasks/:id/cancel", write, h.CancelTask)
 	v1.Post("/tasks/:id/retry", write, h.RetryTask)
+	v1.Delete("/tasks/:id", write, h.DeleteTask)
+
+	v1.Delete("/files/:id", write, h.DeleteFile)
 }
 
 func owner(c fiber.Ctx) uuid.UUID {

@@ -14,6 +14,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/apikey"
 	"transcoder/server/internal/services/jobstate"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
@@ -28,12 +29,21 @@ import (
 )
 
 type env struct {
-	t     *testing.T
-	db    *gorm.DB
-	app   *fiber.App
-	h     *Handler
-	keys  *apikey.Service
-	owner uuid.UUID
+	t       *testing.T
+	db      *gorm.DB
+	app     *fiber.App
+	h       *Handler
+	keys    *apikey.Service
+	owner   uuid.UUID
+	deleted *[]string // object keys removed from the (fake) store
+}
+
+// recordingStore stands in for the object store when files are deleted.
+type recordingStore struct{ deleted *[]string }
+
+func (r recordingStore) DeleteObject(_ context.Context, _, key string) error {
+	*r.deleted = append(*r.deleted, key)
+	return nil
 }
 
 func setup(t *testing.T) *env {
@@ -50,10 +60,12 @@ func setup(t *testing.T) *env {
 		return s3.GetPresignedURL(ctx, "bucket", path, filename, false, ttl)
 	}
 	keys := apikey.NewService(db)
-	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket"), sign)
+	deleted := &[]string{}
+	files := lifecycle.NewService(db, recordingStore{deleted}, "bucket", lifecycle.Days(30, 30))
+	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket"), files, sign)
 	app := fiber.New()
 	h.Install(app, keys)
-	return &env{t: t, db: db, app: app, h: h, keys: keys, owner: uuid.New()}
+	return &env{t: t, db: db, app: app, h: h, keys: keys, owner: uuid.New(), deleted: deleted}
 }
 
 func (e *env) key(scopes ...string) string {

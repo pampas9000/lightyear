@@ -12,6 +12,7 @@ import (
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/pkg/s3"
 	"transcoder/server/internal/schema"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 
 	"gorm.io/driver/postgres"
@@ -77,6 +78,10 @@ func run() error {
 
 	// Start background task to clean up expired upload records
 	storage.StartCleanupTask(ctx, db, s3Service, config.S3.Bucket, 1*time.Hour)
+
+	// Start the retention sweep: expire sources and outputs, retry failed
+	// object deletions
+	lifecycle.NewService(db, s3Service, config.S3.Bucket, api.RetentionPolicy(config)).Start(ctx, 10*time.Minute)
 
 	// Initialize Fiber App with Storage Service
 	app := newFiberApp(db, kv, config, s3Service)

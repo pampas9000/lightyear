@@ -7,6 +7,7 @@ import (
 
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/upload"
 
 	"github.com/gofiber/fiber/v3"
@@ -172,4 +173,23 @@ func (h *Handler) AbortUpload(c fiber.Ctx) error {
 		return respondUploadError(c, err, "abort upload")
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Upload aborted.", newFile(file))
+}
+
+// DeleteFile deletes one of the owner's files (a source or an output). An
+// unfinished upload is aborted; the source of an unfinished job is a 409.
+func (h *Handler) DeleteFile(c fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badID(c, "id")
+	}
+	f, err := h.files.DeleteFile(c.Context(), owner(c), id)
+	switch {
+	case errors.Is(err, lifecycle.ErrFileNotFound):
+		return response.RespondError(c, fiber.StatusNotFound, response.CodeFileNotFound, "File not found.")
+	case errors.Is(err, lifecycle.ErrFileInUse):
+		return response.RespondError(c, fiber.StatusConflict, response.CodeFileConflict, err.Error())
+	case err != nil:
+		return internalError(c, "delete file", err)
+	}
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "File deleted.", newFile(f))
 }
