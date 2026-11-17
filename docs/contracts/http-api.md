@@ -55,8 +55,8 @@ Fiber session，存储在 Redis。两种等价凭据：
 | 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
 | 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.insufficient_scope`（仅 `/v1`） |
-| 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.api_key.not_found`、`error.user.already_exists` |
-| 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`（仅 `/v1`） |
+| 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
+| 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`、`error.file.conflict` |
 | 基础设施 | `error.database.unavailable`、`error.queue.unavailable`、`error.internal` |
 
 ## 任务
@@ -69,6 +69,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 | `GET` | `/api/tasks/:id` | 详情，含 jobs 及其 `source_file`、`output_file` |
 | `POST` | `/api/tasks/:id/retry` | 重试 |
 | `POST` | `/api/tasks/:id/cancel` | 取消未结束的 job |
+| `DELETE` | `/api/tasks/:id` | 删除已结束的任务及只属于它的产物，见[删除](#删除) |
 
 ### 创建
 
@@ -90,7 +91,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 - 每条 `(item, output)` 生成一个 job；`items` 最多 100 个，总 job 数 `len(items) * len(outputs)` 最多 200。文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
 - `format: "png"` 不支持 `target`。对非 PNG 格式：当 `target` 非空且省略 `quality`/`distance` 且 `lossless: false` 时，worker 在该格式内部二分搜索参数并输出 `resolved_options`（产物复用键前缀 `compression-target/v1`）；若显式指定了 `quality`/`distance` 或 `lossless: true`，则仅做确定性单次编码并检查 `target_met`（产物复用键沿用 `image-options/v2`）。
 - 产物文件名：单输出为 `<stem>.<ext>`，多输出为 `<stem>.<name|index+1>.<ext>`（`jpeg` 使用 `jpg`）。
-- 已有相同产物（同一源文件、同一规范化参数，搜索任务还含 `target`）的 job 直接完成，并按新 job 的 `target` 重算 `target_met` 与 `achieved`。
+- 已有相同产物（同一用户、同一源文件、同一规范化参数，搜索任务还含 `target`）的 job 直接完成，并按新 job 的 `target` 重算 `target_met` 与 `achieved`。只复用状态为 `UPLOADED` 且剩余保留期不少于其总保留期一半的产物（见[存储保留期](#存储保留期)），否则重新生成。
 - `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、规范化输出集合、文件集合）不同则 `409`。
 
 | 情况 | 响应 |
@@ -114,6 +115,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 - 若原 job 无 `target` 且非 `lossless`，重试时仅传 `target` 而省略 `options`，会清除原 `options` 中的 `quality`/`distance` 并触发目标搜索；若希望保留原固定 `quality`/`distance` 仅做目标校验，需同时显式传入 `options`。
 - 替换参数后也会清除上一次运行的 `resolved_options`、`target_met`、`achieved`。
 - 有未结束的 job 被点名时返回 `409`；没有可重试的 job 返回 `400`。
+- 源文件已过期或已被删除时返回 `409 error.file.gone`：重新上传后创建新任务。
 
 ### Job 字段
 
@@ -137,6 +139,48 @@ Fiber session，存储在 Redis。两种等价凭据：
 - 无搜索的普通任务上，`options` 为规范化后的完整形式；有目标搜索时 `options` 省略被搜索的 `quality`/`distance`，任务完成后 `resolved_options` 总是给出实际采用的参数（未搜索时回退为 `options`）。
 - `compression` 仅在 job 已完成且同时关联到 `source_file` 与 `output_file`（二者在 `GET /api/tasks`、`GET /api/tasks/:id`、`GET /api/jobs/:id` 上均已预加载）且双方字节数均大于 0 时返回；`larger_than_source = output_bytes > source_bytes` 无条件计算。
 - `error_code` 取值见[队列契约 §错误码](/contracts/queue#错误码)，另有 `execution_timeout` 与 `cancelled`。
+- 产物过期或被删除后 job 记录保留：`status` 仍是 `COMPLETED`，`output_file.status` 变为 `EXPIRED` 或 `DELETED`，不再能下载。
+
+### 删除
+
+`DELETE /api/tasks/:id`（及 [`DELETE /v1/tasks/:id`](#删除-1)）删除任务、它的 job 与 attempt 记录，以及**只被这个任务使用**的产物：
+
+```json
+{ "id": "0198…", "deleted_outputs": ["0198…"], "retained_outputs": ["0198…"] }
+```
+
+- 任务还有未结束（`PENDING`、`PROCESSING`）的 job 时返回 `409 error.task.conflict`，不会自动取消；先调用取消，再删除。
+- 产物按引用计数处理：同一产物可能被别的任务复用（见[创建](#创建)），只有当最后一个指向它的 job 被删除时才删除存储对象。仍被其他任务使用的产物列在 `retained_outputs`，它们按自己的保留期过期。
+- 源文件不随任务删除（同一源文件常被多个任务使用），需要时用 `DELETE /api/files/:id`。
+- 不存在或不属于当前用户：`404 error.task.not_found`。
+
+`DELETE /api/files/:id`（及 `DELETE /v1/files/:id`）删除本人的一个文件，源文件或产物均可，返回文件本身：
+
+| 文件状态 | 结果 |
+| :--- | :--- |
+| `UPLOADED`，没有未结束的 job 读取它 | `200`，状态变为 `DELETED`，存储对象随后删除；草稿一并删除 |
+| `UPLOADED`，是未结束 job 的源文件 | `409 error.file.conflict` |
+| `UPLOADING`、`ABORTED`、`FAILED` | `200`，状态变为 `ABORTING`，由上传清理回收 |
+| `EXPIRED`、`DELETED` 等已在删除中的状态 | `200`，原样返回（幂等） |
+| 不存在或不属于当前用户（含已彻底删除的文件） | `404 error.file.not_found` |
+
+先在事务里改状态，再删除存储对象；对象删除失败不影响响应，由[存储保留期](#存储保留期)的清理任务重试。被删除的文件若仍有 job 指向它，记录保留并显示 `DELETED`；否则对象删除后记录也删除。
+
+### 存储保留期
+
+源文件与产物各有保留期，从上传完成（`uploaded_at`）算起，默认均为 30 天，由环境变量 `SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS` 配置（`0` 表示永久保留）。用户表上的 `source_retention_days`、`output_retention_days` 可按用户覆盖（预留，暂无界面）。被任意 job 产出的文件按产物计，其余按源文件计。
+
+API 进程每 10 分钟运行一次清理：
+
+1. 为没有到期时间的 `UPLOADED` 文件写入 `expires_at`。新文件最多在 10 分钟后才有到期时间。
+2. 到期的文件改为 `EXPIRED`，再删除存储对象。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。
+3. 重试此前删除失败的对象（`EXPIRED`/`DELETED` 且尚未清除的文件）。
+
+到期后：
+
+- job 的 `output_file.status` 为 `EXPIRED`，`/v1` 不再给出 `download_url`；`GET /api/files/:id/download-url` 返回 `410 error.file.gone`，`details: {"status": "EXPIRED"}`（被删除的文件同理，`status` 为 `DELETED`）。
+- 产物复用与秒传（同 SHA-256 上传）只使用剩余保留期不少于一半的文件，所以复用不会让对象活过它自己的保留期，也不会把即将过期的文件交给新任务。
+- 用过期源文件重试返回 `409 error.file.gone`。
 
 ## 预设（Workflows）
 
@@ -172,7 +216,8 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件；签名包含基于 `file.Name` 的 `ResponseContentDisposition` attachment 头） |
+| `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件；签名包含基于 `file.Name` 的 `ResponseContentDisposition` attachment 头）；文件已过期或已删除时 `410 error.file.gone` |
+| `DELETE` | `/api/files/:id` | 删除本人的源文件或产物，见[删除](#删除) |
 | `GET` | `/api/drafts/list` | 草稿（游标分页 `?cursor=`） |
 | `POST` | `/api/drafts/:id/delete` | 删除草稿及其存储对象 |
 | `GET` | `/api/jobs/:id` | 单个 job |
@@ -194,7 +239,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | scope | 允许 |
 | :--- | :--- |
 | `tasks:read` | `GET /v1/tasks`、`GET /v1/tasks/:id` |
-| `tasks:write` | 上传（`/v1/uploads/**`）、`POST /v1/tasks`、取消、重试 |
+| `tasks:write` | 上传（`/v1/uploads/**`）、`POST /v1/tasks`、取消、重试、删除（`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`） |
 
 两个 scope 互不包含；写操作的响应里也会带回任务本身。
 
@@ -223,8 +268,10 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | `GET` | `/v1/tasks/:id` | read | `200` + `Task`（含下载链接），`ETag`；或 `304` |
 | `POST` | `/v1/tasks/:id/cancel` | write | `200` + `Task` |
 | `POST` | `/v1/tasks/:id/retry` | write | `202` + `Task`，`Location`、`Retry-After` |
+| `DELETE` | `/v1/tasks/:id` | write | `200 {id, deleted_outputs, retained_outputs}` |
+| `DELETE` | `/v1/files/:id` | write | `200` + `File` |
 
-`:id` 不是 UUID 时返回 `400 error.param.invalid`；不属于当前 key 所有者的任务与上传一律按不存在处理（`404`）。
+`:id` 不是 UUID 时返回 `400 error.param.invalid`；不属于当前 key 所有者的任务、上传与文件一律按不存在处理（`404`）。
 
 ### 上传
 
@@ -323,11 +370,16 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 - `options`、`target`、`resolved_options`、`target_met`、`achieved`、`compression`、`error_code`、`error_message` 的含义与 [`/api` 的 Job 字段](#job-字段)相同；完成的 job 总有 `resolved_options`。
 - 与 `/api` 的区别：不返回 `owner_id`、`operation`、`artifact_key`、`next_run_at`、租约与当前 attempt 等内部字段；`source_file`/`output_file` 只含上面列出的字段。
 - **下载链接**：`GET /v1/tasks/:id` 中，状态为 `COMPLETED` 且产物已上传的 job，其 `output_file` 带 `download_url` 与 `download_expires_at`（签名时刻 + 1 小时）。链接是存储的预签名 GET，签入了以产物文件名为附件名的 `response-content-disposition`。过期后重新 `GET` 任务即可拿到新链接。创建、取消、重试与列表的响应不带下载链接。
+- **保留期**：`source_file`、`output_file` 带 `expires_at`，即存储清理删除该文件的时间；保留期为 `0` 或尚未排期时省略。产物过期或被删除后，job 仍是 `COMPLETED`，`output_file.status` 为 `EXPIRED` 或 `DELETED`，不带 `download_url`。规则见[存储保留期](#存储保留期)。
 
 ### 取消与重试
 
 - `POST /v1/tasks/:id/cancel`：无请求体，取消所有未结束的 job，返回 `200` 与任务。
-- `POST /v1/tasks/:id/retry`：请求体可省略，字段与 [`/api` 的重试](#重试)相同（`job_ids`、`retry_all`、`options`、`target`）。成功返回 `202`、`Location`、`Retry-After`。点名了未结束的 job：`409 error.task.conflict`；没有可重试的 job 或参数不合法：`400 error.param.invalid`。
+- `POST /v1/tasks/:id/retry`：请求体可省略，字段与 [`/api` 的重试](#重试)相同（`job_ids`、`retry_all`、`options`、`target`）。成功返回 `202`、`Location`、`Retry-After`。点名了未结束的 job：`409 error.task.conflict`；没有可重试的 job 或参数不合法：`400 error.param.invalid`；源文件已过期或已删除：`409 error.file.gone`。
+
+### 删除
+
+`DELETE /v1/tasks/:id` 与 `DELETE /v1/files/:id` 无请求体，需要 `tasks:write`，行为与 [`/api` 的删除](#删除)相同：任务有未结束的 job 时 `409 error.task.conflict`（先取消）；产物按引用计数删除，仍被其他任务复用的列在 `retained_outputs`；文件被未结束的 job 读取时 `409 error.file.conflict`。
 
 ### 错误码
 
@@ -337,9 +389,11 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 | `400` | `error.param.invalid` / `error.param.required` | 参数校验失败（规则同 `/api`），`details` 指出字段 |
 | `401` | `error.auth.unauthorized` | 无 key、key 无效或已吊销 |
 | `403` | `error.auth.insufficient_scope` | key 缺少 scope |
-| `404` | `error.task.not_found` / `error.file.not_found` | 任务 / 上传不存在或不属于该用户 |
+| `404` | `error.task.not_found` / `error.file.not_found` | 任务 / 上传 / 文件不存在或不属于该用户 |
 | `409` | `error.idempotency.conflict` | `Idempotency-Key` 已用于不同内容的请求 |
-| `409` | `error.task.conflict` | 重试点名了未结束的 job |
+| `409` | `error.task.conflict` | 重试点名了未结束的 job；删除仍有未结束 job 的任务 |
+| `409` | `error.file.conflict` | 删除仍被未结束 job 读取的文件 |
+| `409` | `error.file.gone` | 重试时源文件已过期或已删除 |
 | `409` | `error.param.invalid` | 上传状态不允许该操作（见上传） |
 | `500` | `error.internal` | 其他 |
 

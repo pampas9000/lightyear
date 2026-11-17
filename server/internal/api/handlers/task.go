@@ -9,6 +9,7 @@ import (
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
 
 	"gorm.io/gorm"
@@ -19,10 +20,11 @@ import (
 
 type TaskHandler struct {
 	service *task.Service
+	files   *lifecycle.Service
 }
 
-func NewTaskHandler(service *task.Service) *TaskHandler {
-	return &TaskHandler{service: service}
+func NewTaskHandler(service *task.Service, files *lifecycle.Service) *TaskHandler {
+	return &TaskHandler{service: service, files: files}
 }
 
 func (h *TaskHandler) Install(router fiber.Router) {
@@ -32,6 +34,30 @@ func (h *TaskHandler) Install(router fiber.Router) {
 	router.Get("/tasks/:id", h.GetTask)
 	router.Post("/tasks/:id/retry", h.RetryTask)
 	router.Post("/tasks/:id/cancel", h.CancelTask)
+	router.Delete("/tasks/:id", h.DeleteTask)
+}
+
+// DeleteTask deletes a finished task, its jobs and the outputs only it uses.
+// Unfinished tasks are a 409; the console cancels first.
+func (h *TaskHandler) DeleteTask(c fiber.Ctx) error {
+	taskID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
+	}
+	ownerID, err := ownerFromContext(c)
+	if err != nil {
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	}
+	res, err := h.files.DeleteTask(c.Context(), ownerID, taskID)
+	switch {
+	case errors.Is(err, lifecycle.ErrTaskNotFound):
+		return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
+	case errors.Is(err, lifecycle.ErrTaskActive):
+		return response.RespondError(c, fiber.StatusConflict, response.CodeTaskConflict, err.Error())
+	case err != nil:
+		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete task.", map[string]any{"reason": err.Error()})
+	}
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task deleted.", res)
 }
 
 func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
@@ -227,6 +253,8 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrJobNotRetryable):
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
+		case errors.Is(err, task.ErrSourceUnavailable):
+			return response.RespondError(c, fiber.StatusConflict, response.CodeFileGone, err.Error())
 		case errors.Is(err, task.ErrTaskNotFound):
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		case errors.Is(err, task.ErrNoJobsToRetry):

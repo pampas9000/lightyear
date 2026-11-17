@@ -162,7 +162,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 9.7 | 令牌桶限流、attempt 用量、`usage_daily`。计量口径待定：按输出次数、像素数还是 `compute_ms`（`Attempt` 已记 `encode_rounds` 与 `compute_ms`）；复用已有产物的 job 是否计量 | ⬜ |
 | 9.8 | MCP：远程 Streamable HTTP，认证按 MCP 规范走 OAuth 2.1。工具为 `create_upload`（返回预签名 PUT URL，二进制不经工具参数传递）/ `submit_task`（支持 URL 源、`outputs`、`target`）/ `get_task(wait_seconds)`（返回下载链接与 `compression`，不返回图片内容）。依赖 9.5 | ⬜ |
 | 9.9 | OpenAPI 描述 `/v1`，文档与 SDK 由它生成；对外承诺的错误码单独成表 | ⬜ |
-| 9.10 | 删除接口：`DELETE /v1/files/:id`、`DELETE /v1/tasks/:id`（连同产物）。目前只能删草稿和预设 | ⬜ |
+| 9.10 | 删除接口：`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`（`tasks:write`）及 `/api` 对应端点，控制台任务详情页可删除。有未结束 job 的任务返回 409 而不是自动取消：删除不可撤销，取消只是尽力而为，调用方应显式先取消。产物按 job 引用计数，仍被其他任务复用的保留并列在 `retained_outputs`；源文件不随任务删除 | ✅ |
 | 9.11 | 简化上传：小文件单请求上传，可选"上传并提交任务"一步完成。现有 init → PUT → complete 三步是按 Uppy 设计的 | ⬜ |
 
 ### 第 10 步：编码器直连与默认值
@@ -207,7 +207,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 |---|---|---|
 | 12.1 | 按用户公平派发：每个用户同时 `PROCESSING` 的 job 数有上限（`DISPATCH_MAX_PROCESSING_PER_USER`，默认 8），领取时在用户之间轮询；按用户的部分索引与 advisory lock 保证多实例下不超限、不重复派发。交互与批量优先级留作后续 | ✅ |
 | 12.2 | 单个 attempt 的最长执行时间：从 `started_at` 起算，普通 10 分钟、搜索任务 30 分钟（`EXECUTION_LIMIT`/`TARGET_EXECUTION_LIMIT`）；心跳续租不越过上限，到期由恢复循环按 `execution_timeout` 重试 | ✅ |
-| 12.3 | 存储生命周期：`storage/cleanup.go` 只清理未完成的上传，源图与产物永久保留。加保留期限（可按用户或套餐配置）、到期清理文件记录与对象，R2 生命周期规则兜底 | ⬜ |
+| 12.3 | 存储生命周期：`SOURCE_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS`（默认 30 天）与按用户覆盖字段（暂无界面）；`services/lifecycle` 每 10 分钟把到期文件标为 `EXPIRED` 后删对象，失败重试，跳过未结束 job 的源文件；复用与秒传只选剩余保留期过半的文件。R2 生命周期规则只写了文档。已知遗留：显式重试已完成的 job 时旧产物不再被引用，要等到期才删；清理没有跨实例互斥（可并发，只是重复劳动） | ✅ |
 | 12.4 | 配额：存储用量、每月处理量、单任务 job 数（现有上限为 `compression.MaxItems` 与 `MaxOutputs`）。是否引入组织 / 项目层级待定，目前只有 `User` | ⬜ |
 | 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志 | ⬜ |
 | 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）。目前只有本地开发 | ⬜ |

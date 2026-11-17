@@ -13,7 +13,7 @@ API 只做异步处理：提交任务后立即返回，处理在后台进行，�
 | 权限（scope） | 允许 |
 | :--- | :--- |
 | `tasks:read` | 查询任务列表与单个任务（含下载链接） |
-| `tasks:write` | 上传文件、提交任务、取消、重试 |
+| `tasks:write` | 上传文件、提交任务、取消、重试、删除任务与文件 |
 
 两个权限互不包含：只做提交的程序也需要 `tasks:read` 才能轮询结果。在控制台吊销后，该 key 的请求立即被拒绝。
 
@@ -192,6 +192,7 @@ curl -sS --fail -o photo.avif "$DOWNLOAD_URL"
 - 链接是对象存储的预签名地址，不要带 `Authorization` 头，下载时文件名就是 `name`。
 - 链接 1 小时后失效，过期了就重新 `GET` 任务拿新链接。收到 `304` 时，你之前拿到的链接至少还有 30 分钟有效期。
 - 只有 `GET /v1/tasks/:id` 带下载链接；任务列表、提交、取消、重试的响应都不带。
+- 产物与源文件不会永久保存：默认在上传完成 30 天后删除，到期时间见文件的 `expires_at`（部署方可以改，`0` 表示永久保留）。请在到期前把需要的产物下载到自己的存储。到期后 job 仍是 `COMPLETED`，但 `output_file.status` 变为 `EXPIRED`，不再带 `download_url`；需要时重新提交任务即可生成新的产物。
 
 job 的 `compression` 给出源文件与产物的大小对比（`output_bytes`、`saved_ratio` 等）；`larger_than_source` 为 `true` 时，产物比源文件还大，可以考虑直接用源文件。
 
@@ -284,6 +285,24 @@ jq -r '.data.jobs[] | select(.status == "FAILED") | "failed: \(.error_code) \(.e
 - `POST /v1/tasks/:id/cancel`：取消所有未结束的 job，已完成的 job 不受影响。
 - `POST /v1/tasks/:id/retry`：不带请求体时重试所有失败的 job，返回 `202`。也可以用 `job_ids` 指定 job，或对单个 job 换一组 `options` / `target` 重做，字段见[契约 §重试](/contracts/http-api#重试)。
 
+## 删除
+
+不再需要的任务和文件可以提前删除，不必等它们过期：
+
+```bash
+curl -sS -X DELETE "$LIGHTYEAR_API/v1/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY"
+# {"data": {"id": "…", "deleted_outputs": ["…"], "retained_outputs": []}, …}
+
+curl -sS -X DELETE "$LIGHTYEAR_API/v1/files/$FILE_ID" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY"
+```
+
+- 删除不可撤销，需要 `tasks:write`。
+- 任务还在处理时返回 `409 error.task.conflict`：先 `POST /v1/tasks/:id/cancel`，再删除。
+- 删除任务会删除它的 job 和产物，但不删除源文件。如果另一个任务复用了同一个产物（同一源文件、同样的参数），这个产物会保留下来，列在 `retained_outputs` 里。
+- `DELETE /v1/files/:id` 可以删除源文件或产物；文件正在被未完成的任务读取时返回 `409 error.file.conflict`。删除后，引用它的 job 显示 `status: "DELETED"`。
+
 ## 错误处理
 
 | 状态码 | 常见原因 | 怎么办 |
@@ -292,7 +311,7 @@ jq -r '.data.jobs[] | select(.status == "FAILED") | "failed: \(.error_code) \(.e
 | `401` | 没带 key、key 写错或已吊销 | 检查 `Authorization` 头与 key 状态 |
 | `403` | key 缺少权限，`details.required_scope` 给出所需权限 | 换一个有该权限的 key |
 | `404` | 任务或文件不存在，或不属于这个 key 的账户 | 检查 ID |
-| `409` | `Idempotency-Key` 已用于不同的请求；重试了未结束的 job；上传状态不允许该操作 | 按 `code` 处理，见[契约 §错误码](/contracts/http-api#错误码) |
+| `409` | `Idempotency-Key` 已用于不同的请求；重试了未结束的 job；删除仍在处理的任务或文件；重试时源文件已过期（`error.file.gone`） | 按 `code` 处理，见[契约 §错误码](/contracts/http-api#错误码) |
 | `5xx`、超时、连接失败 | 服务端或网络问题 | 等待后重试；提交任务时带 `Idempotency-Key`，重试不会产生重复任务 |
 
 ## 其他端点

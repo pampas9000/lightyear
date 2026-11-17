@@ -12,7 +12,7 @@ import {
     CheckCircle2, AlertCircle, Info, Settings,
     ArrowRight, ShieldCheck, Layers, TrendingDown,
     Sparkles, Cpu, Copy, Check, RotateCw, RotateCcw, Plus,
-    Eye, X, Code2, CheckCircle, Sliders
+    Eye, X, Code2, CheckCircle, Sliders, Trash2
 } from '@lucide/vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -282,8 +282,25 @@ const getTaskTimeDetails = computed(() => {
     return { started, duration }
 })
 
+// An output is downloadable while it is stored; expired or deleted outputs
+// keep their record (and the job stays COMPLETED) but have no content.
+const isOutputStored = (job: Job) =>
+    job.status === 'COMPLETED' && !!job.output_file_id && (!job.output_file || job.output_file.status === 'UPLOADED')
+
+const outputGoneLabel = (job: Job) => {
+    switch (job.output_file?.status) {
+        case 'EXPIRED': return $t('task_detail.output_expired')
+        case 'DELETED': return $t('task_detail.output_deleted')
+        default: return ''
+    }
+}
+
 const completedJobsCount = computed(() => {
     return task.value?.jobs?.filter(j => j.status === 'COMPLETED').length || 0
+})
+
+const downloadableJobsCount = computed(() => {
+    return task.value?.jobs?.filter(isOutputStored).length || 0
 })
 
 const failedJobsCount = computed(() => {
@@ -358,7 +375,7 @@ const copyUuid = () => {
 }
 
 const downloadJobOutput = async (job: Job) => {
-    if (!job.output_file_id || job.status !== 'COMPLETED') return
+    if (!isOutputStored(job)) return
     
     downloadingJobs.value[job.id] = true
     try {
@@ -385,7 +402,7 @@ const downloadJobOutput = async (job: Job) => {
 
 const downloadAllOutputs = async () => {
     if (!task.value?.jobs) return
-    const completedJobs = task.value.jobs.filter(j => j.status === 'COMPLETED' && j.output_file_id)
+    const completedJobs = task.value.jobs.filter(isOutputStored)
     if (completedJobs.length === 0) return
 
     isDownloadingAll.value = true
@@ -400,7 +417,7 @@ const downloadAllOutputs = async () => {
 }
 
 const openPreview = async (job: Job) => {
-    if (!job.output_file_id || job.status !== 'COMPLETED') return
+    if (!isOutputStored(job)) return
     selectedJobForPreview.value = job
     previewImageUrl.value = null
     isPreviewLoading.value = true
@@ -433,6 +450,8 @@ const showRetryDrawer = ref(false)
 const selectedJobForRetry = ref<string | null>(null)
 const isCancelling = ref(false)
 const showCancelDialog = ref(false)
+const isDeleting = ref(false)
+const showDeleteDialog = ref(false)
 
 // Error Diagnostic Dialog logic
 const selectedJobForErrorModal = ref<Job | null>(null)
@@ -488,6 +507,25 @@ const handleCancelTask = async () => {
         toast.error(err.data?.message || $t('task_detail.toast_cancel_failed'))
     } finally {
         isCancelling.value = false
+    }
+}
+
+// Only finished tasks can be deleted; the API answers 409 for active ones.
+const handleDeleteTask = async () => {
+    isDeleting.value = true
+    try {
+        const res = await api<ApiResponse<unknown>>(`/tasks/${taskId}`, { method: 'DELETE' })
+        if (res.success) {
+            toast.success($t('task_detail.toast_delete_success'))
+            showDeleteDialog.value = false
+            stopPolling()
+            router.push('/tasks')
+        }
+    } catch (err: any) {
+        console.error('Failed to delete task:', err)
+        toast.error(err.data?.message || $t('task_detail.toast_delete_failed'))
+    } finally {
+        isDeleting.value = false
     }
 }
 
@@ -582,7 +620,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
 
                 <!-- Download All Action Button (if any jobs completed) -->
                 <button
-                    v-if="completedJobsCount > 0"
+                    v-if="downloadableJobsCount > 0"
                     @click="downloadAllOutputs"
                     :disabled="isDownloadingAll"
                     class="h-8 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
@@ -603,6 +641,19 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                     <Loader2 v-if="isCancelling" class="w-3.5 h-3.5 animate-spin" />
                     <X v-else class="w-3.5 h-3.5" />
                     <span class="hidden sm:inline">{{ $t('task_detail.cancel_task') }}</span>
+                </button>
+
+                <!-- Delete Task Button (finished tasks only; active ones are cancelled first) -->
+                <button
+                    v-if="task && task.status !== 'PROCESSING' && task.status !== 'PENDING'"
+                    @click="showDeleteDialog = true"
+                    :disabled="isDeleting"
+                    class="h-8 px-2.5 rounded-lg border border-hairline bg-surface-1 hover:bg-rose-500/10 hover:border-rose-500/30 text-ink-subtle hover:text-rose-600 dark:hover:text-rose-400 text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                    :title="$t('task_detail.delete_task')"
+                >
+                    <Loader2 v-if="isDeleting" class="w-3.5 h-3.5 animate-spin" />
+                    <Trash2 v-else class="w-3.5 h-3.5" />
+                    <span class="hidden sm:inline">{{ $t('task_detail.delete_task') }}</span>
                 </button>
 
                 <!-- New Task Shortcut -->
@@ -708,6 +759,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                     </p>
                 </div>
                 <button
+                    v-if="downloadableJobsCount > 0"
                     @click="downloadAllOutputs"
                     :disabled="isDownloadingAll"
                     class="shrink-0 h-8.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
@@ -1125,7 +1177,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                         <div class="flex items-center gap-2 shrink-0">
                             <!-- Image Preview Trigger -->
                             <button
-                                v-if="job.status === 'COMPLETED' && job.output_file_id && isImageFile(job.source_file?.name)"
+                                v-if="isOutputStored(job) && isImageFile(job.source_file?.name)"
                                 @click="openPreview(job)"
                                 class="h-8 px-3 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors"
                                 :title="$t('task_detail.preview')"
@@ -1169,10 +1221,21 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                                 <span class="hidden sm:inline">调参</span>
                             </button>
 
+                            <!-- Output removed by retention or deletion -->
+                            <span
+                                v-if="job.status === 'COMPLETED' && outputGoneLabel(job)"
+                                class="h-8 px-2.5 text-xs font-medium border border-dashed border-hairline text-ink-subtle rounded-lg flex items-center gap-1.5"
+                                :title="$t('task_detail.output_gone_hint')"
+                            >
+                                <Clock class="w-3.5 h-3.5" />
+                                <span>{{ outputGoneLabel(job) }}</span>
+                            </span>
+
                             <!-- Download Button -->
                             <button
-                                v-if="job.status === 'COMPLETED'"
+                                v-else-if="job.status === 'COMPLETED'"
                                 :disabled="downloadingJobs[job.id] || !job.output_file_id"
+                                :title="job.output_file?.expires_at ? $t('task_detail.kept_until', { date: new Date(job.output_file.expires_at).toLocaleDateString() }) : undefined"
                                 @click="downloadJobOutput(job)"
                                 class="h-8 px-3 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                             >
@@ -1267,6 +1330,36 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                     >
                         <Loader2 v-if="isCancelling" class="w-3.5 h-3.5 animate-spin" />
                         <span v-else>{{ $t('task_detail.confirm_cancel') }}</span>
+                    </Button>
+                </div>
+            </DialogContent>
+        </Dialog>
+
+        <!-- Delete Confirmation Dialog -->
+        <Dialog :open="showDeleteDialog" @update:open="val => showDeleteDialog = val">
+            <DialogContent class="max-w-md bg-surface-1 border-hairline rounded-xl p-6 shadow-xl space-y-4">
+                <DialogHeader class="space-y-1.5">
+                    <DialogTitle class="text-sm font-semibold text-ink flex items-center gap-2">
+                        <Trash2 class="w-4 h-4 text-rose-600" />
+                        {{ $t('task_detail.delete_dialog_title') }}
+                    </DialogTitle>
+                    <p class="text-xs text-ink-subtle leading-relaxed">
+                        {{ $t('task_detail.delete_dialog_desc') }}
+                    </p>
+                </DialogHeader>
+
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-hairline">
+                    <Button variant="outline" size="sm" @click="showDeleteDialog = false" class="h-8 px-4 text-xs font-medium border-hairline">
+                        {{ $t('common.cancel') }}
+                    </Button>
+                    <Button
+                        size="sm"
+                        @click="handleDeleteTask"
+                        :disabled="isDeleting"
+                        class="h-8 px-4 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs"
+                    >
+                        <Loader2 v-if="isDeleting" class="w-3.5 h-3.5 animate-spin" />
+                        <span>{{ $t('task_detail.confirm_delete') }}</span>
                     </Button>
                 </div>
             </DialogContent>

@@ -9,6 +9,7 @@ import (
 	v1 "transcoder/server/internal/api/v1"
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/services/apikey"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
@@ -51,6 +52,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	tasks := task.NewService(db, kv)
 	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket)
 	keys := apikey.NewService(db)
+	files := lifecycle.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
 	sign := func(ctx context.Context, path, filename string, ttl time.Duration) (string, error) {
 		return s3Storage.GetPresignedURL(ctx, cfg.S3.Bucket, path, filename, false, ttl)
 	}
@@ -58,16 +60,21 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	return &Router{
 		job:      handlers.NewHandler(db),
 		workflow: handlers.NewWorkflowHandler(db),
-		task:     handlers.NewTaskHandler(tasks),
+		task:     handlers.NewTaskHandler(tasks, files),
 		upload:   handlers.NewUploadHandler(uploads),
 		draft:    handlers.NewDraftHandler(db, s3Storage, cfg.S3.Bucket),
-		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket),
+		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket, files),
 		auth:     handlers.NewAuthHandler(db, store, cfg),
 		apiKeys:  handlers.NewAPIKeyHandler(keys),
 		session:  store,
 		keys:     keys,
-		v1:       v1.New(tasks, uploads, sign),
+		v1:       v1.New(tasks, uploads, files, sign),
 	}
+}
+
+// RetentionPolicy is the global storage retention from cfg.
+func RetentionPolicy(cfg config.Config) lifecycle.Policy {
+	return lifecycle.Days(cfg.Retention.SourceDays, cfg.Retention.OutputDays)
 }
 
 // Install mounts all API modules.

@@ -20,8 +20,11 @@ export interface File extends Base {
     path: string;
     size: number;
     mime_type: string;
+    /** UPLOADED while stored; EXPIRED / DELETED once retention or the owner removed it. */
     status: string;
     owner_id: string;
+    /** When retention removes the file; set by the lifecycle sweep. */
+    expires_at?: string;
 }
 
 export interface CompressionTarget {

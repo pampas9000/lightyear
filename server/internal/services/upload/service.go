@@ -102,7 +102,8 @@ func (s *Service) Init(ctx context.Context, owner uuid.UUID, in InitInput) (*Ini
 	// SHA-256 fast upload: reuse the owner's file with the same content.
 	if in.Hash != "" {
 		var existing models.File
-		if err := s.db.WithContext(ctx).Where("owner_id = ? AND hash = ? AND status = ?", owner, in.Hash, "UPLOADED").First(&existing).Error; err == nil {
+		if err := s.db.WithContext(ctx).Where("owner_id = ? AND hash = ? AND status = ?", owner, in.Hash, models.FileUploaded).
+			Where(storage.FreshEnough, time.Now()).Order("created_at DESC").First(&existing).Error; err == nil {
 			draft := &models.DraftFile{FileID: existing.ID, OwnerID: owner}
 			if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "file_id"}},

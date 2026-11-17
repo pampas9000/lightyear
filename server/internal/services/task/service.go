@@ -18,6 +18,7 @@ import (
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
+	"transcoder/server/internal/services/storage"
 	taskqueue "transcoder/server/internal/task"
 
 	"gorm.io/gorm"
@@ -44,6 +45,9 @@ var (
 	ErrNoJobsToRetry       = errors.New("no failed jobs available to retry")
 	ErrJobNotRetryable     = errors.New("active jobs cannot be retried")
 	ErrInvalidJobID        = errors.New("job does not belong to task")
+	// ErrSourceUnavailable: a job to retry reads a source file that has
+	// expired or was deleted.
+	ErrSourceUnavailable = errors.New("source file has expired or was deleted")
 )
 
 const maxItems = compression.MaxItems
@@ -288,9 +292,9 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 	}
 	job.ArtifactKey = key
 	var done models.Job
-	err = tx.Preload("OutputFile").
-		Joins("JOIN files ON files.id = jobs.output_file_id AND files.status = ?", "UPLOADED").
+	err = tx.Joins("JOIN files ON files.id = jobs.output_file_id AND files.status = ?", models.FileUploaded).
 		Where("jobs.owner_id = ? AND jobs.artifact_key = ? AND jobs.status = ?", job.OwnerID, key, models.JobCompleted).
+		Where(storage.FreshEnough, time.Now()).
 		Order("jobs.created_at DESC").First(&done).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
@@ -298,6 +302,19 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 	if err != nil {
 		return err
 	}
+	// Lock the output so expiry or deletion (which lock it FOR UPDATE and then
+	// count the jobs using it) either finishes first, and the status re-check
+	// fails, or waits for this job to be committed and counted.
+	var output models.File
+	err = tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		First(&output, "id = ? AND status = ?", *done.OutputFileID, models.FileUploaded).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	done.OutputFile = &output
 	job.Status, job.Progress, job.OutputFileID, job.NextRunAt = models.JobCompleted, 100, done.OutputFileID, nil
 	resolved := done.Options
 	if done.ResolvedOptions != nil {
@@ -388,6 +405,15 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 					return ErrJobNotRetryable
 				}
 				continue
+			}
+			// The source must still be stored; the lock keeps the lifecycle
+			// sweep from expiring it before this job is PENDING.
+			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+				First(&models.File{}, "id = ? AND status = ?", j.SourceFileID, models.FileUploaded).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrSourceUnavailable
+				}
+				return err
 			}
 			if changingParams {
 				newTarget := j.Target
