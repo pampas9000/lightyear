@@ -2,6 +2,7 @@ package config
 
 import (
 	"strings"
+	"time"
 
 	"github.com/knadh/koanf/parsers/dotenv"
 	"github.com/knadh/koanf/providers/confmap"
@@ -27,7 +28,9 @@ type Config struct {
 // DispatchConfig holds orchestrator limits. Zero values take the
 // orchestrator's defaults.
 type DispatchConfig struct {
-	MaxProcessingPerUser int `koanf:"DISPATCH_MAX_PROCESSING_PER_USER"`
+	MaxProcessingPerUser int           `koanf:"DISPATCH_MAX_PROCESSING_PER_USER"`
+	ExecutionLimit       time.Duration `koanf:"EXECUTION_LIMIT"`
+	TargetExecutionLimit time.Duration `koanf:"TARGET_EXECUTION_LIMIT"`
 }
 
 type GoogleOAuthConfig struct {
@@ -128,6 +131,8 @@ func Load() Config {
 
 	cfg.Dispatch = DispatchConfig{
 		MaxProcessingPerUser: k.Int("DISPATCH_MAX_PROCESSING_PER_USER"),
+		ExecutionLimit:       k.Duration("EXECUTION_LIMIT"),
+		TargetExecutionLimit: k.Duration("TARGET_EXECUTION_LIMIT"),
 	}
 
 	return cfg

@@ -32,21 +32,42 @@ const (
 	dispatchBatch = 20
 
 	DefaultMaxProcessingPerOwner = 8
+	DefaultExecutionLimit        = 10 * time.Minute
+	DefaultTargetExecutionLimit  = 30 * time.Minute
 )
 
-// Limits bound how much of the worker pool one user can hold. Zero fields
-// take the defaults.
+// Limits bound how much of the worker pool one user can hold and how long a
+// single attempt may run. Zero fields take the defaults.
 type Limits struct {
 	// MaxProcessingPerOwner caps a user's PROCESSING jobs (queued in Redis or
 	// running). A user at the cap is skipped by dispatch until one finishes.
 	MaxProcessingPerOwner int
+	// ExecutionLimit bounds an attempt from its first RUNNING heartbeat;
+	// heartbeats never renew the lease past it.
+	ExecutionLimit time.Duration
+	// TargetExecutionLimit replaces ExecutionLimit for jobs with a target,
+	// whose search encodes the image several times.
+	TargetExecutionLimit time.Duration
 }
 
 func (l Limits) withDefaults() Limits {
 	if l.MaxProcessingPerOwner <= 0 {
 		l.MaxProcessingPerOwner = DefaultMaxProcessingPerOwner
 	}
+	if l.ExecutionLimit <= 0 {
+		l.ExecutionLimit = DefaultExecutionLimit
+	}
+	if l.TargetExecutionLimit <= 0 {
+		l.TargetExecutionLimit = DefaultTargetExecutionLimit
+	}
 	return l
+}
+
+func (l Limits) execution(job *models.Job) time.Duration {
+	if job.Target != nil {
+		return l.TargetExecutionLimit
+	}
+	return l.ExecutionLimit
 }
 
 type Service struct {
@@ -236,7 +257,10 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		switch r.Status {
 		case taskqueue.ResultRunning:
 			updates := map[string]any{"status": models.AttemptRunning}
-			if attempt.StartedAt == nil {
+			started := now
+			if attempt.StartedAt != nil {
+				started = *attempt.StartedAt
+			} else {
 				updates["started_at"] = now
 			}
 			if err := tx.Model(&attempt).Updates(updates).Error; err != nil {
@@ -246,7 +270,13 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			if r.Progress != nil {
 				progress = max(progress, *r.Progress)
 			}
-			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": now.Add(LeaseDuration)}).Error
+			// The lease never outlives the execution limit; once it lapses,
+			// Recover expires the attempt like any other lost lease.
+			lease := now.Add(LeaseDuration)
+			if deadline := started.Add(s.limits.execution(job)); lease.After(deadline) {
+				lease = deadline
+			}
+			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": lease}).Error
 		case taskqueue.ResultCompleted:
 			return s.complete(tx, job, &attempt, r, now)
 		case taskqueue.ResultFailed:
@@ -366,6 +396,8 @@ func (s *Service) retryOrFail(tx *gorm.DB, job *models.Job, code, message string
 //   - a sent attempt with no RUNNING heartbeat before StartTimeout is re-sent
 //     as the same attempt, without consuming a retry;
 //   - a RUNNING attempt whose lease expired is abandoned and the job retried.
+//     Heartbeats cap the lease at the attempt's execution limit, so this is
+//     also where an attempt that runs too long is stopped.
 func (s *Service) Recover(ctx context.Context, now time.Time) error {
 	var unsent []models.Attempt
 	if err := s.db.WithContext(ctx).
@@ -406,7 +438,11 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 				return err
 			}
 			abandoned = &attempt.ID
-			return s.retryOrFail(tx, job, "execution_timeout", "execution lease expired", true, now)
+			message := "execution lease expired"
+			if attempt.StartedAt != nil && !now.Before(attempt.StartedAt.Add(s.limits.execution(job))) {
+				message = "attempt exceeded the execution time limit"
+			}
+			return s.retryOrFail(tx, job, "execution_timeout", message, true, now)
 		}); err != nil {
 			return err
 		}

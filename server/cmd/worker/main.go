@@ -65,5 +65,7 @@ func run() error {
 	slog.Info("orchestrator started")
 	return orchestrator.Run(ctx, db, kv, orchestrator.Limits{
 		MaxProcessingPerOwner: cfg.Dispatch.MaxProcessingPerUser,
+		ExecutionLimit:        cfg.Dispatch.ExecutionLimit,
+		TargetExecutionLimit:  cfg.Dispatch.TargetExecutionLimit,
 	})
 }
