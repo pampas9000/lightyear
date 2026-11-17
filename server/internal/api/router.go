@@ -50,7 +50,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	})
 
 	tasks := task.NewService(db, kv)
-	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket)
+	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
 	keys := apikey.NewService(db)
 	files := lifecycle.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
 	sign := func(ctx context.Context, path, filename string, ttl time.Duration) (string, error) {

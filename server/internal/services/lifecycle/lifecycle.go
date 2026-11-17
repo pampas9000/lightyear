@@ -125,12 +125,27 @@ func (s *Service) Sweep(ctx context.Context, now time.Time) (SweepResult, error)
 	return res, nil
 }
 
-// schedule sets expires_at = uploaded_at + retention on UPLOADED files that
-// have none. A file that some job produced is an output; any other file is a
-// source. Retention 0 (the user's or, without one, the global) leaves it NULL.
+// schedule gives every unscheduled UPLOADED file its expires_at. Files are
+// normally scheduled as they become UPLOADED (Schedule); this catches the
+// rest, such as files uploaded before a retention change or by a process
+// that does not know the policy.
 func (s *Service) schedule(ctx context.Context) (int64, error) {
+	return Schedule(s.db.WithContext(ctx), s.policy)
+}
+
+// Schedule sets expires_at = uploaded_at + retention on the given UPLOADED
+// files that have none, or on all such files when ids is empty. A file that
+// some job produced is an output; any other file is a source. Retention 0
+// (the user's or, without one, the policy's) leaves it NULL. Run it in the
+// transaction that marks the file UPLOADED, after the job that produced an
+// output points at it.
+func Schedule(db *gorm.DB, policy Policy, ids ...uuid.UUID) (int64, error) {
 	days := func(d time.Duration) int { return int(d / (24 * time.Hour)) }
-	res := s.db.WithContext(ctx).Exec(`
+	only, args := "", []any{days(policy.Output), days(policy.Source), models.FileUploaded}
+	if len(ids) > 0 {
+		only, args = " AND f.id IN ?", append(args, ids)
+	}
+	res := db.Exec(`
 		WITH due AS (
 			SELECT f.id, f.uploaded_at,
 				CASE WHEN EXISTS (SELECT 1 FROM jobs j WHERE j.output_file_id = f.id)
@@ -138,12 +153,12 @@ func (s *Service) schedule(ctx context.Context) (int64, error) {
 					ELSE COALESCE((SELECT u.source_retention_days FROM users u WHERE u.id = f.owner_id), ?::int)
 				END AS days
 			FROM files f
-			WHERE f.status = ? AND f.expires_at IS NULL AND f.uploaded_at IS NOT NULL
+			WHERE f.status = ? AND f.expires_at IS NULL AND f.uploaded_at IS NOT NULL`+only+`
 		)
 		UPDATE files SET expires_at = due.uploaded_at + make_interval(days => due.days::int)
 		FROM due
 		WHERE files.id = due.id AND due.days > 0 AND files.status = ? AND files.expires_at IS NULL`,
-		days(s.policy.Output), days(s.policy.Source), models.FileUploaded, models.FileUploaded)
+		append(args, models.FileUploaded)...)
 	return res.RowsAffected, res.Error
 }
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/orchestrator"
 
 	"github.com/google/uuid"
@@ -96,7 +97,7 @@ func TestConcurrentOrchestratorsClaimOnceAndRespectTheCap(t *testing.T) {
 	queues := []*fakeQueue{{}, {}}
 	var wg sync.WaitGroup
 	for _, q := range queues {
-		svc := orchestrator.NewService(f.db, q, orchestrator.Limits{MaxProcessingPerOwner: limit})
+		svc := orchestrator.NewService(f.db, q, orchestrator.Limits{MaxProcessingPerOwner: limit}, lifecycle.Policy{})
 		wg.Go(func() {
 			for range 3 {
 				if _, err := svc.DispatchDue(t.Context(), time.Now()); err != nil {

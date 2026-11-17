@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -55,14 +56,17 @@ func PartSize(size int64) int64 {
 }
 
 type Service struct {
-	db      *gorm.DB
-	storage *storage.S3Service
-	bucket  string
-	now     func() time.Time
+	db        *gorm.DB
+	storage   *storage.S3Service
+	bucket    string
+	retention lifecycle.Policy
+	now       func() time.Time
 }
 
-func NewService(db *gorm.DB, storage *storage.S3Service, bucket string) *Service {
-	return &Service{db: db, storage: storage, bucket: bucket, now: time.Now}
+// NewService builds the upload service. retention sets expires_at as an
+// upload completes.
+func NewService(db *gorm.DB, storage *storage.S3Service, bucket string, retention lifecycle.Policy) *Service {
+	return &Service{db: db, storage: storage, bucket: bucket, retention: retention, now: time.Now}
 }
 
 type InitInput struct {
@@ -243,7 +247,16 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 	now := s.now()
 	file.Status = "UPLOADED"
 	file.UploadedAt = &now
-	if err := s.db.WithContext(ctx).Save(file).Error; err != nil {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(file).Error; err != nil {
+			return err
+		}
+		if _, err := lifecycle.Schedule(tx, s.retention, file.ID); err != nil {
+			return err
+		}
+		return tx.Raw("SELECT expires_at FROM files WHERE id = ?", file.ID).Row().Scan(&file.ExpiresAt)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("mark file uploaded: %w", err)
 	}
 	return file, nil

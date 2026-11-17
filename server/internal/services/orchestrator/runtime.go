@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"transcoder/server/internal/services/lifecycle"
 	taskqueue "transcoder/server/internal/task"
 
 	"github.com/google/uuid"
@@ -18,13 +19,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits) error {
+func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, retention lifecycle.Policy) error {
 	if err := ensureGroup(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup); err != nil {
 		return fmt.Errorf("create consumer group: %w", err)
 	}
 	host, _ := os.Hostname()
 	consumer := fmt.Sprintf("orchestrator-%s-%d-%s", host, os.Getpid(), uuid.NewString())
-	service := NewService(db, taskqueue.RedisQueue{Client: kv}, limits)
+	service := NewService(db, taskqueue.RedisQueue{Client: kv}, limits, retention)
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		consume(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup, consumer, func(msg redis.XMessage) error {

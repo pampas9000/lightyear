@@ -5,8 +5,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/upload"
 
@@ -30,7 +32,7 @@ func TestCompleteBeforeObjectIsUploadedIsConflict(t *testing.T) {
 		BaseEndpoint: aws.String(store.URL),
 		UsePathStyle: true,
 	}))
-	e.h.uploads = upload.NewService(e.db, s3, "bucket")
+	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.Policy{})
 	key := e.key()
 
 	res, body := e.do(http.MethodPost, "/v1/uploads", key, `{"filename":"a.png","size":1024}`)
@@ -46,5 +48,44 @@ func TestCompleteBeforeObjectIsUploadedIsConflict(t *testing.T) {
 	var f models.File
 	if err := e.db.First(&f, "id = ?", up.File.ID).Error; err != nil || f.Status != "UPLOADING" {
 		t.Fatalf("file after failed complete: %+v %v", f, err)
+	}
+}
+
+// Completing an upload schedules the file's retention right away.
+func TestCompleteSetsExpiresAt(t *testing.T) {
+	e := setup(t) // 30-day retention
+	store := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(store.Close)
+	s3 := storage.NewS3Service(s3sdk.New(s3sdk.Options{
+		Region:       "auto",
+		Credentials:  credentials.NewStaticCredentialsProvider("id", "secret", ""),
+		BaseEndpoint: aws.String(store.URL),
+		UsePathStyle: true,
+	}))
+	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.Days(30, 30))
+	key := e.key()
+
+	res, body := e.do(http.MethodPost, "/v1/uploads", key, `{"filename":"a.png","size":1024}`)
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("create upload: %d %s", res.StatusCode, body.Message)
+	}
+	up := decode[Upload](t, body.Data)
+
+	res, body = e.do(http.MethodPost, "/v1/uploads/"+up.File.ID.String()+"/complete", key, "")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("complete: %d %s %s", res.StatusCode, body.Code, body.Message)
+	}
+	got := decode[File](t, body.Data)
+	var f models.File
+	if err := e.db.First(&f, "id = ?", up.File.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := f.UploadedAt.Add(30 * 24 * time.Hour)
+	if f.ExpiresAt == nil || !f.ExpiresAt.Equal(want) || got.ExpiresAt == nil || !got.ExpiresAt.Equal(want) {
+		t.Fatalf("expires_at: stored %v, returned %v, want %v", f.ExpiresAt, got.ExpiresAt, want)
 	}
 }

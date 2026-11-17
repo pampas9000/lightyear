@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"transcoder/server/internal/config"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/orchestrator"
 
 	"github.com/redis/go-redis/v9"
@@ -67,5 +68,5 @@ func run() error {
 		MaxProcessingPerOwner: cfg.Dispatch.MaxProcessingPerUser,
 		ExecutionLimit:        cfg.Dispatch.ExecutionLimit,
 		TargetExecutionLimit:  cfg.Dispatch.TargetExecutionLimit,
-	})
+	}, lifecycle.Days(cfg.Retention.SourceDays, cfg.Retention.OutputDays))
 }

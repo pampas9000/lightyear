@@ -170,9 +170,11 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 源文件与产物各有保留期，从上传完成（`uploaded_at`）算起，默认均为 30 天，由环境变量 `SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS` 配置（`0` 表示永久保留）。用户表上的 `source_retention_days`、`output_retention_days` 可按用户覆盖（预留，暂无界面）。被任意 job 产出的文件按产物计，其余按源文件计。
 
+文件变为 `UPLOADED` 时（上传 `complete`、worker 产出产物）在同一事务里写入 `expires_at`，所以 `complete` 的响应已带到期时间。
+
 API 进程每 10 分钟运行一次清理：
 
-1. 为没有到期时间的 `UPLOADED` 文件写入 `expires_at`。新文件最多在 10 分钟后才有到期时间。
+1. 为仍没有到期时间的 `UPLOADED` 文件补写 `expires_at`（例如上线前已有的文件、清理任务把中断的上传修复为 `UPLOADED` 的文件）。
 2. 到期的文件改为 `EXPIRED`，再删除存储对象。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。
 3. 重试此前删除失败的对象（`EXPIRED`/`DELETED` 且尚未清除的文件）。
 
@@ -370,7 +372,7 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 - `options`、`target`、`resolved_options`、`target_met`、`achieved`、`compression`、`error_code`、`error_message` 的含义与 [`/api` 的 Job 字段](#job-字段)相同；完成的 job 总有 `resolved_options`。
 - 与 `/api` 的区别：不返回 `owner_id`、`operation`、`artifact_key`、`next_run_at`、租约与当前 attempt 等内部字段；`source_file`/`output_file` 只含上面列出的字段。
 - **下载链接**：`GET /v1/tasks/:id` 中，状态为 `COMPLETED` 且产物已上传的 job，其 `output_file` 带 `download_url` 与 `download_expires_at`（签名时刻 + 1 小时）。链接是存储的预签名 GET，签入了以产物文件名为附件名的 `response-content-disposition`。过期后重新 `GET` 任务即可拿到新链接。创建、取消、重试与列表的响应不带下载链接。
-- **保留期**：`source_file`、`output_file` 带 `expires_at`，即存储清理删除该文件的时间；保留期为 `0` 或尚未排期时省略。产物过期或被删除后，job 仍是 `COMPLETED`，`output_file.status` 为 `EXPIRED` 或 `DELETED`，不带 `download_url`。规则见[存储保留期](#存储保留期)。
+- **保留期**：`source_file`、`output_file` 带 `expires_at`，即存储清理删除该文件的时间；保留期为 `0` 时省略。产物过期或被删除后，job 仍是 `COMPLETED`，`output_file.status` 为 `EXPIRED` 或 `DELETED`，不带 `download_url`。规则见[存储保留期](#存储保留期)。
 
 ### 取消与重试
 

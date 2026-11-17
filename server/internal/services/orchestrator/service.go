@@ -11,6 +11,7 @@ import (
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
+	"transcoder/server/internal/services/lifecycle"
 	taskqueue "transcoder/server/internal/task"
 	"transcoder/server/pkg/util"
 
@@ -71,13 +72,16 @@ func (l Limits) execution(job *models.Job) time.Duration {
 }
 
 type Service struct {
-	db     *gorm.DB
-	queue  taskqueue.Queue
-	limits Limits
+	db        *gorm.DB
+	queue     taskqueue.Queue
+	limits    Limits
+	retention lifecycle.Policy
 }
 
-func NewService(db *gorm.DB, queue taskqueue.Queue, limits Limits) *Service {
-	return &Service{db: db, queue: queue, limits: limits.withDefaults()}
+// NewService builds the orchestrator. retention sets expires_at on outputs as
+// they are recorded; the API's lifecycle sweep catches any it leaves NULL.
+func NewService(db *gorm.DB, queue taskqueue.Queue, limits Limits, retention lifecycle.Policy) *Service {
+	return &Service{db: db, queue: queue, limits: limits.withDefaults(), retention: retention}
 }
 
 func RetryDelay(attempts int) time.Duration {
@@ -363,6 +367,10 @@ func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt
 		jobUpdates["achieved"] = nil
 	}
 	if err := tx.Model(job).Updates(jobUpdates).Error; err != nil {
+		return err
+	}
+	// After output_file_id is set, so the file counts as an output.
+	if _, err := lifecycle.Schedule(tx, s.retention, output.ID); err != nil {
 		return err
 	}
 	return jobstate.Aggregate(tx, job.TaskID)

@@ -62,7 +62,7 @@ func setup(t *testing.T) *env {
 	keys := apikey.NewService(db)
 	deleted := &[]string{}
 	files := lifecycle.NewService(db, recordingStore{deleted}, "bucket", lifecycle.Days(30, 30))
-	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket"), files, sign)
+	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket", lifecycle.Days(30, 30)), files, sign)
 	app := fiber.New()
 	h.Install(app, keys)
 	return &env{t: t, db: db, app: app, h: h, keys: keys, owner: uuid.New(), deleted: deleted}

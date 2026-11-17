@@ -10,6 +10,7 @@ import (
 
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/orchestrator"
 	taskservice "transcoder/server/internal/services/task"
 	taskqueue "transcoder/server/internal/task"
@@ -67,7 +68,7 @@ func newFixture(t *testing.T, limits orchestrator.Limits) fixture {
 	t.Helper()
 	db := testutil.OpenDatabase(t)
 	queue := &fakeQueue{}
-	return fixture{db, queue, orchestrator.NewService(db, queue, limits), taskservice.NewService(db, nil), nil}
+	return fixture{db, queue, orchestrator.NewService(db, queue, limits, lifecycle.Days(30, 7)), taskservice.NewService(db, nil), nil}
 }
 
 // submit creates a task of count single-output jobs for owner.
@@ -183,6 +184,12 @@ func TestCompletionPublishesOutputForTheCurrentAttemptOnly(t *testing.T) {
 	if done.Status != models.JobCompleted || done.OutputFile == nil || done.OutputFile.Path != key ||
 		done.OutputFile.Name != "photo.avif" || done.OutputFile.Status != "UPLOADED" {
 		t.Fatalf("output not published: %+v", done)
+	}
+	// The output gets its retention (7 days for outputs here) as it is
+	// recorded, not at the next lifecycle sweep.
+	if out := done.OutputFile; out.ExpiresAt == nil || out.UploadedAt == nil ||
+		!out.ExpiresAt.Equal(out.UploadedAt.Add(7*24*time.Hour)) {
+		t.Fatalf("output expires_at %v, uploaded_at %v", out.ExpiresAt, out.UploadedAt)
 	}
 	// A duplicate delivery of the same result is a no-op.
 	if err := f.svc.ProcessResult(t.Context(), completed(job, key)); err != nil {
@@ -380,7 +387,7 @@ func TestTargetDispatchAndMultiOutputCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	queue := &fakeQueue{}
-	svc := orchestrator.NewService(db, queue, orchestrator.Limits{})
+	svc := orchestrator.NewService(db, queue, orchestrator.Limits{}, lifecycle.Policy{})
 	f := fixture{db, queue, svc, tasks, parent}
 	f.dispatch(t)
 	if len(queue.sent) != 2 {
