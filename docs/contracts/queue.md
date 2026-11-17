@@ -77,7 +77,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 
 | `status` | 含义 | 必带与可选字段 |
 | :--- | :--- | :--- |
-| `RUNNING` | 开始执行与心跳（每 20 秒）；续租约，可更新进度 | — |
+| `RUNNING` | 开始执行与心跳（每 20 秒）；续租约（不超过 attempt 的执行上限），可更新进度 | — |
 | `COMPLETED` | 产物已上传 | 必带 `artifact`（`key` 须等于派发 `output_key`）；带 `target` 时附带可选 `resolved_options`（含选中的 `quality`/`distance` 与 `chroma`）、`target_met`、`achieved`（`{bytes}`）、`encode_rounds`、`compute_ms` |
 | `FAILED` | 执行失败 | `error` |
 
@@ -94,7 +94,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `storage_failed` | 是 | 对象存储读写失败 |
 | `internal_error` | 否 | 其他错误 |
 
-orchestrator 自己还会写入两种错误码：`execution_timeout`（租约到期，可重试）与 `cancelled`。
+orchestrator 自己还会写入两种错误码：`execution_timeout`（租约到期或超过执行上限，可重试）与 `cancelled`。
 
 ## 取消
 

@@ -205,8 +205,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 12.1 | 按用户公平派发：`DispatchDue` 现在按 `next_run_at, id` 全局取任务，一个用户的大批量任务会排在所有人前面。改为每个用户同时 `PROCESSING` 的 job 数有上限，领取时在用户之间轮询；需要时再区分交互与批量优先级 | ⬜ |
-| 12.2 | 单个 attempt 的最长执行时间：现在只要 worker 持续心跳，租约就一直续期，没有上限。超过上限按 `execution_timeout` 处理，搜索任务（多轮编码）的上限单独设 | ⬜ |
+| 12.1 | 按用户公平派发：每个用户同时 `PROCESSING` 的 job 数有上限（`DISPATCH_MAX_PROCESSING_PER_USER`，默认 8），领取时在用户之间轮询；按用户的部分索引与 advisory lock 保证多实例下不超限、不重复派发。交互与批量优先级留作后续 | ✅ |
+| 12.2 | 单个 attempt 的最长执行时间：从 `started_at` 起算，普通 10 分钟、搜索任务 30 分钟（`EXECUTION_LIMIT`/`TARGET_EXECUTION_LIMIT`）；心跳续租不越过上限，到期由恢复循环按 `execution_timeout` 重试 | ✅ |
 | 12.3 | 存储生命周期：`storage/cleanup.go` 只清理未完成的上传，源图与产物永久保留。加保留期限（可按用户或套餐配置）、到期清理文件记录与对象，R2 生命周期规则兜底 | ⬜ |
 | 12.4 | 配额：存储用量、每月处理量、单任务 job 数（现有上限为 `compression.MaxItems` 与 `MaxOutputs`）。是否引入组织 / 项目层级待定，目前只有 `User` | ⬜ |
 | 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志 | ⬜ |

@@ -4,11 +4,19 @@
 
 做法只有一条：**执行所有权只看数据库**。Redis Stream 只负责投递；谁在执行、是否超时、结果算不算数，都由 PostgreSQL 中 job 的当前 attempt 与租约决定。系统保证投递至少一次、结果幂等，不宣称执行恰好一次——同一 attempt 可能被执行多次，但产物按 attempt 隔离，重复执行无害。
 
+## 派发顺序与并发上限
+
+orchestrator 每 500 毫秒取一批（最多 20 个）到期 job，在用户之间公平分配：
+
+- **并发上限**：每个用户同时处于 `PROCESSING`（已派发排队中或执行中）的 job 数不超过 `DISPATCH_MAX_PROCESSING_PER_USER`（默认 8）。到上限的用户本轮跳过，有 job 结束后才再领取，不影响其他用户。
+- **轮询**：每个用户最多取"剩余名额"个到期 job，按 `next_run_at, id` 排序；然后所有用户的第 1 个排在任何人的第 2 个之前，同一轮次内按到期时间先后。一个用户的大批量积压不会让其他用户的第一个 job 多等一轮以上。
+- **索引**：查询先用 `idx_jobs_pending_owner`（`(owner_id, next_run_at, id) WHERE status = 'PENDING'`）跳跃扫描出有待处理 job 的用户，再按用户取到期 job；`PROCESSING` 计数走 `idx_jobs_processing_owner`。代价随"有积压的用户数 × 名额"增长，与积压总量无关（50 万积压 + 2000 个用户约 8 毫秒）。两个部分索引在 `schema.Migrate` 中创建。
+
 ## Attempt：派发记录兼 outbox
 
 orchestrator 领取 job 时，在同一个事务中：
 
-1. 锁定 task 与 job（固定顺序 task → job，避免死锁），确认 job 仍为 `PENDING` 且已到 `next_run_at`；
+1. 取该用户的事务级 advisory lock（`lightyear:dispatch:<owner_id>`），再锁定 task 与 job（固定顺序 task → job，避免死锁），确认 job 仍为 `PENDING` 且已到 `next_run_at`，并重新统计该用户的 `PROCESSING` 数，已到上限则放弃。advisory lock 让多个 orchestrator 实例对同一用户的领取串行，上限不会被并发领取突破；只有领取会取这个锁，且总是最先取，不会形成死锁；
 2. 创建 attempt（`QUEUED`），保存完整派发负载与产物 key `outputs/<owner>/<job>/<attempt>.<ext>`；
 3. job 置为 `PROCESSING`，`current_attempt_id` 指向新 attempt，`attempts + 1`，租约设为 `StartTimeout`（10 分钟）。
 
@@ -31,8 +39,15 @@ orchestrator 每 15 秒运行一次恢复：
 | attempt 从未发出 | `QUEUED`、无 `dispatched_at`、创建超过 30 秒 | 补发同一 attempt |
 | 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 原样重发同一 attempt，不消耗重试次数，租约再延 10 分钟 |
 | worker 执行中失联 | `RUNNING` 后租约（每次心跳续到 2 分钟后）到期 | attempt 置 `EXPIRED` 并发取消标记；按 `execution_timeout`（可重试）进入重试 |
+| 执行超过上限 | 租约到达执行上限（见下） | 同上，错误信息为 `attempt exceeded the execution time limit` |
 
 worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍几次心跳丢失。
+
+### 执行上限
+
+每个 attempt 从第一次 `RUNNING`（`started_at`）起有绝对上限：普通 job 为 `EXECUTION_LIMIT`（默认 10 分钟），带 `target` 的搜索 job 因为要多轮编码，为 `TARGET_EXECUTION_LIMIT`（默认 30 分钟）。
+
+上限只在处理心跳时生效：心跳把租约续到 `min(现在 + 2 分钟, started_at + 上限)`，绝不越过上限。超过上限后租约自然到期，由恢复循环按上表"worker 执行中失联"同一路径处理（置 `EXPIRED`、写 `cancel:attempt:<id>`、`execution_timeout` 重试）。这样只有一处做状态转换和取消通知；心跳停止时恢复循环本来就要兜底，而心跳仍在时上限也已体现在租约里。代价是最多晚一个恢复周期（15 秒）才停止。worker 侧不需要改动：它每 3 秒检查取消标记，看到后放弃执行、不上传、不回报。
 
 ## 重试
 
