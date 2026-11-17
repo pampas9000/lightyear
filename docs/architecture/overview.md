@@ -36,8 +36,8 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 
 | 表 | 说明 |
 | :--- | :--- |
-| `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定 |
-| `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256、状态 `UPLOADING`/`UPLOADED`/…） |
+| `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定；可空的 `source_retention_days`/`output_retention_days` 按用户覆盖存储保留期（预留，暂无界面） |
+| `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256）。状态：上传中 `UPLOADING`、可用 `UPLOADED`、保留期到期 `EXPIRED`、被用户删除 `DELETED`，以及上传与草稿清理用的 `ABORTING`/`ABORTED`/`FAILED`/`DELETING`。`expires_at` 是保留期到期时间，`purged_at` 是存储对象删除完成的时间 |
 | `draft_files` | 已上传但尚未提交任务的文件 |
 | `workflows` | 命名的多输出预设（`outputs` 数组，每项含 `ImageOptions` 与可选压缩 `target`） |
 | `tasks` | 一次提交；含 `idempotency_key` 与请求指纹，状态由 jobs 聚合 |
@@ -45,7 +45,9 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | `api_keys` | `/v1` 的 API Key：所属用户 `owner_id`、`name`、用于辨认的 `prefix`、`key_hash`（明文的 SHA-256，唯一索引；明文只在创建时返回一次）、`scopes`（`text[]`：`tasks:read`/`tasks:write`）、`last_used_at`、`revoked_at`（吊销为软删除） |
 | `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`、可选 `encode_rounds`/`compute_ms`。先写 attempt 再发消息，因此它同时充当 outbox |
 
-产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。
+产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。源文件路径为 `uploads/<owner>/<uuid>.<ext>`。
+
+`EXPIRED`/`DELETED` 的文件仍有 job 指向时保留记录，job 照常显示为完成，只是产物不可下载；没有 job 指向时，存储对象删除后记录也删除。
 
 ### 状态
 
@@ -62,7 +64,7 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 
 ### 产物复用
 
-创建任务时，同一用户、同一源文件、同一规范化参数如果已有完成的产物，job 直接标记为完成并指向该产物，不再派发（带参数搜索的 `target` 请求额外将 `target` 计入复用键 `compression-target/v1`；普通或仅校验 `target` 的请求沿用 `image-options/v2`，并按新 job 的 `target` 重算 `target_met` 与 `achieved`）。键的计算见 [ImageOptions §产物键](/contracts/image-options#规范化与产物键)。
+创建任务时，同一用户、同一源文件、同一规范化参数如果已有完成的产物（状态为 `UPLOADED`，且剩余保留期不少于其总保留期的一半），job 直接标记为完成并指向该产物，不再派发（带参数搜索的 `target` 请求额外将 `target` 计入复用键 `compression-target/v1`；普通或仅校验 `target` 的请求沿用 `image-options/v2`，并按新 job 的 `target` 重算 `target_met` 与 `achieved`）。键的计算见 [ImageOptions §产物键](/contracts/image-options#规范化与产物键)。
 
 ## 存储与上传
 
@@ -70,6 +72,29 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 - 上传走预签名直传：不超过 10 MB 的文件单次 PUT，SHA-256 签进 URL，由存储校验内容；更大的文件走分片，初始化时一次签好全部分片。初始化时带 SHA-256，命中本人已上传的文件则直接复用（秒传）。分片上传的 SHA-256 由客户端上报，存储不校验。
 - 下载走 15 分钟预签名 URL（签名带入 `ResponseContentDisposition`，使用文件名称作为附件下载文件名）。
 - API 每小时清理过期的上传与陈旧草稿：对象已存在但未调用完成接口的上传会被补记为 `UPLOADED`；被任务引用的文件不会被清理。
+
+### 保留期与删除
+
+代码在 `server/internal/services/lifecycle`。源文件与产物各有保留期（`SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天，`0` 为永久），从 `uploaded_at` 算起，用户可单独覆盖。被任意 job 产出的文件算产物，其余算源文件。API 进程每 10 分钟清理一次：给新文件写 `expires_at`，把到期的文件改为 `EXPIRED` 并删除对象，再重试此前删除失败的对象。用户删除任务或文件（[HTTP API §删除](/contracts/http-api#删除)）走同一套删除。
+
+不变式：
+
+- **先改库，后删对象。** 事务里先把文件改为 `EXPIRED`/`DELETED`，此后它不会再被复用、秒传、签名下载或用于重试；提交后才删对象。对象删除失败时 `purged_at` 留空，下一轮清理重试（对象不存在视为成功）。数据库因此不会声称一个已不存在的对象可用；反过来，对象可能比记录多活一会儿。
+- **不删正在用的文件。** 到期或删除前对文件加行锁（`FOR UPDATE`），再检查是否有未结束（`PENDING`/`PROCESSING`）的 job 读取它：到期时跳过、等 job 结束；用户删除时返回 `409`。创建任务与重试对源文件加 `FOR SHARE` 并要求 `UPLOADED`，复用产物同样加 `FOR SHARE` 并复查状态，因此不会在检查之后冒出新的读者。加锁顺序与创建任务一致：先草稿后文件。
+- **产物引用计数。** 一个产物可能被多个任务的 job 复用。删除任务时，只有不再有任何 job 指向的产物才删除；仍被引用的产物保留，按自己的保留期过期。
+- **复用不延长寿命。** 复用与秒传只选剩余保留期不少于一半的文件，所以任何对象都不会活过它的保留期，按对象年龄配置的存储生命周期规则也就不会删掉仍在用的文件。
+
+清理在多实例下可并发运行：每一步都重新加锁、复查状态，重复删除对象无害。
+
+#### 可选：R2 生命周期规则兜底
+
+应用的清理是主机制；可以在存储桶上再配一条按对象年龄删除的生命周期规则作兜底，用来回收应用漏掉的对象（例如被取消的 attempt 已上传但没有记录的产物、清理长期失败留下的对象）。这只是部署建议，仓库不包含也不会修改任何云端配置。
+
+- 前缀：`uploads/` 与 `outputs/`（桶里只有这两类对象）。
+- 年龄：**必须大于所有生效保留期中的最大值**，包括按用户覆盖的值，再留出余量，例如保留期 30 天时设为 45 天。规则按对象创建时间计算，而应用按 `uploaded_at` 计算，二者相差不到一次上传的时长。
+- 有用户设置了永久保留（`0`）或更长保留期时，不要配置这条规则，或者把它限制在不含这些用户的前缀上（前缀的第二段是用户 ID）。
+- 规则删除的对象，数据库仍可能记为 `UPLOADED`（直到清理把它标为 `EXPIRED`）；这正是年龄要大于保留期的原因。
+- 未完成的分片上传另由 API 的上传清理中止；R2 也可以加一条「中止未完成的分片上传」规则（例如 2 天）作兜底。
 
 ## 扩展点（尚未实现）
 
