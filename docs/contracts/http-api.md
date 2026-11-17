@@ -48,7 +48,9 @@ Fiber session，存储在 Redis。两种等价凭据：
 { "success": true, "code": "ok", "message": "Task fetched.", "data": { }, "details": null }
 ```
 
-失败时 `success=false`、`data=null`，`details` 为机器可读上下文（如 `{"field":"items","reason":"empty"}`）。`500 error.internal` 不带内部错误内容（SQL、存储响应只写进服务端日志），`details` 只有 `request_id`；每个响应都带 `X-Request-ID` 头，排查时按它查日志。响应码定义在 `server/internal/api/response/codes.go`：
+失败时 `success=false`、`data=null`，`details` 为机器可读上下文（如 `{"field":"items","reason":"empty"}`）。`500 error.internal` 不带内部错误内容（SQL、存储响应只写进服务端日志），`details` 只有 `request_id`；每个响应都带 `X-Request-ID` 头，排查时按它查日志。
+
+响应里的时间都是 RFC 3339 的 UTC 时间（以 `Z` 结尾）。响应码定义在 `server/internal/api/response/codes.go`：
 
 | 类别 | 码 |
 | :--- | :--- |

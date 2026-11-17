@@ -52,6 +52,11 @@ func setupLogger(cfg config.Config) {
 }
 
 func run() error {
+	// Every timestamp the API returns is UTC ("…Z"). Without this, times made
+	// in Go (download and upload URL expiry, revoked_at, created_at on create
+	// responses) carry the host's offset while times read back from Postgres
+	// carry the session's, so one response could mix "Z" and "+08:00".
+	time.Local = time.UTC
 	config := config.Load()
 	setupLogger(config)
 	ctx := context.Background()
