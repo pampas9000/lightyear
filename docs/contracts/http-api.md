@@ -199,7 +199,7 @@ API 进程每 10 分钟运行一次清理：
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `POST` | `/api/upload/init` | `{filename, type, size, hash}`，见下文 |
-| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}`；对已 `UPLOADED` 的文件重复调用直接返回 |
+| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}`；对已 `UPLOADED` 的文件重复调用直接返回；存储里还没有该对象时返回 `409` |
 | `GET` | `/api/upload/multipart/:uploadId/list-parts?key=` | 已上传分片 |
 | `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber?key=` | 重新签一个分片（init 返回的 URL 一小时后过期） |
 | `POST` | `/api/upload/multipart/:uploadId/abort` | `{key}`；中止，文件变为 `ABORTED` |
@@ -297,7 +297,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | `multipart` | 更大的文件：按 `part_size` 切片，第 `i + 1` 片 `PUT` 到 `part_urls[i]`，记下每片响应的 `ETag` 头，再以 `{"parts": [{"part_number": 1, "etag": "\"…\""}, …]}` 调用 `complete` |
 
 - 上传 URL 在 `expires_at`（1 小时）后失效；分片可用 `POST /v1/uploads/:id/parts/:n/url` 重新签名，用 `GET …/parts` 查询已上传的分片。
-- `complete` 后文件为 `UPLOADED`，`size` 与 `mime_type` 以存储实际为准。对已上传的文件重复调用直接返回；分片上传未带 `parts` 返回 `400 error.param.required`。
+- `complete` 后文件为 `UPLOADED`，`size` 与 `mime_type` 以存储实际为准。对已上传的文件重复调用直接返回；分片上传未带 `parts` 返回 `400 error.param.required`；存储里还没有该对象（`PUT` 未完成或被存储拒绝，例如 `sha256` 不符）返回 `409 error.param.invalid`，文件仍为 `UPLOADING`，可以重新 `PUT` 后再调用。
 - 对单次 PUT 的上传调用分片相关端点、对已完成的上传中止，返回 `409 error.param.invalid`。
 - 未完成的上传 24 小时后由清理任务回收。
 

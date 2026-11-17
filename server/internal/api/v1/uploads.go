@@ -66,7 +66,7 @@ func respondUploadError(c fiber.Ctx, err error, action string) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "part_number", Reason: "out of range"})
 	case errors.Is(err, upload.ErrNotFound), errors.Is(err, upload.ErrForbidden):
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeFileNotFound, "Upload not found.")
-	case errors.Is(err, upload.ErrNotMultipart), errors.Is(err, upload.ErrAlreadyUploaded):
+	case errors.Is(err, upload.ErrNotMultipart), errors.Is(err, upload.ErrAlreadyUploaded), errors.Is(err, upload.ErrObjectMissing):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
 	}
 	return internalError(c, action, err)

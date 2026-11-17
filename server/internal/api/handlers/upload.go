@@ -51,7 +51,7 @@ func respondUploadError(c fiber.Ctx, err error, action string) error {
 		return response.RespondError(c, fiber.StatusForbidden, response.CodeForbidden, "Access denied to the specified upload.")
 	case errors.Is(err, upload.ErrNotFound):
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeFileNotFound, "Upload not found.")
-	case errors.Is(err, upload.ErrNotMultipart), errors.Is(err, upload.ErrAlreadyUploaded):
+	case errors.Is(err, upload.ErrNotMultipart), errors.Is(err, upload.ErrAlreadyUploaded), errors.Is(err, upload.ErrObjectMissing):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
 	}
 	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to "+action+".", map[string]any{"reason": err.Error()})

@@ -18,6 +18,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,6 +44,8 @@ var (
 	ErrForbidden       = errors.New("access denied to the specified key")
 	ErrNotMultipart    = errors.New("upload is not multipart")
 	ErrAlreadyUploaded = errors.New("file is already uploaded")
+	// ErrObjectMissing: complete was called before the object reached storage.
+	ErrObjectMissing = errors.New("object has not been uploaded to storage")
 )
 
 // PartSize mirrors the default chunking of @uppy/aws-s3, so the part URLs
@@ -225,6 +228,10 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 	}
 	head, err := s.storage.HeadObject(ctx, s.bucket, file.Path)
 	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "NoSuchKey") {
+			return nil, ErrObjectMissing
+		}
 		return nil, fmt.Errorf("head object: %w", err)
 	}
 	if head.ContentLength != nil {
