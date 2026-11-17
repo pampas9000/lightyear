@@ -213,6 +213,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）。目前只有本地开发 | ⬜ |
 | 12.7 | 审计与数据删除：API Key 的使用记录、按用户删除全部数据、对外的数据保留说明 | ⬜ |
 | 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |
+| 12.9 | 取消与执行上限要真正停下计算：worker 看到取消标记后只是不再等待结果，正在进行的 libvips 编码在后台跑完再丢弃，worker 同时去取下一条消息。2026-11 的端到端验证里，一个 effort 10 的大图 AVIF 被判 `execution_timeout` 后，三个被放弃的编码在同一个 worker 上又跑了 3 分 20 秒（峰值约 870% CPU），挤占后续 job。可选做法：libvips 的 kill 标志（`vips_image_set_kill` / eval 回调）、把编码放进可杀的子进程、或在后台编码结束前不取新消息。见[端到端验证记录](/engineering-notes/e2e-verification-2026-11) | ⬜ |
+| 12.10 | 500 响应不回显内部错误：`/v1` 的 `internalError` 与控制台的 `respondUploadError` 把 `err.Error()`（含 S3 响应、SQL 错误）放进 `details.reason`。改为只写日志、响应带请求 ID | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 

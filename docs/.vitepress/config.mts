@@ -64,7 +64,8 @@ export default defineConfig({
         items: [
           { text: '索引', link: '/engineering-notes/' },
           { text: 'HDR Gain Map 调研', link: '/engineering-notes/gain-map-research' },
-          { text: '编码器对比', link: '/engineering-notes/encoder-comparison' }
+          { text: '编码器对比', link: '/engineering-notes/encoder-comparison' },
+          { text: '端到端验证（2026-11）', link: '/engineering-notes/e2e-verification-2026-11' }
         ]
       }
     ],
