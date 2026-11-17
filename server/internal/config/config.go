@@ -125,6 +125,7 @@ func Load() Config {
 		Endpoint:  k.String("S3_ENDPOINT"),
 		AccessID:  k.String("S3_ACCESS_ID"),
 		AccessKey: k.String("S3_ACCESS_KEY"),
+		Region:    k.String("S3_REGION"),
 		Bucket:    k.String("S3_BUCKET"),
 	}
 	cfg.Retention = RetentionConfig{
