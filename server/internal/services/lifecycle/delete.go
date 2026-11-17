@@ -111,11 +111,27 @@ func (s *Service) DeleteTask(ctx context.Context, owner, taskID uuid.UUID) (*Tas
 	if err != nil {
 		return nil, err
 	}
+	s.purgeNow(ctx, purge...)
+	return out, nil
+}
+
+// purgeBudget bounds how long a delete request waits for object removal.
+// What is not removed in time stays pending and the sweep retries it.
+const purgeBudget = 5 * time.Second
+
+// purgeNow removes the objects of files a request just deleted. It does not
+// follow the request's cancellation, so a client that disconnects does not
+// cut a removal short, and it gives up after purgeBudget.
+func (s *Service) purgeNow(ctx context.Context, files ...models.File) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), purgeBudget)
+	defer cancel()
 	now := time.Now()
-	for _, f := range purge {
+	for _, f := range files {
+		if ctx.Err() != nil {
+			return
+		}
 		s.purge(ctx, f, now)
 	}
-	return out, nil
 }
 
 // DeleteFile deletes one of the owner's files, a source or an output. An
@@ -164,7 +180,7 @@ func (s *Service) DeleteFile(ctx context.Context, owner, fileID uuid.UUID) (*mod
 		return nil, err
 	}
 	if purge {
-		s.purge(ctx, file, time.Now())
+		s.purgeNow(ctx, file)
 	}
 	return &file, nil
 }
