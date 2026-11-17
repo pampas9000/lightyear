@@ -21,7 +21,7 @@ web 每 2 秒轮询 GET /api/tasks/:id ◀──────────┘
 1. **上传**：浏览器把文件直传 S3（不超过 10 MB 单次 PUT，否则分片），完成后文件为 `UPLOADED`，并出现在草稿列表。
 2. **提交**：`POST /api/tasks` 带 `items`（文件 ID）和 `options` 或 `workflow_id`。API 在一个事务中：严格解析并规范化参数、锁定源文件、删除对应草稿、按源文件逐个创建 job（`PENDING`）；已有相同产物的 job 直接完成。
 3. **派发**：orchestrator 每 500 ms 查询到期的 `PENDING` job（每批 20 个），逐个在事务中锁定 task 与 job、校验源文件仍存在、创建 attempt 并把 job 置为 `PROCESSING`；提交后 `XADD q:image`，成功则记录 `dispatched_at`。
-4. **执行**：worker 以 `NOACK` 读取，收到即视为确认。先检查取消标记，再发 `RUNNING`，然后下载源图、调用 `compute-imageops`、把产物写到派发里给定的 `output_key`，最后发 `COMPLETED` 或 `FAILED`。执行期间每 20 秒发一次心跳、每 3 秒检查一次取消。
+4. **执行**：worker 以 `NOACK` 读取，收到即视为确认。先检查取消标记，再发 `RUNNING`，然后下载源图、在子进程里调用 `compute-imageops`、把产物写到派发里给定的 `output_key`，最后发 `COMPLETED` 或 `FAILED`。执行期间每 20 秒发一次心跳、每 3 秒检查一次取消。
 5. **收结果**：orchestrator 从 `q:results` 读取（消费组 `orchestrators`，处理后 `XACK`）。只接受 job 当前 attempt 的结果；`COMPLETED` 时校验产物 key 与 attempt 记录一致，再创建产物文件、完成 job、重新聚合 task。
 6. **展示**：前端轮询任务详情，显示进度、错误诊断与下载入口；下载时再申请预签名 URL。
 

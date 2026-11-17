@@ -47,7 +47,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 
 每个 attempt 从第一次 `RUNNING`（`started_at`）起有绝对上限：普通 job 为 `EXECUTION_LIMIT`（默认 10 分钟），带 `target` 的搜索 job 因为要多轮编码，为 `TARGET_EXECUTION_LIMIT`（默认 30 分钟）。
 
-上限只在处理心跳时生效：心跳把租约续到 `min(现在 + 2 分钟, started_at + 上限)`，绝不越过上限。超过上限后租约自然到期，由恢复循环按上表"worker 执行中失联"同一路径处理（置 `EXPIRED`、写 `cancel:attempt:<id>`、`execution_timeout` 重试）。这样只有一处做状态转换和取消通知；心跳停止时恢复循环本来就要兜底，而心跳仍在时上限也已体现在租约里。代价是最多晚一个恢复周期（15 秒）才停止。worker 侧不需要改动：它每 3 秒检查取消标记，看到后放弃执行、不上传、不回报。
+上限只在处理心跳时生效：心跳把租约续到 `min(现在 + 2 分钟, started_at + 上限)`，绝不越过上限。超过上限后租约自然到期，由恢复循环按上表"worker 执行中失联"同一路径处理（置 `EXPIRED`、写 `cancel:attempt:<id>`、`execution_timeout` 重试）。这样只有一处做状态转换和取消通知；心跳停止时恢复循环本来就要兜底，而心跳仍在时上限也已体现在租约里。代价是最多晚一个恢复周期（15 秒）才发出取消。worker 每 3 秒检查取消标记，看到后按下文"取消"第 3 步停下：计算进程被杀掉，CPU 随即释放，不上传、不回报。
 
 ## 重试
 
@@ -59,7 +59,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 
 1. API 在事务中把未结束的 job 置为 `CANCELLED`，当前 attempt 置为 `CANCELLED`，然后重新聚合 task。
 2. 提交后尽力写入 `cancel:attempt:<attempt_id>`（24 小时过期）。
-3. worker 在开始前检查一次，执行中每 3 秒检查一次，发现后放弃执行，不上传、不回报。
+3. worker 在开始前检查一次，执行中每 3 秒检查一次。发现后：下载或上传中就直接放弃；计算中则对计算子进程所在的进程组发 `SIGKILL`（连同 `cjxl`），等它被回收、删掉它的临时目录后才返回。不上传、不回报，回收完之前也不读下一条派发，所以被放弃的编码不会和下一个 job 叠在一起占 CPU。从写入标记到计算停止最多约 3 秒。
 4. 即使取消标记没写成功或 worker 没看到，迟到的结果也会因 job 已不是 `PROCESSING` 被忽略。
 
 取消标记按 attempt 而不是 job 设置，因此重试出的新 attempt 不会被旧的取消标记误伤。
@@ -69,6 +69,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 - `XREADGROUP … NOACK`：收到即确认，Redis 中没有待确认列表需要认领；消息丢失由数据库租约兜底。
 - 回报结果失败时，worker 会重连并持续重试最多 90 秒；仍失败则放弃，由租约超时处理。
 - worker 本身无状态，可以随时增减实例；多个实例同属消费组 `workers`，每条派发只交给其中一个。
+- 每个 job 的计算（`compute-optimize`，含搜索的多轮编码）在子进程里进行：worker 以 `compute` 参数重新启动自身，经 stdin 传入参数与源图，经 stdout 收回进度与产物；子进程有独立的进程组和 `TMPDIR`。原因是 libvips 的 kill 标志只在像素管线的 tile 之间生效，而 libavif/aom、libheif、libjxl、libwebp 的编码一旦开始就无法中途停止，只能杀进程。附带的效果：libvips 或编码器崩溃只让这一个 attempt 以 `processing_failed` 失败，worker 本身不退出；每个 job 结束后内存归还系统。代价是每个 job 多一次进程启动与 libvips 初始化，在 Apple Silicon 上约 70 ms。
 
 ## Redis 侧
 

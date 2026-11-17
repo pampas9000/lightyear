@@ -213,7 +213,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）。目前只有本地开发 | ⬜ |
 | 12.7 | 审计与数据删除：API Key 的使用记录、按用户删除全部数据、对外的数据保留说明 | ⬜ |
 | 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |
-| 12.9 | 取消与执行上限要真正停下计算：worker 看到取消标记后只是不再等待结果，正在进行的 libvips 编码在后台跑完再丢弃，worker 同时去取下一条消息。2026-11 的端到端验证里，一个 effort 10 的大图 AVIF 被判 `execution_timeout` 后，三个被放弃的编码在同一个 worker 上又跑了 3 分 20 秒（峰值约 870% CPU），挤占后续 job。可选做法：libvips 的 kill 标志（`vips_image_set_kill` / eval 回调）、把编码放进可杀的子进程、或在后台编码结束前不取新消息。见[端到端验证记录](/engineering-notes/e2e-verification-2026-11) | ⬜ |
+| 12.9 | 取消与执行上限要真正停下计算：每个 job 的计算放在 worker 自身启动的子进程里，看到取消标记后杀掉整个进程组并等它回收完，再读下一条派发；原先被放弃的 libvips/libavif 编码会在后台跑完（2026-11 端到端验证中一个 effort 10 的大图 AVIF 被判超时后又在同一个 worker 上跑了 3 分 20 秒）。没有用 libvips kill 标志，因为它停不下 libavif/aom 等编码器本身。每个 job 多约 70 ms 的进程启动；如有需要可预先启动下一个子进程 | ✅ |
 | 12.10 | 500 响应不回显内部错误：所有 500 经 `response.RespondInternal` 返回，错误只写日志，响应只带 `details.request_id`（`requestid` 中间件，响应头 `X-Request-ID`） | ✅ |
 
 ### 以后（结构已预留，暂不排期）
