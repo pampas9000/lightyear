@@ -10,6 +10,7 @@ export default defineConfig({
       { text: '首页', link: '/' },
       { text: '快速开始', link: '/getting-started' },
       { text: '架构', link: '/architecture/overview' },
+      { text: '对外 API', link: '/guides/api-quickstart' },
       { text: '契约', link: '/contracts/' },
       { text: '处理核心', link: '/compute/imageops' },
       { text: '测试', link: '/quality/fixtures' },
@@ -24,6 +25,10 @@ export default defineConfig({
           { text: '安装与运行', link: '/getting-started' },
           { text: '改进路线图', link: '/roadmap' }
         ]
+      },
+      {
+        text: '对外 API',
+        items: [{ text: '接入指南', link: '/guides/api-quickstart' }]
       },
       {
         text: '架构',

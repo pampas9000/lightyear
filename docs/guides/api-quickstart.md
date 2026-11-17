@@ -1,0 +1,301 @@
+# 对外 API 接入指南
+
+本页面向用程序调用 Lightyear 的开发者：从拿到 API Key，到上传图片、提交转换任务、等待完成、下载产物，每一步给出可以直接运行的 `curl` 命令，最后是一个完整脚本。逐字段的定义与全部错误码见 [HTTP API 契约 §对外 API /v1](/contracts/http-api#对外-api-v1)。
+
+API 只做异步处理：提交任务后立即返回，处理在后台进行，客户端轮询任务状态。目前没有 webhook 回调。
+
+## 准备
+
+**API 地址。** `/v1` 由 API 服务直接提供，本地开发时是 `http://localhost:8080`。下文用环境变量 `LIGHTYEAR_API` 表示它。
+
+**API Key。** 在 Web 控制台右上角的账户菜单打开「API Keys」，填写名称、选择权限后创建。完整的 key（`ly_` 开头）只在创建后显示这一次，服务端只保存它的哈希，丢失后只能吊销再新建。
+
+| 权限（scope） | 允许 |
+| :--- | :--- |
+| `tasks:read` | 查询任务列表与单个任务（含下载链接） |
+| `tasks:write` | 上传文件、提交任务、取消、重试 |
+
+两个权限互不包含：只做提交的程序也需要 `tasks:read` 才能轮询结果。在控制台吊销后，该 key 的请求立即被拒绝。
+
+```bash
+export LIGHTYEAR_API=http://localhost:8080
+export LIGHTYEAR_API_KEY=ly_…        # 不要写进代码仓库
+```
+
+每个请求都带上：
+
+```http
+Authorization: Bearer ly_…
+```
+
+下文的命令还用到 `jq` 解析 JSON，以及 `shasum`（macOS 自带；Linux 上也可以用 `sha256sum`）。
+
+## 响应格式
+
+所有响应（`304` 除外）都是同一个信封，字段一律 `snake_case`：
+
+```json
+{ "success": true, "code": "ok", "message": "Task accepted.", "data": { … } }
+```
+
+失败时 `success` 为 `false`，`code` 是稳定的错误码，`details` 可能补充出错的字段或原因：
+
+```json
+{ "success": false, "code": "error.param.invalid", "message": "…", "data": null,
+  "details": { "field": "items", "reason": "file not found or not uploaded" } }
+```
+
+程序应该按 HTTP 状态码和 `code` 判断，不要解析 `message`。请求体按严格 JSON 解析：拼错或多余的字段返回 `400 error.body.invalid`，而不是被静默忽略。
+
+## 第 1 步：上传源图
+
+文件不经过 API 服务，而是由客户端直接上传到对象存储：先向 API 申请上传地址，上传完成后再通知 API。
+
+### 申请上传
+
+```bash
+FILE=photo.jpg
+curl -sS -X POST "$LIGHTYEAR_API/v1/uploads" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n \
+        --arg name "$(basename "$FILE")" \
+        --argjson size "$(wc -c < "$FILE" | tr -d ' ')" \
+        --arg sha256 "$(shasum -a 256 "$FILE" | cut -d ' ' -f 1)" \
+        '{filename: $name, size: $size, content_type: "image/jpeg", sha256: $sha256}')"
+```
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `filename` | 必填，决定产物的文件名（`photo.jpg` 转 AVIF 得到 `photo.avif`） |
+| `size` | 必填，字节数 |
+| `content_type` | 可选，默认 `application/octet-stream` |
+| `sha256` | 可选但建议提供，十六进制。提供后存储会校验上传内容；已经上传过同样内容的文件时，可以免去再次上传 |
+
+响应的 `data.file.id` 是之后提交任务要用的文件 ID，`data.method` 决定下一步：
+
+| `method` | 状态码 | 下一步 |
+| :--- | :--- | :--- |
+| `none` | `200` | 你已经上传过相同 `sha256` 的文件，`data.file` 就是它，直接去[提交任务](#第-2-步-提交任务) |
+| `put` | `201` | 文件 ≤ 10 MB：把文件 `PUT` 到 `data.url`，再通知完成 |
+| `multipart` | `201` | 文件 > 10 MB：分片上传，见[大文件分片上传](#大文件分片上传) |
+
+### 上传并通知完成
+
+```bash
+curl -sS --fail -X PUT --upload-file "$FILE" "$UPLOAD_URL"     # data.url
+
+curl -sS -X POST "$LIGHTYEAR_API/v1/uploads/$FILE_ID/complete" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY"
+```
+
+- 上传地址是对象存储的预签名 URL，不要给它带 `Authorization` 头。它在 `data.expires_at`（1 小时）后失效，过期了就重新申请上传。
+- `complete` 返回的文件状态为 `UPLOADED`，此后才能用于任务。对已完成的文件重复调用 `complete` 是安全的。
+- 申请后一直没有完成的上传，24 小时后会被清理。
+
+## 第 2 步：提交任务
+
+一个任务把一组源文件按同一组输出参数转换，每个「源文件 × 输出」是一个 job。输出参数是 [ImageOptions](/contracts/image-options)，只有 `format` 必填。
+
+```bash
+curl -sS -i -X POST "$LIGHTYEAR_API/v1/tasks" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: import-2026-11-17-photo" \
+  -d '{
+        "items": [{ "file_id": "'"$FILE_ID"'" }],
+        "options": { "format": "avif", "resize": { "width": 1600 } }
+      }'
+```
+
+```http
+HTTP/1.1 202 Accepted
+Location: /v1/tasks/0198…
+Retry-After: 2
+```
+
+响应体是任务本身，`data.id` 是任务 ID。描述输出有三种写法，必须且只能选一种：
+
+**单个输出**：`options`，如上。
+
+**限定文件大小**：`options` 加 `target.max_bytes`。省略 `quality`（JXL 是 `distance`）时，服务端在该格式内搜索不超过目标大小的最高质量；完成后 job 的 `resolved_options` 是实际采用的参数，`target_met` 表示是否达标。PNG 不支持 `target`。
+
+```json
+{ "items": [{ "file_id": "0198…" }],
+  "options": { "format": "webp" },
+  "target": { "max_bytes": 204800 } }
+```
+
+**多个输出**：`outputs`，一次生成多份，`name` 会出现在产物文件名里（`photo.thumb.webp`）。
+
+```json
+{ "items": [{ "file_id": "0198…" }, { "file_id": "0198…" }],
+  "outputs": [
+    { "name": "thumb", "options": { "format": "webp", "resize": { "width": 320 } } },
+    { "name": "full",  "options": { "format": "avif" }, "target": { "max_bytes": 512000 } }
+  ] }
+```
+
+第三种写法是 `workflow_id`，引用在控制台保存的预设。
+
+限制：每个任务最多 100 个源文件、10 个输出、共 200 个 job；文件必须属于你、且已经 `UPLOADED`。同一源文件、同一参数以前处理过时，job 会直接以 `COMPLETED` 返回，不再重复处理。
+
+### 用 `Idempotency-Key` 安全重试
+
+网络超时后，你无法确定任务是否已经创建。带上 `Idempotency-Key` 后可以放心重发同一个请求：
+
+- 相同的 key、相同的请求内容：返回第一次创建的任务，状态码仍是 `202`，并带 `Idempotent-Replayed: true`，不会重复创建。
+- 相同的 key、不同的请求内容：`409 error.idempotency.conflict`。
+- key 由你生成（最长 255 字节），对整个账户有效、不会过期，所以每批不同的工作要用不同的 key，例如「批次号 + 文件哈希」。
+- 不带这个头时，每次请求都会创建新任务。
+
+## 第 3 步：等待完成
+
+```bash
+curl -sS -i "$LIGHTYEAR_API/v1/tasks/$TASK_ID" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY"
+```
+
+任务的 `status`：
+
+| 状态 | 含义 |
+| :--- | :--- |
+| `PENDING` / `PROCESSING` | 未结束，继续等待 |
+| `COMPLETED` | 全部 job 成功 |
+| `PARTIALLY_FAILED` | 部分 job 失败 |
+| `FAILED` | 全部 job 失败 |
+| `CANCELLED` | 已取消 |
+
+轮询时这样做，既不浪费请求也不重复下载同样的内容：
+
+- 任务未结束时响应带 `Retry-After`（秒），按它的间隔再查。
+- 记下响应的 `ETag`，下次请求带 `If-None-Match: <ETag>`。任务没有变化时返回 `304`，没有响应体。任何 job 的状态或进度变化都会产生新的 ETag。
+
+每个 job 有自己的 `status` 与 `progress`（0–100）。失败的 job 带 `error_code` 与 `error_message`；`attempts` / `max_attempts` 是已经尝试的次数和上限，服务端会自动重试临时性的失败。
+
+## 第 4 步：下载产物
+
+`GET /v1/tasks/:id` 的响应中，每个已完成 job 的 `output_file` 带下载链接：
+
+```json
+"output_file": {
+  "id": "0198…", "name": "photo.avif", "status": "UPLOADED", "size": 98400, "mime_type": "image/avif",
+  "download_url": "https://…",
+  "download_expires_at": "2026-11-17T11:00:00Z"
+}
+```
+
+```bash
+curl -sS --fail -o photo.avif "$DOWNLOAD_URL"
+```
+
+- 链接是对象存储的预签名地址，不要带 `Authorization` 头，下载时文件名就是 `name`。
+- 链接 1 小时后失效，过期了就重新 `GET` 任务拿新链接。收到 `304` 时，你之前拿到的链接至少还有 30 分钟有效期。
+- 只有 `GET /v1/tasks/:id` 带下载链接；任务列表、提交、取消、重试的响应都不带。
+
+job 的 `compression` 给出源文件与产物的大小对比（`output_bytes`、`saved_ratio` 等）；`larger_than_source` 为 `true` 时，产物比源文件还大，可以考虑直接用源文件。
+
+## 完整脚本
+
+上传一个文件（≤ 10 MB），转成 AVIF，等待完成并下载产物：
+
+```bash
+#!/usr/bin/env bash
+# usage: lightyear-convert.sh photo.jpg
+set -euo pipefail
+: "${LIGHTYEAR_API:?}" "${LIGHTYEAR_API_KEY:?}"
+
+file=$1
+name=$(basename "$file")
+size=$(wc -c < "$file" | tr -d ' ')
+sha=$(shasum -a 256 "$file" | cut -d ' ' -f 1)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+api() { curl -sS --fail-with-body -H "Authorization: Bearer $LIGHTYEAR_API_KEY" "$@"; }
+
+# 1. 上传
+init=$(api -X POST "$LIGHTYEAR_API/v1/uploads" -H 'Content-Type: application/json' \
+  -d "$(jq -n --arg n "$name" --argjson s "$size" --arg h "$sha" \
+        '{filename: $n, size: $s, sha256: $h, content_type: "image/jpeg"}')")
+file_id=$(jq -r '.data.file.id' <<<"$init")
+case $(jq -r '.data.method' <<<"$init") in
+  none) ;;
+  put)
+    curl -sS --fail -X PUT --upload-file "$file" "$(jq -r '.data.url' <<<"$init")"
+    api -X POST "$LIGHTYEAR_API/v1/uploads/$file_id/complete" > /dev/null ;;
+  *) echo "文件超过 10 MB，需要分片上传" >&2; exit 1 ;;
+esac
+
+# 2. 提交（重复运行同一个文件会拿回同一个任务）
+task=$(api -X POST "$LIGHTYEAR_API/v1/tasks" -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: avif-$sha" \
+  -d "$(jq -n --arg f "$file_id" '{items: [{file_id: $f}], options: {format: "avif"}}')")
+task_id=$(jq -r '.data.id' <<<"$task")
+echo "task $task_id"
+
+# 3. 轮询：带 If-None-Match，按 Retry-After 等待
+etag=
+while :; do
+  args=(-o "$work/task.json" -D "$work/headers" -w '%{http_code}')
+  [ -n "$etag" ] && args+=(-H "If-None-Match: $etag")
+  code=$(curl -sS "${args[@]}" -H "Authorization: Bearer $LIGHTYEAR_API_KEY" \
+    "$LIGHTYEAR_API/v1/tasks/$task_id")
+  header() { grep -i "^$1:" "$work/headers" | cut -d ' ' -f 2- | tr -d '\r'; }
+  case $code in
+    200)
+      etag=$(header etag)
+      status=$(jq -r '.data.status' "$work/task.json")
+      echo "status $status"
+      case $status in COMPLETED|PARTIALLY_FAILED|FAILED|CANCELLED) break ;; esac ;;
+    304) ;;
+    *) cat "$work/task.json" >&2; exit 1 ;;
+  esac
+  sleep "$(header retry-after || echo 2)"
+done
+
+# 4. 下载成功的产物，打印失败的 job
+jq -r '.data.jobs[] | select(.output_file.download_url) | [.output_file.name, .output_file.download_url] | @tsv' \
+  "$work/task.json" |
+while IFS=$'\t' read -r out url; do
+  curl -sS --fail -o "$out" "$url" && echo "saved $out"
+done
+jq -r '.data.jobs[] | select(.status == "FAILED") | "failed: \(.error_code) \(.error_message)"' "$work/task.json" >&2
+```
+
+`--fail-with-body` 需要 curl 7.76 或更新的版本。
+
+## 大文件分片上传
+
+`method` 为 `multipart` 时，响应带 `part_size` 与 `part_urls`：
+
+1. 按 `part_size` 字节切分文件，第 `i + 1` 片 `PUT` 到 `part_urls[i]`，记下每片响应头里的 `ETag`（带引号，原样保留）。
+2. 全部上传后调用 `complete`，带上每片的编号与 ETag：
+
+   ```json
+   { "parts": [{ "part_number": 1, "etag": "\"3858f6…\"" }, { "part_number": 2, "etag": "\"a1b2c3…\"" }] }
+   ```
+
+3. 中断后续传：`GET /v1/uploads/:id/parts` 列出已上传的分片；某片的地址过期时，`POST /v1/uploads/:id/parts/:part_number/url` 重新签名。
+4. 放弃上传：`POST /v1/uploads/:id/abort`。
+
+## 取消与重试
+
+- `POST /v1/tasks/:id/cancel`：取消所有未结束的 job，已完成的 job 不受影响。
+- `POST /v1/tasks/:id/retry`：不带请求体时重试所有失败的 job，返回 `202`。也可以用 `job_ids` 指定 job，或对单个 job 换一组 `options` / `target` 重做，字段见[契约 §重试](/contracts/http-api#重试)。
+
+## 错误处理
+
+| 状态码 | 常见原因 | 怎么办 |
+| :--- | :--- | :--- |
+| `400` | 请求体或参数不合法，`details` 指出字段 | 修正请求，不要原样重试 |
+| `401` | 没带 key、key 写错或已吊销 | 检查 `Authorization` 头与 key 状态 |
+| `403` | key 缺少权限，`details.required_scope` 给出所需权限 | 换一个有该权限的 key |
+| `404` | 任务或文件不存在，或不属于这个 key 的账户 | 检查 ID |
+| `409` | `Idempotency-Key` 已用于不同的请求；重试了未结束的 job；上传状态不允许该操作 | 按 `code` 处理，见[契约 §错误码](/contracts/http-api#错误码) |
+| `5xx`、超时、连接失败 | 服务端或网络问题 | 等待后重试；提交任务时带 `Idempotency-Key`，重试不会产生重复任务 |
+
+## 其他端点
+
+- `GET /v1/tasks?page=1&limit=20&status=FAILED`：按创建时间倒序列出任务，`limit` 最大 100，`status` 可选。列表不带下载链接。
+- 完整的端点表见[契约 §端点](/contracts/http-api#端点)。

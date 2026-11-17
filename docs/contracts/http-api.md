@@ -179,6 +179,8 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 ## 对外 API /v1
 
+面向调用方的分步教程见[对外 API 接入指南](/guides/api-quickstart)；本节是逐字段的契约。
+
 只做异步：提交返回 `202`，客户端轮询任务（webhook 尚未实现）。所有响应沿用上文的[响应封装](#响应封装)，字段一律 `snake_case`。`/v1` 直接由 API 服务（默认 `:8080`）提供，不经 Web 的 Nitro 代理。
 
 ### 认证与 scope
