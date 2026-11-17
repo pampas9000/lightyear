@@ -153,14 +153,17 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 
 | # | 项目 | 状态 |
 |---|---|---|
-| 9.1 | `/v1`：独立路由组，统一信封与 snake_case；上传、`POST /v1/tasks` → 202 + `Location` + `Retry-After`、列表、取消、重试；`GET /v1/tasks/:id` 支持弱 ETag / `If-None-Match` → 304 | ✅ |
+| 9.1 | `/v1`：独立路由组，统一信封与 snake_case；上传、`POST /v1/tasks` → 202 + `Location` + `Retry-After`、列表、取消、重试；`GET /v1/tasks/:id` 支持弱 ETag / `If-None-Match` → 304。请求体沿用第 11 步的 `options` / `outputs` / `target`，job 结果带 `resolved_options` 与 `compression` | ✅ |
 | 9.2 | API Key + scopes（只存哈希）：`api_keys` 表存 SHA-256 与前缀，明文只在创建时返回一次；`tasks:read` / `tasks:write`；`/api/api-keys` 管理接口与设置页 | ✅ |
 | 9.3 | `Idempotency-Key` 请求头：复用按 owner 的幂等键与指纹，重放返回 202 + `Idempotent-Replayed: true`，内容不同返回 409 | ✅ |
 | 9.4 | webhook：HMAC 签名、指数退避、`webhook_deliveries` | ⬜ |
-| 9.5 | URL 作为源：由 worker 拉取并防 SSRF | ⬜ |
+| 9.5 | URL 作为源：由 worker 拉取并防 SSRF（含重定向与 DNS rebinding）。MCP 以它为主要输入方式，见 9.8 | ⬜ |
 | 9.6 | 预签名下载 URL：已完成作业的输出带 `download_url` 与 `download_expires_at`（1 小时），ETag 按 30 分钟时间段变化 | ✅ |
-| 9.7 | 令牌桶限流、attempt 用量、`usage_daily` | ⬜ |
-| 9.8 | MCP：`upload` / `submit_task` / `get_task(wait_seconds)` | ⬜ |
+| 9.7 | 令牌桶限流、attempt 用量、`usage_daily`。计量口径待定：按输出次数、像素数还是 `compute_ms`（`Attempt` 已记 `encode_rounds` 与 `compute_ms`）；复用已有产物的 job 是否计量 | ⬜ |
+| 9.8 | MCP：远程 Streamable HTTP，认证按 MCP 规范走 OAuth 2.1。工具为 `create_upload`（返回预签名 PUT URL，二进制不经工具参数传递）/ `submit_task`（支持 URL 源、`outputs`、`target`）/ `get_task(wait_seconds)`（返回下载链接与 `compression`，不返回图片内容）。依赖 9.5 | ⬜ |
+| 9.9 | OpenAPI 描述 `/v1`，文档与 SDK 由它生成；对外承诺的错误码单独成表 | ⬜ |
+| 9.10 | 删除接口：`DELETE /v1/files/:id`、`DELETE /v1/tasks/:id`（连同产物）。目前只能删草稿和预设 | ⬜ |
+| 9.11 | 简化上传：小文件单请求上传，可选"上传并提交任务"一步完成。现有 init → PUT → complete 三步是按 Uppy 设计的 | ⬜ |
 
 ### 第 10 步：编码器直连与默认值
 
@@ -195,6 +198,21 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 11.7 | **第 1 期（搜索实现 `compute-optimize`）**：`compute-imageops` 拆出并公开"解码、缩放与色彩转换并落进内存"（防止关闭缓存后每轮重复解码）与"编码"原语，`process` 签名和行为不变；新 crate `compute-optimize` 单向依赖 `compute-imageops`，二分 `quality`（1–100，约 7 轮）或 JXL `distance`（0.1–25，精度 0.05，约 9 轮），从所有试过的结果里挑最优，达不到时交付最小结果并标 `target_met: false`；未指定 `chroma` 时沿用 `Q ≥ 90` 切换 4:4:4 规则并把胜出轮次实际 `chroma` 写进 `resolved_options`；JPEG→JXL 满足旁路条件（无缩放、`color=keep`、位深 ≤ 8）时先试 `cjxl` 无损旁路，命中则 `resolved_options` 记 `lossless: true`；每轮之间检查取消标记（`AtomicBool`）并上报进度；测试验证搜索产物与 `process(源图, resolved_options)` 逐字节相同 | ✅ |
 | 11.8 | **第 2 期（`min_ssimu2` 与队列隔离）**：评估 Rust 端 SSIMULACRA2 实现的准确度、速度与内存，定下 16 位、广色域、alpha 处理方式与像素上限；参照图取"缩放与色彩转换之后、编码之前"的内存图像；双目标都能满足时取刚达 `min_ssimu2` 的最小体积，冲突时体积优先；`reuseOutput` 在只检查 `min_ssimu2` 时仅复用已带 `achieved.ssimu2` 的记录；搜索任务切分独立队列与 worker 池 | ⬜ |
 | 11.9 | **第 3 期（多输出体验增强）**：Web 控制台多输出编辑器；必要时让 worker 一次解码源图输出多份产物（主要减少 HEIC 重复解码） | ⬜ |
+
+### 第 12 步：对外运行的前提
+
+第 9 步解决"别人怎么调用"，这一步解决"很多人同时调用时不出事"。12.1–12.3 应在 `/v1` 对第一个外部用户开放之前完成。
+
+| # | 项目 | 状态 |
+|---|---|---|
+| 12.1 | 按用户公平派发：`DispatchDue` 现在按 `next_run_at, id` 全局取任务，一个用户的大批量任务会排在所有人前面。改为每个用户同时 `PROCESSING` 的 job 数有上限，领取时在用户之间轮询；需要时再区分交互与批量优先级 | ⬜ |
+| 12.2 | 单个 attempt 的最长执行时间：现在只要 worker 持续心跳，租约就一直续期，没有上限。超过上限按 `execution_timeout` 处理，搜索任务（多轮编码）的上限单独设 | ⬜ |
+| 12.3 | 存储生命周期：`storage/cleanup.go` 只清理未完成的上传，源图与产物永久保留。加保留期限（可按用户或套餐配置）、到期清理文件记录与对象，R2 生命周期规则兜底 | ⬜ |
+| 12.4 | 配额：存储用量、每月处理量、单任务 job 数（现有上限为 `compression.MaxItems` 与 `MaxOutputs`）。是否引入组织 / 项目层级待定，目前只有 `User` | ⬜ |
+| 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志 | ⬜ |
+| 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）。目前只有本地开发 | ⬜ |
+| 12.7 | 审计与数据删除：API Key 的使用记录、按用户删除全部数据、对外的数据保留说明 | ⬜ |
+| 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 
