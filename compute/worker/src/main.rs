@@ -1,15 +1,22 @@
 use anyhow::Result;
+use compute_worker::{config, job, process, queue, redis_connection, storage, worker};
 
-mod config;
-mod error;
-mod job;
-mod queue;
-mod redis_connection;
-mod storage;
-mod worker;
+fn main() -> Result<()> {
+    // A compute child (see `process.rs`) needs neither the runtime nor the
+    // worker configuration.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|a| a == process::ARG)
+    {
+        std::process::exit(process::serve());
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
 
-#[tokio::main]
-async fn main() -> Result<()> {
+async fn run() -> Result<()> {
     // Install the rustls crypto provider
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -54,6 +61,8 @@ async fn main() -> Result<()> {
         s3,
         bucket: config.s3.bucket.clone(),
         max_source_bytes: config.max_source_bytes,
+        compute_program: std::env::current_exe()
+            .map_err(|e| anyhow::anyhow!("Cannot locate the worker executable: {e}"))?,
         settings: compute_imageops::Settings {
             max_pixels: config.max_pixels,
             avif_encoder,

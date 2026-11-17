@@ -19,3 +19,5 @@ validator.workspace = true
 dotenvy = "0.15.7"
 aws-sdk-s3 = { workspace = true, features = ["rustls"] }
 rustls.workspace = true
+tempfile.workspace = true
+libc = "0.2"

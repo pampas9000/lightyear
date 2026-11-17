@@ -9,7 +9,7 @@ use crate::queue::Queue;
 use crate::redis_connection;
 use compute_types::protocol::{Dispatch, JobResult, ResultError, Status, VERSION};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 /// Must stay well under the orchestrator's lease (two minutes).
@@ -86,10 +86,9 @@ impl Worker {
             eprintln!("Failed to report start of {attempt}: {e}");
         }
 
-        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let (cancel, cancelled) = tokio::sync::watch::channel(false);
         let progress = Arc::new(AtomicU8::new(0));
         let mut beats = self.queue.clone();
-        let watcher_cancel = cancel_flag.clone();
         let watcher_progress = progress.clone();
         let watcher = async {
             let mut heartbeat = tokio::time::interval(HEARTBEAT);
@@ -105,18 +104,22 @@ impl Worker {
                     }
                     _ = poll.tick() => {
                         if beats.is_cancelled(&attempt).await.unwrap_or(false) {
-                            watcher_cancel.store(true, Ordering::Relaxed);
+                            let _ = cancel.send(true);
                             return;
                         }
                     }
                 }
             }
         };
+        let job = job::run(&self.ctx, &dispatch, cancelled, progress);
+        tokio::pin!(job);
         let outcome = tokio::select! {
-            outcome = job::run(&self.ctx, &dispatch, cancel_flag, progress) => outcome,
+            outcome = &mut job => outcome,
             () = watcher => {
-                // Stopping search via cancel_flag exits between rounds; any active
-                // libvips encode finishes in the background, unpublished.
+                // The job kills its compute process and returns once it has
+                // been reaped, so the next message is read only after this
+                // attempt has stopped using CPU. Its outcome is not published.
+                let _ = job.await;
                 println!("Attempt {attempt} was cancelled while running");
                 return;
             }
@@ -194,7 +197,8 @@ mod tests {
     fn parses_only_current_well_formed_dispatches() {
         let fixture = include_str!("../../../docs/contracts/fixtures/dispatch-v2.json");
         assert!(parse(fixture).is_some());
-        let target_fixture = include_str!("../../../docs/contracts/fixtures/dispatch-target-v2.json");
+        let target_fixture =
+            include_str!("../../../docs/contracts/fixtures/dispatch-target-v2.json");
         assert!(parse(target_fixture).is_some());
         assert!(parse(&fixture.replace("\"v\": 2", "\"v\": 1")).is_none());
         assert!(parse(&fixture.replace("0198a000-0000-7000-8000-000000000002", "nope")).is_none());
