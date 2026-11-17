@@ -28,12 +28,24 @@ func Migrate(db *gorm.DB) error {
 		END $$;`).Error; err != nil {
 			return err
 		}
-		return tx.AutoMigrate(
+		if err := tx.AutoMigrate(
 			&models.User{}, &models.UserOauthAccount{}, &models.File{}, &models.DraftFile{},
 			&models.Workflow{}, &models.Task{}, &models.Job{}, &models.Attempt{}, &models.APIKey{},
-		)
+		); err != nil {
+			return err
+		}
+		return tx.Exec(dispatchIndexes).Error
 	})
 }
+
+// dispatchIndexes back the orchestrator's fair dispatch query: a skip scan
+// over the owners of PENDING jobs, each owner's due jobs in (next_run_at, id)
+// order, and each owner's PROCESSING count. idx_jobs_due is the global
+// (status, next_run_at) index the previous dispatch query used.
+const dispatchIndexes = `
+DROP INDEX IF EXISTS idx_jobs_due;
+CREATE INDEX IF NOT EXISTS idx_jobs_pending_owner ON jobs (owner_id, next_run_at, id) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS idx_jobs_processing_owner ON jobs (owner_id) WHERE status = 'PROCESSING';`
 
 // Reset drops every application table, including ones from earlier schema
 // versions, and migrates from scratch. Development only: all data is lost.

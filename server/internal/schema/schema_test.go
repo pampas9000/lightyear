@@ -54,3 +54,24 @@ func TestConcurrentMigrationsAreSerialized(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateReplacesTheGlobalDispatchIndex(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	if err := db.Exec(`CREATE INDEX idx_jobs_due ON jobs (status, next_run_at)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	if err := db.Raw(`SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'jobs'`).Scan(&names).Error; err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	if have["idx_jobs_due"] || !have["idx_jobs_pending_owner"] || !have["idx_jobs_processing_owner"] {
+		t.Fatalf("unexpected job indexes: %v", names)
+	}
+}

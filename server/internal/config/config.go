@@ -21,6 +21,13 @@ type Config struct {
 	S3          S3Config
 	GoogleOAuth GoogleOAuthConfig
 	GithubOAuth GithubOAuthConfig
+	Dispatch    DispatchConfig
+}
+
+// DispatchConfig holds orchestrator limits. Zero values take the
+// orchestrator's defaults.
+type DispatchConfig struct {
+	MaxProcessingPerUser int `koanf:"DISPATCH_MAX_PROCESSING_PER_USER"`
 }
 
 type GoogleOAuthConfig struct {
@@ -117,6 +124,10 @@ func Load() Config {
 		ClientID:     k.String("GITHUB_CLIENT_ID"),
 		ClientSecret: k.String("GITHUB_CLIENT_SECRET"),
 		CallbackURL:  k.String("GITHUB_CALLBACK_URL"),
+	}
+
+	cfg.Dispatch = DispatchConfig{
+		MaxProcessingPerUser: k.Int("DISPATCH_MAX_PROCESSING_PER_USER"),
 	}
 
 	return cfg

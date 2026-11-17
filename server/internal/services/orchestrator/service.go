@@ -30,15 +30,33 @@ const (
 	// sends it, so it does not race the dispatcher's own send.
 	UnsentGrace   = 30 * time.Second
 	dispatchBatch = 20
+
+	DefaultMaxProcessingPerOwner = 8
 )
 
-type Service struct {
-	db    *gorm.DB
-	queue taskqueue.Queue
+// Limits bound how much of the worker pool one user can hold. Zero fields
+// take the defaults.
+type Limits struct {
+	// MaxProcessingPerOwner caps a user's PROCESSING jobs (queued in Redis or
+	// running). A user at the cap is skipped by dispatch until one finishes.
+	MaxProcessingPerOwner int
 }
 
-func NewService(db *gorm.DB, queue taskqueue.Queue) *Service {
-	return &Service{db: db, queue: queue}
+func (l Limits) withDefaults() Limits {
+	if l.MaxProcessingPerOwner <= 0 {
+		l.MaxProcessingPerOwner = DefaultMaxProcessingPerOwner
+	}
+	return l
+}
+
+type Service struct {
+	db     *gorm.DB
+	queue  taskqueue.Queue
+	limits Limits
+}
+
+func NewService(db *gorm.DB, queue taskqueue.Queue, limits Limits) *Service {
+	return &Service{db: db, queue: queue, limits: limits.withDefaults()}
 }
 
 func RetryDelay(attempts int) time.Duration {
@@ -58,18 +76,56 @@ func extension(format string) string {
 	return format
 }
 
+// dueQuery picks the next dispatch batch fairly across users. It walks the
+// distinct owners of PENDING jobs with a skip scan, gives each owner at most
+// as many jobs as it has room under MaxProcessingPerOwner, and interleaves
+// the owners: every owner's first due job ranks before anyone's second, ties
+// broken by how long the job has been due. A large backlog from one user
+// therefore never delays another user's first job by more than one round.
+//
+// Status literals (not parameters) let the planner match the partial indexes
+// idx_jobs_pending_owner and idx_jobs_processing_owner.
+const dueQuery = `
+WITH RECURSIVE owners(owner_id) AS (
+	(SELECT owner_id FROM jobs WHERE status = 'PENDING' ORDER BY owner_id LIMIT 1)
+	UNION ALL
+	SELECT (SELECT j.owner_id FROM jobs j WHERE j.status = 'PENDING' AND j.owner_id > o.owner_id ORDER BY j.owner_id LIMIT 1)
+	FROM owners o WHERE o.owner_id IS NOT NULL
+), room AS (
+	SELECT o.owner_id,
+		@cap - (SELECT count(*) FROM jobs p WHERE p.owner_id = o.owner_id AND p.status = 'PROCESSING') AS free
+	FROM owners o WHERE o.owner_id IS NOT NULL
+)
+SELECT c.id, r.owner_id
+FROM room r
+CROSS JOIN LATERAL (
+	SELECT j.id, j.next_run_at, row_number() OVER (ORDER BY j.next_run_at, j.id) AS turn
+	FROM jobs j
+	WHERE j.owner_id = r.owner_id AND j.status = 'PENDING' AND j.next_run_at <= @now
+	ORDER BY j.next_run_at, j.id
+	LIMIT GREATEST(LEAST(r.free, @batch), 0)
+) c
+WHERE r.free > 0
+ORDER BY c.turn, c.next_run_at, c.id
+LIMIT @batch`
+
+type candidate struct {
+	ID      uuid.UUID
+	OwnerID uuid.UUID
+}
+
 // DispatchDue claims due PENDING jobs and sends their attempts. A failed send
 // leaves the attempt QUEUED and unsent, and Recover sends it later.
 func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
-	var ids []uuid.UUID
-	if err := s.db.WithContext(ctx).Model(&models.Job{}).
-		Where("status = ? AND (next_run_at IS NULL OR next_run_at <= ?)", models.JobPending, now).
-		Order("next_run_at, id").Limit(dispatchBatch).Pluck("id", &ids).Error; err != nil {
+	var due []candidate
+	if err := s.db.WithContext(ctx).Raw(dueQuery, map[string]any{
+		"cap": s.limits.MaxProcessingPerOwner, "now": now, "batch": dispatchBatch,
+	}).Scan(&due).Error; err != nil {
 		return 0, err
 	}
 	sent := 0
-	for _, id := range ids {
-		attempt, err := s.claim(ctx, id, now)
+	for _, c := range due {
+		attempt, err := s.claim(ctx, c, now)
 		if err != nil {
 			return sent, err
 		}
@@ -81,14 +137,29 @@ func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
 	return sent, nil
 }
 
-func (s *Service) claim(ctx context.Context, id uuid.UUID, now time.Time) (*models.Attempt, error) {
+// claim turns one PENDING job into a QUEUED attempt. The per-owner advisory
+// lock serializes claims for one user across orchestrator instances, so the
+// PROCESSING count it re-checks cannot be raced past the cap. It is taken
+// before the task → job locks and nothing else takes it, so it adds no
+// deadlock cycle.
+func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*models.Attempt, error) {
 	var attempt *models.Attempt
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		job, err := jobstate.Lock(tx, id)
+		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended('lightyear:dispatch:' || ?, 0))`, c.OwnerID.String()).Error; err != nil {
+			return err
+		}
+		job, err := jobstate.Lock(tx, c.ID)
 		if err != nil {
 			return err
 		}
-		if job.Status != models.JobPending || (job.NextRunAt != nil && job.NextRunAt.After(now)) {
+		if job.Status != models.JobPending || job.OwnerID != c.OwnerID || (job.NextRunAt != nil && job.NextRunAt.After(now)) {
+			return nil
+		}
+		var processing int64
+		if err := tx.Model(&models.Job{}).Where("owner_id = ? AND status = 'PROCESSING'", job.OwnerID).Count(&processing).Error; err != nil {
+			return err
+		}
+		if processing >= int64(s.limits.MaxProcessingPerOwner) {
 			return nil
 		}
 		var source models.File

@@ -18,13 +18,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func Run(ctx context.Context, db *gorm.DB, kv *redis.Client) error {
+func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits) error {
 	if err := ensureGroup(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup); err != nil {
 		return fmt.Errorf("create consumer group: %w", err)
 	}
 	host, _ := os.Hostname()
 	consumer := fmt.Sprintf("orchestrator-%s-%d-%s", host, os.Getpid(), uuid.NewString())
-	service := NewService(db, taskqueue.RedisQueue{Client: kv})
+	service := NewService(db, taskqueue.RedisQueue{Client: kv}, limits)
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		consume(ctx, kv, taskqueue.QueueResults, taskqueue.OrchestratorGroup, consumer, func(msg redis.XMessage) error {

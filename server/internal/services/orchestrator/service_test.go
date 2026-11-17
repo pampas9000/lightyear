@@ -58,24 +58,35 @@ type fixture struct {
 
 func setup(t *testing.T, count int) fixture {
 	t.Helper()
+	f := newFixture(t, orchestrator.Limits{})
+	f.task = f.submit(t, uuid.New(), count)
+	return f
+}
+
+func newFixture(t *testing.T, limits orchestrator.Limits) fixture {
+	t.Helper()
 	db := testutil.OpenDatabase(t)
-	owner := uuid.New()
+	queue := &fakeQueue{}
+	return fixture{db, queue, orchestrator.NewService(db, queue, limits), taskservice.NewService(db, nil), nil}
+}
+
+// submit creates a task of count single-output jobs for owner.
+func (f fixture) submit(t *testing.T, owner uuid.UUID, count int) *models.Task {
+	t.Helper()
 	var items []taskservice.TaskItemInput
 	for range count {
 		file := models.File{OwnerID: owner, Status: "UPLOADED", Name: "photo.png", Path: "uploads/" + uuid.NewString() + ".png"}
-		if err := db.Create(&file).Error; err != nil {
+		if err := f.db.Create(&file).Error; err != nil {
 			t.Fatal(err)
 		}
 		items = append(items, taskservice.TaskItemInput{FileID: file.ID})
 	}
-	tasks := taskservice.NewService(db, nil)
-	parent, err := tasks.CreateTask(t.Context(), taskservice.CreateTaskInput{
+	task, err := f.tasks.CreateTask(t.Context(), taskservice.CreateTaskInput{
 		OwnerID: owner, Items: items, Options: json.RawMessage(`{"format":"avif"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	queue := &fakeQueue{}
-	return fixture{db, queue, orchestrator.NewService(db, queue), tasks, parent}
+	return task
 }
 
 func (f fixture) job(t *testing.T, i int) models.Job {
@@ -369,7 +380,7 @@ func TestTargetDispatchAndMultiOutputCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	queue := &fakeQueue{}
-	svc := orchestrator.NewService(db, queue)
+	svc := orchestrator.NewService(db, queue, orchestrator.Limits{})
 	f := fixture{db, queue, svc, tasks, parent}
 	f.dispatch(t)
 	if len(queue.sent) != 2 {

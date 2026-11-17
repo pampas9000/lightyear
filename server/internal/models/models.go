@@ -138,6 +138,11 @@ const (
 const OpImageConvert = "image.convert"
 
 // Job is one unit of work: one source file turned into one output.
+//
+// NextRunAt is set whenever a job becomes PENDING and cleared when it is
+// claimed; dispatch only picks PENDING jobs with next_run_at <= now. The
+// dispatch indexes are partial and include the primary key, so
+// schema.Migrate creates them instead of struct tags.
 type Job struct {
 	Base
 	OwnerID         uuid.UUID             `gorm:"type:uuid;not null;index" json:"owner_id"`
@@ -158,8 +163,8 @@ type Job struct {
 	OutputFile      *File                 `gorm:"foreignKey:OutputFileID" json:"output_file,omitempty"`
 	// ArtifactKey identifies (source, canonical options[, target]) for reusing outputs.
 	ArtifactKey      string     `gorm:"type:varchar(64);index" json:"-"`
-	Status           JobStatus  `gorm:"type:job_status;not null;default:'PENDING';index:idx_jobs_due,priority:1" json:"status"`
-	NextRunAt        *time.Time `gorm:"index:idx_jobs_due,priority:2" json:"next_run_at,omitempty"`
+	Status           JobStatus  `gorm:"type:job_status;not null;default:'PENDING'" json:"status"`
+	NextRunAt        *time.Time `json:"next_run_at,omitempty"`
 	Progress         int        `gorm:"not null;default:0" json:"progress"`
 	Attempts         int        `gorm:"not null;default:0" json:"attempts"`
 	MaxAttempts      int        `gorm:"not null;default:3" json:"max_attempts"`
