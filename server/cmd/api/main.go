@@ -23,6 +23,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/logger"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
@@ -185,6 +186,7 @@ func newFiberApp(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Service *st
 		StructValidator: &structValidator{validate: validator.New()},
 	})
 
+	app.Use(requestid.New())
 	app.Use(logger.New())
 
 	r := api.NewRouter(db, kv, cfg, s3Service)

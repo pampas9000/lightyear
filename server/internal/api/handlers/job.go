@@ -43,8 +43,7 @@ func (h *Handler) GetJob(c fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeJobNotFound, "Job not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal,
-			"Failed to fetch job.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to fetch job.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeJobFetched, "Job fetched successfully.", result)
 }

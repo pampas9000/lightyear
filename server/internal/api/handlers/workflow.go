@@ -79,7 +79,7 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	}
 
-	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create workflow.", map[string]any{"reason": err.Error()})
+	return response.RespondInternal(c, "Failed to create workflow.", err)
 }
 
 // ownerFromContext extracts and parses the authenticated user id from the request context.
@@ -108,7 +108,7 @@ func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 		if errors.Is(err, workflow.ErrWorkflowNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch workflow.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to fetch workflow.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflow fetched.", wf)
@@ -162,7 +162,7 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
 	}
 
-	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to update workflow.", map[string]any{"reason": err.Error()})
+	return response.RespondInternal(c, "Failed to update workflow.", err)
 }
 
 func (h *WorkflowHandler) DeleteWorkflow(c fiber.Ctx) error {
@@ -181,7 +181,7 @@ func (h *WorkflowHandler) DeleteWorkflow(c fiber.Ctx) error {
 		if errors.Is(err, workflow.ErrWorkflowNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete workflow.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to delete workflow.", err)
 	}
 
 	return response.RespondEmptySuccess(c, fiber.StatusOK, response.CodeOK, "Workflow deleted.")
@@ -200,7 +200,7 @@ func (h *WorkflowHandler) ListWorkflows(c fiber.Ctx) error {
 
 	wfs, err := h.service.ListWorkflows(c.Context(), ownerID)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to list workflows.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to list workflows.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflows fetched.", wfs)

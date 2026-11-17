@@ -67,7 +67,7 @@ func (h *AuthHandler) Register(c fiber.Ctx) error {
 		if errors.Is(err, auth.ErrUserAlreadyExists) {
 			return response.RespondError(c, fiber.StatusConflict, response.CodeUserExists, "Username or email already exists.")
 		}
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, err.Error())
+		return response.RespondInternal(c, "Failed to register.", err)
 	}
 
 	return h.setSessionAndRespond(c, u)
@@ -93,7 +93,7 @@ func (h *AuthHandler) Login(c fiber.Ctx) error {
 		if errors.Is(err, auth.ErrInvalidCredentials) {
 			return response.RespondError(c, fiber.StatusUnauthorized, response.CodeInvalidCreds, "Invalid username or password.")
 		}
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, err.Error())
+		return response.RespondInternal(c, "Failed to log in.", err)
 	}
 
 	return h.setSessionAndRespond(c, u)

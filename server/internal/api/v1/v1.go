@@ -113,6 +113,5 @@ func setRetryAfter(c fiber.Ctx) {
 }
 
 func internalError(c fiber.Ctx, action string, err error) error {
-	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal,
-		"Failed to "+action+".", map[string]any{"reason": err.Error()})
+	return response.RespondInternal(c, "Failed to "+action+".", err)
 }

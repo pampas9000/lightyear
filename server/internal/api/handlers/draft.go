@@ -99,7 +99,7 @@ func (h *DraftHandler) ListDrafts(c fiber.Ctx) error {
 
 	var results []QueryResult
 	if err := query.Order("draft_files.created_at DESC, draft_files.id DESC").Limit(limit).Scan(&results).Error; err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to list files", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to list files", err)
 	}
 
 	// Generate next cursor
@@ -208,7 +208,7 @@ func (h *DraftHandler) DeleteDraft(c fiber.Ctx) error {
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, "File is already being deleted")
 		}
 
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete file record.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to delete file record.", err)
 	}
 
 	if !shouldDeletePhysical {

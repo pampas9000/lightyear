@@ -54,7 +54,7 @@ func (h *FileHandler) DeleteFile(c fiber.Ctx) error {
 	case errors.Is(err, lifecycle.ErrFileInUse):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeFileConflict, err.Error())
 	case err != nil:
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete file.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to delete file.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "File deleted.", f)
 }
@@ -81,7 +81,7 @@ func (h *FileHandler) GetDownloadURL(c fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "File not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch file record.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to fetch file record.", err)
 	}
 
 	switch file.Status {
@@ -96,7 +96,7 @@ func (h *FileHandler) GetDownloadURL(c fiber.Ctx) error {
 	// Generate a 15-minute presigned download URL
 	url, err := h.storage.GetPresignedURL(c.Context(), h.bucket, file.Path, file.Name, false, 15*time.Minute)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to generate download URL", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to generate download URL", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Download URL generated successfully.", fiber.Map{

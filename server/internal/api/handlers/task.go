@@ -55,7 +55,7 @@ func (h *TaskHandler) DeleteTask(c fiber.Ctx) error {
 	case errors.Is(err, lifecycle.ErrTaskActive):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeTaskConflict, err.Error())
 	case err != nil:
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to delete task.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to delete task.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task deleted.", res)
 }
@@ -90,7 +90,7 @@ func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
 		Status: status,
 	})
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to list tasks.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to list tasks.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", fiber.Map{
@@ -112,7 +112,7 @@ func (h *TaskHandler) GetStats(c fiber.Ctx) error {
 
 	stats, err := h.service.GetStats(c.Context(), ownerID)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch stats.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to fetch stats.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Stats fetched.", stats)
@@ -173,7 +173,7 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, "Idempotency key conflict: request payload mismatch.")
 	}
 
-	return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create task.", map[string]any{"reason": err.Error()})
+	return response.RespondInternal(c, "Failed to create task.", err)
 }
 
 func (h *TaskHandler) GetTask(c fiber.Ctx) error {
@@ -198,7 +198,7 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "record not found" {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to fetch task.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to fetch task.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task fetched.", result)
@@ -260,7 +260,7 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 		case errors.Is(err, task.ErrNoJobsToRetry):
 			return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "No failed jobs available to retry.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to retry task.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to retry task.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task retry initiated successfully.", updatedTask)
@@ -288,7 +288,7 @@ func (h *TaskHandler) CancelTask(c fiber.Ctx) error {
 		if errors.Is(err, task.ErrTaskNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		}
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to cancel task.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to cancel task.", err)
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task cancelled successfully.", cancelledTask)

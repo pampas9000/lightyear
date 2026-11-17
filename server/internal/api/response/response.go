@@ -1,6 +1,11 @@
 package response
 
-import "github.com/gofiber/fiber/v3"
+import (
+	"log/slog"
+
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
+)
 
 // Response is the unified API response envelope for all HTTP handlers.
 //
@@ -90,4 +95,17 @@ func normalizeResponseCode(code ResponseCode, fallback ResponseCode) string {
 type ValidationDetail struct {
 	Field  string `json:"field"`
 	Reason string `json:"reason"`
+}
+
+// RespondInternal logs err and writes a 500 envelope carrying only message
+// and, when the requestid middleware runs, details.request_id. Internal errors
+// (SQL, storage responses) stay in the log, found by that ID, never in the body.
+func RespondInternal(c fiber.Ctx, message string, err error) error {
+	rid := requestid.FromContext(c)
+	slog.ErrorContext(c.Context(), "request failed", "request_id", rid, "method", c.Method(), "path", c.Path(),
+		"message", message, "error", err)
+	if rid == "" {
+		return RespondError(c, fiber.StatusInternalServerError, CodeInternal, message)
+	}
+	return RespondErrorWithDetails(c, fiber.StatusInternalServerError, CodeInternal, message, map[string]string{"request_id": rid})
 }

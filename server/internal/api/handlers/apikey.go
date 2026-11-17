@@ -49,7 +49,7 @@ func (h *APIKeyHandler) Create(c fiber.Ctx) error {
 	case errors.Is(err, apikey.ErrTooManyKeys):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeAPIKeyLimit, err.Error())
 	case err != nil:
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to create API key.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to create API key.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "API key created. Store it now; it is not shown again.", fiber.Map{
 		"api_key": key,
@@ -64,7 +64,7 @@ func (h *APIKeyHandler) List(c fiber.Ctx) error {
 	}
 	keys, err := h.service.List(c.Context(), owner)
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to list API keys.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to list API keys.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "API keys fetched.", fiber.Map{
 		"api_keys": keys,
@@ -86,7 +86,7 @@ func (h *APIKeyHandler) Revoke(c fiber.Ctx) error {
 		return response.RespondError(c, fiber.StatusNotFound, response.CodeAPIKeyNotFound, "API key not found.")
 	}
 	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to revoke API key.", map[string]any{"reason": err.Error()})
+		return response.RespondInternal(c, "Failed to revoke API key.", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "API key revoked.", key)
 }
