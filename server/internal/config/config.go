@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/dotenv"
@@ -19,6 +20,7 @@ type Config struct {
 	DB          DatabaseConfig
 	Redis       RedisConfig
 	S3          S3Config
+	Retention   RetentionConfig
 	GoogleOAuth GoogleOAuthConfig
 	GithubOAuth GithubOAuthConfig
 }
@@ -50,6 +52,13 @@ type S3Config struct {
 	AccessKey string `koanf:"S3_ACCESS_KEY"`
 	Region    string `koanf:"S3_REGION"`
 	Bucket    string `koanf:"S3_BUCKET"`
+}
+
+// RetentionConfig is the global storage retention, in days; 0 keeps files
+// forever. Users can be given their own values (users.*_retention_days).
+type RetentionConfig struct {
+	SourceDays int `koanf:"SOURCE_RETENTION_DAYS"`
+	OutputDays int `koanf:"OUTPUT_RETENTION_DAYS"`
 }
 
 // Load reads runtime settings from environment variables and applies sane defaults.
@@ -108,6 +117,10 @@ func Load() Config {
 		AccessKey: k.String("S3_ACCESS_KEY"),
 		Bucket:    k.String("S3_BUCKET"),
 	}
+	cfg.Retention = RetentionConfig{
+		SourceDays: retentionDays(k, "SOURCE_RETENTION_DAYS"),
+		OutputDays: retentionDays(k, "OUTPUT_RETENTION_DAYS"),
+	}
 	cfg.GoogleOAuth = GoogleOAuthConfig{
 		ClientID:     k.String("GOOGLE_CLIENT_ID"),
 		ClientSecret: k.String("GOOGLE_CLIENT_SECRET"),
@@ -120,6 +133,24 @@ func Load() Config {
 	}
 
 	return cfg
+}
+
+// DefaultRetentionDays applies when a retention variable is unset or empty.
+const DefaultRetentionDays = 30
+
+// retentionDays reads a retention in days. Unset, empty or invalid values
+// fall back to DefaultRetentionDays, so an empty line copied from
+// .env.example does not silently mean "keep forever"; 0 must be explicit.
+func retentionDays(k *koanf.Koanf, key string) int {
+	raw := strings.TrimSpace(k.String(key))
+	if raw == "" {
+		return DefaultRetentionDays
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return DefaultRetentionDays
+	}
+	return n
 }
 
 // IsProduction reports whether the service is running in production mode.

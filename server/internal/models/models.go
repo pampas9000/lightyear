@@ -70,12 +70,17 @@ func (j *JSON) Scan(value any) error {
 
 type User struct {
 	Base
-	Username     string     `gorm:"uniqueIndex;not null" json:"username"`
-	Email        string     `gorm:"uniqueIndex;not null" json:"email"`
-	PasswordHash string     `json:"-"`
-	Tasks        []Task     `gorm:"foreignKey:OwnerID" json:"tasks,omitempty"`
-	Workflows    []Workflow `gorm:"foreignKey:OwnerID" json:"workflows,omitempty"`
-	Files        []File     `gorm:"foreignKey:OwnerID" json:"files,omitempty"`
+	Username     string `gorm:"uniqueIndex;not null" json:"username"`
+	Email        string `gorm:"uniqueIndex;not null" json:"email"`
+	PasswordHash string `json:"-"`
+	// SourceRetentionDays and OutputRetentionDays override the global
+	// retention of the user's source files and outputs (0 keeps them
+	// forever). NULL uses the global default. Reserved: no UI sets them yet.
+	SourceRetentionDays *int       `json:"-"`
+	OutputRetentionDays *int       `json:"-"`
+	Tasks               []Task     `gorm:"foreignKey:OwnerID" json:"tasks,omitempty"`
+	Workflows           []Workflow `gorm:"foreignKey:OwnerID" json:"workflows,omitempty"`
+	Files               []File     `gorm:"foreignKey:OwnerID" json:"files,omitempty"`
 }
 
 type UserOauthAccount struct {
@@ -87,13 +92,29 @@ type UserOauthAccount struct {
 	Email             string    `json:"email"`
 }
 
+// File statuses. A file's object exists in storage only while it is
+// UPLOADING or UPLOADED. EXPIRED (retention ran out) and DELETED (the owner
+// deleted it) are set before the object is removed; PurgedAt records the
+// removal. DELETING and ABORTING are used by the draft and upload cleanup,
+// which remove the row together with the object.
+const (
+	FileUploading = "UPLOADING"
+	FileUploaded  = "UPLOADED"
+	FileExpired   = "EXPIRED"
+	FileDeleted   = "DELETED"
+	FileDeleting  = "DELETING"
+	FileAborting  = "ABORTING"
+	FileAborted   = "ABORTED"
+	FileFailed    = "FAILED"
+)
+
 type File struct {
 	Base
 	Name            string     `gorm:"not null" json:"name"`
 	Path            string     `gorm:"not null" json:"path"`
 	Size            int64      `json:"size"`
 	MimeType        string     `json:"mime_type"`
-	Status          string     `gorm:"type:varchar(20);default:'UPLOADING';index:idx_files_owner_status_uploaded,priority:2" json:"status"`
+	Status          string     `gorm:"type:varchar(20);default:'UPLOADING';index:idx_files_owner_status_uploaded,priority:2;index:idx_files_status_expires,priority:1" json:"status"`
 	UploadID        string     `gorm:"type:text" json:"upload_id,omitempty"`
 	UploadExpiresAt *time.Time `json:"upload_expires_at,omitempty"`
 	UploadedAt      *time.Time `gorm:"index:idx_files_owner_status_uploaded,priority:3" json:"uploaded_at,omitempty"`
@@ -102,6 +123,13 @@ type File struct {
 	Height          int        `json:"height"`
 	OwnerID         uuid.UUID  `gorm:"not null;index:idx_files_owner_status_uploaded,priority:1" json:"owner_id"`
 	Owner           User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	// ExpiresAt is when retention runs out for an UPLOADED file. The
+	// lifecycle sweep sets it (uploaded_at + retention); NULL means not yet
+	// scheduled or kept forever.
+	ExpiresAt *time.Time `gorm:"index:idx_files_status_expires,priority:2" json:"expires_at,omitempty"`
+	// PurgedAt is when the object of an EXPIRED or DELETED file was removed
+	// from storage. NULL on such a file means the removal is still pending.
+	PurgedAt *time.Time `json:"-"`
 }
 
 type DraftFile struct {
