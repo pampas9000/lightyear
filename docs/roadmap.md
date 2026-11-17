@@ -59,7 +59,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 1.1 | 按主题拆分提交当前工作区（P0 修复单独一个提交） | ✅ |
 | 1.2 | `web/tsconfig.tsbuildinfo` 移出版本控制 | ✅ |
 | 1.3 | 工具链保持 nightly（`rust-toolchain.toml` 不改），快速开始文档同步更正 | ✅ |
-| 1.4 | 确认无误后删除备份分支 `backup/pre-reset-4f4b318` 与对应 stash | ⬜ |
+| 1.4 | 确认无误后删除备份分支 `backup/pre-reset-4f4b318` 与对应 stash | ✅ |
 
 ### 第 2 步：参数规范 `ImageOptions`
 
