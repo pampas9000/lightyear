@@ -11,6 +11,7 @@ func TestDispatchFixtureRoundTrips(t *testing.T) {
 	for _, path := range []string{
 		"../../../docs/contracts/fixtures/dispatch-v2.json",
 		"../../../docs/contracts/fixtures/dispatch-target-v2.json",
+		"../../../docs/contracts/fixtures/dispatch-url-v2.json",
 	} {
 		raw, err := os.ReadFile(path)
 		if err != nil {

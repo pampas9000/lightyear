@@ -15,14 +15,17 @@ import (
 // contract does not change when internal columns do.
 
 type File struct {
-	ID         uuid.UUID  `json:"id"`
-	Name       string     `json:"name"`
-	Status     string     `json:"status"`
-	Size       int64      `json:"size"`
-	MimeType   string     `json:"mime_type"`
-	Width      int        `json:"width,omitempty"`
-	Height     int        `json:"height,omitempty"`
-	SHA256     string     `json:"sha256,omitempty"`
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name"`
+	Status   string    `json:"status"`
+	Size     int64     `json:"size"`
+	MimeType string    `json:"mime_type"`
+	Width    int       `json:"width,omitempty"`
+	Height   int       `json:"height,omitempty"`
+	SHA256   string    `json:"sha256,omitempty"`
+	// SourceURL is set on a source given as a URL. Such a file is FETCHING
+	// until a worker has fetched it.
+	SourceURL  string     `json:"source_url,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	UploadedAt *time.Time `json:"uploaded_at,omitempty"`
 	// ExpiresAt is when retention removes the file (UPLOADED files only).
@@ -75,7 +78,7 @@ func newFile(f *models.File) *File {
 	}
 	return &File{
 		ID: f.ID, Name: f.Name, Status: f.Status, Size: f.Size, MimeType: f.MimeType,
-		Width: f.Width, Height: f.Height, SHA256: f.Hash, CreatedAt: f.CreatedAt, UploadedAt: f.UploadedAt,
+		Width: f.Width, Height: f.Height, SHA256: f.Hash, SourceURL: f.SourceURL, CreatedAt: f.CreatedAt, UploadedAt: f.UploadedAt,
 		ExpiresAt: f.ExpiresAt,
 	}
 }

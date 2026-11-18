@@ -221,6 +221,11 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 	if file.Status == "UPLOADED" {
 		return file, nil
 	}
+	if file.Status == models.FileFetching {
+		// A URL source is not an upload; the orchestrator marks it UPLOADED
+		// once a worker has fetched it.
+		return nil, ErrNotFound
+	}
 	if file.UploadID != "" {
 		completed := make([]types.CompletedPart, len(parts))
 		for i, p := range parts {

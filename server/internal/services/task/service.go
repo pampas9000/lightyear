@@ -10,9 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
@@ -20,6 +25,7 @@ import (
 	"transcoder/server/internal/services/jobstate"
 	"transcoder/server/internal/services/storage"
 	taskqueue "transcoder/server/internal/task"
+	"transcoder/server/pkg/util"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -31,13 +37,17 @@ import (
 )
 
 var (
-	ErrNoItemsProvided     = errors.New("at least one item is required to create a task")
-	ErrTooManyItems        = errors.New("at most 100 items are allowed per task")
-	ErrOptionsRequired     = errors.New("exactly one of options, outputs, or workflow_id is required")
-	ErrTargetNotAllowed    = errors.New("target is only allowed alongside top-level options")
-	ErrRetrySingleJob      = errors.New("changing options or target requires specifying a single job")
-	ErrWorkflowNotFound    = errors.New("workflow not found")
-	ErrInvalidFileID       = errors.New("file_id is required and must not be nil")
+	ErrNoItemsProvided  = errors.New("at least one item is required to create a task")
+	ErrTooManyItems     = errors.New("at most 100 items are allowed per task")
+	ErrOptionsRequired  = errors.New("exactly one of options, outputs, or workflow_id is required")
+	ErrTargetNotAllowed = errors.New("target is only allowed alongside top-level options")
+	ErrRetrySingleJob   = errors.New("changing options or target requires specifying a single job")
+	ErrWorkflowNotFound = errors.New("workflow not found")
+	// ErrItemSource: an item gives neither or both of file_id and url.
+	ErrItemSource = errors.New("each item needs exactly one of file_id or url")
+	// ErrInvalidURL: an item's url is not an absolute http(s) URL the worker
+	// could fetch. Whether the address is allowed is decided by the worker.
+	ErrInvalidURL          = errors.New("url must be an absolute http or https URL without user info, at most 2048 bytes")
 	ErrFileNotFound        = errors.New("file not found or not uploaded")
 	ErrIdempotencyConflict = errors.New("idempotency key conflict: request payload mismatch")
 	ErrIdempotencyKey      = errors.New("idempotency key is too long (max 255 bytes)")
@@ -66,8 +76,85 @@ type CreateTaskInput struct {
 	IdempotencyKey string
 }
 
+// TaskItemInput is one source: an uploaded file, or a URL the worker fetches
+// before processing. Exactly one of FileID and URL is set.
 type TaskItemInput struct {
 	FileID uuid.UUID `json:"file_id"`
+	URL    string    `json:"url,omitempty"`
+}
+
+// MaxURLLen is the longest accepted source URL, in bytes. Presigned URLs
+// carry long signatures, so this is generous.
+const MaxURLLen = 2048
+
+// ValidateSourceURL checks the form of a source URL only. Nothing is fetched
+// or resolved here: the worker decides whether the address may be reached.
+func ValidateSourceURL(raw string) error {
+	if raw == "" || len(raw) > MaxURLLen || strings.TrimSpace(raw) != raw {
+		return ErrInvalidURL
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Opaque != "" || u.User != nil || u.Hostname() == "" {
+		return ErrInvalidURL
+	}
+	if scheme := strings.ToLower(u.Scheme); scheme != "http" && scheme != "https" {
+		return ErrInvalidURL
+	}
+	return nil
+}
+
+func validateItems(items []TaskItemInput) error {
+	for _, item := range items {
+		hasFile, hasURL := item.FileID != uuid.Nil, item.URL != ""
+		if hasFile == hasURL {
+			return ErrItemSource
+		}
+		if hasURL {
+			if err := ValidateSourceURL(item.URL); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// urlFile is the FETCHING file for a URL item. Its name is the last segment
+// of the URL path, which names the outputs; its object is written by the
+// worker that fetches it.
+func urlFile(owner uuid.UUID, raw string) models.File {
+	id := util.NewUuidV7()
+	name := "image"
+	if u, err := url.Parse(raw); err == nil {
+		if base := sanitizeName(path.Base(u.Path)); base != "" && base != "." && base != ".." {
+			name = base
+		}
+	}
+	ext := strings.ToLower(path.Ext(name))
+	if !simpleExt.MatchString(ext) {
+		ext = ""
+	}
+	return models.File{
+		Base: models.Base{ID: id}, OwnerID: owner, Name: name, Status: models.FileFetching,
+		Path: fmt.Sprintf("uploads/%s/%s%s", owner, id, ext), SourceURL: raw,
+	}
+}
+
+var simpleExt = regexp.MustCompile(`^\.[a-z0-9]{1,5}$`)
+
+// sanitizeName drops control characters and path separators and caps the
+// name at 200 bytes without splitting a character.
+func sanitizeName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '/' || r == '\\' || r == utf8.RuneError {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(name))
+	for len(name) > 200 {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return name
 }
 
 type Service struct {
@@ -89,7 +176,11 @@ func NewService(db *gorm.DB, kv *redis.Client) *Service {
 func fingerprint(workflowID *uuid.UUID, outputs []compression.OutputSpec, items []TaskItemInput) (string, error) {
 	ids := make([]string, len(items))
 	for i, item := range items {
-		ids[i] = item.FileID.String()
+		if item.URL != "" {
+			ids[i] = "url:" + item.URL
+		} else {
+			ids[i] = item.FileID.String()
+		}
 	}
 	slices.Sort(ids)
 	raw, err := json.Marshal(struct {
@@ -158,10 +249,8 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 	if len(input.Items) > maxItems {
 		return nil, false, ErrTooManyItems
 	}
-	for _, item := range input.Items {
-		if item.FileID == uuid.Nil {
-			return nil, false, ErrInvalidFileID
-		}
+	if err := validateItems(input.Items); err != nil {
+		return nil, false, err
 	}
 	key := strings.TrimSpace(input.IdempotencyKey)
 	if len(key) > MaxIdempotencyKeyLen {
@@ -215,6 +304,16 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 		now := time.Now()
 		for _, item := range input.Items {
 			fileID := files[item.FileID].ID
+			if item.URL != "" {
+				// Each URL item is its own file, fetched again even when
+				// another task names the same URL: outputs are reused by
+				// source file, so a URL source never matches an old one.
+				f := urlFile(input.OwnerID, item.URL)
+				if err := tx.Create(&f).Error; err != nil {
+					return fmt.Errorf("create url file: %w", err)
+				}
+				fileID = f.ID
+			}
 			for outIdx, out := range outputs {
 				job := models.Job{
 					OwnerID:      input.OwnerID,
@@ -255,11 +354,14 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 func lockSourceFiles(tx *gorm.DB, owner uuid.UUID, items []TaskItemInput) (map[uuid.UUID]models.File, error) {
 	ids := make([]uuid.UUID, 0, len(items))
 	for _, item := range items {
-		if !slices.Contains(ids, item.FileID) {
+		if item.URL == "" && !slices.Contains(ids, item.FileID) {
 			ids = append(ids, item.FileID)
 		}
 	}
 	slices.SortFunc(ids, func(a, b uuid.UUID) int { return cmp.Compare(a.String(), b.String()) })
+	if len(ids) == 0 {
+		return map[uuid.UUID]models.File{}, nil
+	}
 	var drafts []models.DraftFile
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("file_id IN ? AND owner_id = ?", ids, owner).Order("file_id").Find(&drafts).Error; err != nil {
@@ -406,10 +508,12 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 				}
 				continue
 			}
-			// The source must still be stored; the lock keeps the lifecycle
-			// sweep from expiring it before this job is PENDING.
+			// The source must still be stored, or still be a URL to fetch;
+			// the lock keeps the lifecycle sweep from expiring it before this
+			// job is PENDING.
 			if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-				First(&models.File{}, "id = ? AND status = ?", j.SourceFileID, models.FileUploaded).Error; err != nil {
+				First(&models.File{}, "id = ? AND status IN ?", j.SourceFileID,
+					[]string{models.FileUploaded, models.FileFetching}).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return ErrSourceUnavailable
 				}

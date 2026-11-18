@@ -93,12 +93,16 @@ type UserOauthAccount struct {
 }
 
 // File statuses. A file's object exists in storage only while it is
-// UPLOADING or UPLOADED. EXPIRED (retention ran out) and DELETED (the owner
+// UPLOADING, FETCHING or UPLOADED. FETCHING is a source given as a URL that
+// no worker has fetched yet: the first attempt of a job reading it fetches
+// SourceURL into Path, and the orchestrator marks it UPLOADED once the worker
+// reports the fetch. EXPIRED (retention ran out) and DELETED (the owner
 // deleted it) are set before the object is removed; PurgedAt records the
 // removal. DELETING and ABORTING are used by the draft and upload cleanup,
 // which remove the row together with the object.
 const (
 	FileUploading = "UPLOADING"
+	FileFetching  = "FETCHING"
 	FileUploaded  = "UPLOADED"
 	FileExpired   = "EXPIRED"
 	FileDeleted   = "DELETED"
@@ -119,10 +123,13 @@ type File struct {
 	UploadExpiresAt *time.Time `json:"upload_expires_at,omitempty"`
 	UploadedAt      *time.Time `gorm:"index:idx_files_owner_status_uploaded,priority:3" json:"uploaded_at,omitempty"`
 	Hash            string     `gorm:"type:varchar(64);index:idx_files_hash" json:"hash,omitempty"`
-	Width           int        `json:"width"`
-	Height          int        `json:"height"`
-	OwnerID         uuid.UUID  `gorm:"not null;index:idx_files_owner_status_uploaded,priority:1" json:"owner_id"`
-	Owner           User       `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
+	// SourceURL is where a source given as a URL is fetched from; empty for
+	// uploads and outputs. It is kept after the fetch as the file's origin.
+	SourceURL string    `gorm:"type:text" json:"source_url,omitempty"`
+	Width     int       `json:"width"`
+	Height    int       `json:"height"`
+	OwnerID   uuid.UUID `gorm:"not null;index:idx_files_owner_status_uploaded,priority:1" json:"owner_id"`
+	Owner     User      `gorm:"foreignKey:OwnerID" json:"owner,omitempty"`
 	// ExpiresAt is when retention runs out for an UPLOADED file. The
 	// lifecycle sweep sets it (uploaded_at + retention); NULL means not yet
 	// scheduled or kept forever.

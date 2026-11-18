@@ -45,8 +45,10 @@ func respondTaskError(c fiber.Ctx, err error, action string) error {
 	switch {
 	case errors.Is(err, task.ErrNoItemsProvided):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
-	case errors.Is(err, task.ErrInvalidFileID):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, err.Error(), response.ValidationDetail{Field: "items", Reason: "file_id is required"})
+	case errors.Is(err, task.ErrItemSource):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, err.Error(), response.ValidationDetail{Field: "items", Reason: "exactly one of file_id or url is required"})
+	case errors.Is(err, task.ErrInvalidURL):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "items", Reason: "invalid url"})
 	case errors.Is(err, task.ErrFileNotFound):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "items", Reason: "file not found or not uploaded"})
 	case errors.Is(err, task.ErrWorkflowNotFound):

@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrInvalidResult = errors.New("invalid execution result")
@@ -29,7 +30,10 @@ const (
 	LeaseDuration = 2 * time.Minute
 	// UnsentGrace is how old a never-sent attempt must be before recovery
 	// sends it, so it does not race the dispatcher's own send.
-	UnsentGrace   = 30 * time.Second
+	UnsentGrace = 30 * time.Second
+	// FetchWait is how long a job waits before it is claimed again while a
+	// sibling job is fetching their shared URL source.
+	FetchWait     = 2 * time.Second
 	dispatchBatch = 20
 
 	DefaultMaxProcessingPerOwner = 8
@@ -188,17 +192,36 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 			return nil
 		}
 		var source models.File
-		if err := tx.First(&source, "id = ? AND owner_id = ? AND status = ?", job.SourceFileID, job.OwnerID, "UPLOADED").Error; err != nil {
+		if err := tx.First(&source, "id = ? AND owner_id = ? AND status IN ?", job.SourceFileID, job.OwnerID,
+			[]string{models.FileUploaded, models.FileFetching}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return s.fail(tx, job, "source_unavailable", "source file is missing")
 			}
 			return err
 		}
+		sourceURL := ""
+		if source.Status == models.FileFetching {
+			if source.SourceURL == "" {
+				return s.fail(tx, job, "source_unavailable", "source file is missing")
+			}
+			// A URL source is fetched by one job at a time; the other jobs
+			// of the item wait and then read the stored object. Jobs become
+			// PROCESSING only here, under the owner's lock, so the count holds.
+			var fetching int64
+			if err := tx.Model(&models.Job{}).
+				Where("source_file_id = ? AND status = 'PROCESSING'", source.ID).Count(&fetching).Error; err != nil {
+				return err
+			}
+			if fetching > 0 {
+				return tx.Model(job).Update("next_run_at", now.Add(FetchWait)).Error
+			}
+			sourceURL = source.SourceURL
+		}
 		attemptID := util.NewUuidV7()
 		outputKey := OutputKey(job.OwnerID, job.ID, attemptID, string(job.Options.Format))
 		payload, err := json.Marshal(taskqueue.Dispatch{
 			V: taskqueue.Version, JobID: job.ID.String(), AttemptID: attemptID.String(),
-			Op: job.Operation, Options: job.Options, Target: job.Target, SourceKey: source.Path, OutputKey: outputKey,
+			Op: job.Operation, Options: job.Options, Target: job.Target, SourceKey: source.Path, SourceURL: sourceURL, OutputKey: outputKey,
 		})
 		if err != nil {
 			return err
@@ -258,6 +281,11 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		if err := tx.First(&attempt, "id = ? AND job_id = ?", attemptID, jobID).Error; err != nil {
 			return err
 		}
+		if r.Source != nil {
+			if err := s.recordFetched(tx, job, *r.Source, now); err != nil {
+				return err
+			}
+		}
 		switch r.Status {
 		case taskqueue.ResultRunning:
 			updates := map[string]any{"status": models.AttemptRunning}
@@ -305,6 +333,36 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			return ErrInvalidResult
 		}
 	})
+}
+
+// recordFetched marks a FETCHING source UPLOADED once the worker reports it
+// fetched and stored the URL, whatever happens to the job afterwards, so a
+// retry reads the stored object instead of fetching again. Lock order: job
+// (held by the caller), then file.
+func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, src taskqueue.FetchedSource, now time.Time) error {
+	var file models.File
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&file, "id = ? AND owner_id = ?", job.SourceFileID, job.OwnerID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if file.Status != models.FileFetching {
+		// Reported already (by an earlier message of this attempt), or the
+		// file was deleted meanwhile.
+		return nil
+	}
+	if src.Key != file.Path || src.Size <= 0 || src.Mime == "" || len(src.Mime) > 127 {
+		return fmt.Errorf("%w: fetched source invalid or outside the file", ErrInvalidResult)
+	}
+	if err := tx.Model(&file).Updates(map[string]any{
+		"status": models.FileUploaded, "size": src.Size, "mime_type": src.Mime, "uploaded_at": now,
+	}).Error; err != nil {
+		return err
+	}
+	_, err := lifecycle.Schedule(tx, s.retention, file.ID)
+	return err
 }
 
 func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt, r taskqueue.Result, now time.Time) error {

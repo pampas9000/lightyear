@@ -165,8 +165,10 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
 	case errors.Is(err, task.ErrWorkflowNotFound):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "workflow not found.", response.ValidationDetail{Field: "workflow_id", Reason: "not found"})
-	case errors.Is(err, task.ErrInvalidFileID):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "file_id is required and must not be nil.", response.ValidationDetail{Field: "items", Reason: "file_id is required"})
+	case errors.Is(err, task.ErrItemSource):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "Each item needs exactly one of file_id or url.", response.ValidationDetail{Field: "items", Reason: "exactly one of file_id or url is required"})
+	case errors.Is(err, task.ErrInvalidURL):
+		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "url must be an absolute http or https URL without user info, at most 2048 bytes.", response.ValidationDetail{Field: "items", Reason: "invalid url"})
 	case errors.Is(err, task.ErrFileNotFound):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "input file not found or not uploaded.", response.ValidationDetail{Field: "items", Reason: "input file not found or not uploaded"})
 	case errors.Is(err, task.ErrIdempotencyConflict):

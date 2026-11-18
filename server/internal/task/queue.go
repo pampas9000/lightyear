@@ -35,7 +35,10 @@ type Dispatch struct {
 	Options   imageoptions.Options `json:"options"`
 	Target    *compression.Target  `json:"target,omitempty"`
 	SourceKey string               `json:"source_key"`
-	OutputKey string               `json:"output_key"`
+	// SourceURL, when set, is fetched by the worker and written to SourceKey
+	// before processing: the source file is FETCHING.
+	SourceURL string `json:"source_url,omitempty"`
+	OutputKey string `json:"output_key"`
 }
 
 type ResultStatus string
@@ -52,6 +55,14 @@ type Artifact struct {
 	Mime   string `json:"mime"`
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
+}
+
+// FetchedSource reports a source the worker fetched from Dispatch.SourceURL
+// and stored at Key (the dispatch's source_key).
+type FetchedSource struct {
+	Key  string `json:"key"`
+	Size int64  `json:"size"`
+	Mime string `json:"mime"`
 }
 
 type ResultError struct {
@@ -72,7 +83,10 @@ type Result struct {
 	Achieved        *compression.Achieved `json:"achieved,omitempty"`
 	EncodeRounds    *int                  `json:"encode_rounds,omitempty"`
 	ComputeMS       *int64                `json:"compute_ms,omitempty"`
-	Error           *ResultError          `json:"error,omitempty"`
+	// Source is set once a dispatched source_url has been fetched and stored:
+	// on a RUNNING message sent right after the fetch and on the outcome.
+	Source *FetchedSource `json:"source,omitempty"`
+	Error  *ResultError   `json:"error,omitempty"`
 }
 
 // Queue is what the orchestrator needs from Redis.

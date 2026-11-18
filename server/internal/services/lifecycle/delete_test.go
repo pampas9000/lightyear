@@ -135,3 +135,30 @@ func TestDeleteFile(t *testing.T) {
 		t.Fatalf("delete upload: %v %s", err, f.Status)
 	}
 }
+
+func TestDeleteURLSource(t *testing.T) {
+	e := setup(t)
+	tk, err := e.tasks.CreateTask(t.Context(), task.CreateTaskInput{OwnerID: e.owner,
+		Items: []task.TaskItemInput{{URL: "https://example.com/a.png"}}, Options: []byte(`{"format":"webp"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := *tk.Jobs[0].SourceFile
+	if src.Status != models.FileFetching {
+		t.Fatalf("setup: source is %s", src.Status)
+	}
+	if _, err := e.svc.DeleteFile(t.Context(), e.owner, src.ID); !errors.Is(err, ErrFileInUse) {
+		t.Fatalf("delete while its job is pending: %v", err)
+	}
+	if _, err := e.tasks.CancelTask(t.Context(), e.owner, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A worker may have stored the object without reporting it, so the
+	// object is removed as for an uploaded file.
+	if f, err := e.svc.DeleteFile(t.Context(), e.owner, src.ID); err != nil || f.Status != models.FileDeleted {
+		t.Fatalf("delete after cancel: %v", err)
+	}
+	if got, _ := e.file(src.ID); got.PurgedAt == nil || !e.store.has(src.Path) {
+		t.Fatal("object of the URL source not removed")
+	}
+}

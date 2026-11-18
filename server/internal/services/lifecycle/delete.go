@@ -154,7 +154,9 @@ func (s *Service) DeleteFile(ctx context.Context, owner, fileID uuid.UUID) (*mod
 			return err
 		}
 		switch file.Status {
-		case models.FileUploaded:
+		// A FETCHING file may already have an object: a worker can write it
+		// and stop before the fetch is reported.
+		case models.FileUploaded, models.FileFetching:
 			busy, err := inUse(tx, file.ID)
 			if err != nil {
 				return err

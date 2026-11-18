@@ -46,6 +46,10 @@ pub struct Dispatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<Target>,
     pub source_key: String,
+    /// When set, the worker fetches this URL and writes it to `source_key`
+    /// before processing (the source file is still being fetched).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
     pub output_key: String,
 }
 
@@ -64,6 +68,15 @@ pub struct Artifact {
     pub mime: String,
     pub width: u32,
     pub height: u32,
+}
+
+/// A `source_url` the worker fetched and stored at `key` (the dispatch's
+/// `source_key`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FetchedSource {
+    pub key: String,
+    pub size: u64,
+    pub mime: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,6 +106,10 @@ pub struct JobResult {
     pub encode_rounds: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compute_ms: Option<u64>,
+    /// Set once a dispatched `source_url` has been fetched and stored: on a
+    /// RUNNING message sent right after the fetch and on the outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FetchedSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<ResultError>,
 }
@@ -111,6 +128,7 @@ impl JobResult {
             achieved: None,
             encode_rounds: None,
             compute_ms: None,
+            source: None,
             error: None,
         }
     }
@@ -124,11 +142,13 @@ mod tests {
     const DISPATCH: &str = include_str!("../../../../docs/contracts/fixtures/dispatch-v2.json");
     const DISPATCH_TARGET: &str =
         include_str!("../../../../docs/contracts/fixtures/dispatch-target-v2.json");
+    const DISPATCH_URL: &str =
+        include_str!("../../../../docs/contracts/fixtures/dispatch-url-v2.json");
     const RESULTS: &str = include_str!("../../../../docs/contracts/fixtures/results-v2.json");
 
     #[test]
     fn dispatch_fixture_round_trips() {
-        for raw in [DISPATCH, DISPATCH_TARGET] {
+        for raw in [DISPATCH, DISPATCH_TARGET, DISPATCH_URL] {
             let dispatch: Dispatch = serde_json::from_str(raw).unwrap();
             assert_eq!(dispatch.v, VERSION);
             assert_eq!(dispatch.op, "image.convert");
