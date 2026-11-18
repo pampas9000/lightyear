@@ -75,11 +75,11 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 ### 创建
 
-单输出或兼容预设时可使用 `options`（可选附带 `target`）或 `workflow_id`；需要一次提交生成多份输出或为输出命名时使用 `outputs`：
+单输出或兼容预设时可使用 `options`（可选附带 `target`）或 `workflow_id`；需要一次提交生成多份输出或为输出命名时使用 `outputs`。`items` 的每一项给已上传的文件 `file_id`，或给一个源图 `url`（见 [URL 源](#url-源)）：
 
 ```json
 {
-  "items": [{ "file_id": "0198…" }],
+  "items": [{ "file_id": "0198…" }, { "url": "https://images.example.com/cat.jpg" }],
   "outputs": [
     { "name": "preview", "options": { "format": "avif", "resize": { "width": 800 } }, "target": { "max_bytes": 102400 } },
     { "name": "fallback", "options": { "format": "webp", "quality": 80 } }
@@ -90,15 +90,28 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 - `outputs`、`options`（可配可选 `target`）、`workflow_id` **三选一**（给出 `target` 时必须同时给出 `options`，不可与 `outputs` 或 `workflow_id` 混用）。
 - `outputs` 为 1–10 项数组，每项含必填 `options`、可选 `name`（正则 `[A-Za-z0-9_-]{1,64}`，同任务内不可重复，且不可与未命名项自动分配的 `1..N` 序号碰撞）以及可选 `target`（第 1 期 `{ "max_bytes": <正整数> }`）。
-- 每条 `(item, output)` 生成一个 job；`items` 最多 100 个，总 job 数 `len(items) * len(outputs)` 最多 200。文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
+- 每条 `(item, output)` 生成一个 job；`items` 最多 100 个，总 job 数 `len(items) * len(outputs)` 最多 200。每个 item 必须**恰好**给出 `file_id` 与 `url` 之一。`file_id` 指向的文件必须属于当前用户且为 `UPLOADED`，提交后对应草稿被删除。
 - `format: "png"` 不支持 `target`。对非 PNG 格式：当 `target` 非空且省略 `quality`/`distance` 且 `lossless: false` 时，worker 在该格式内部二分搜索参数并输出 `resolved_options`（产物复用键前缀 `compression-target/v1`）；若显式指定了 `quality`/`distance` 或 `lossless: true`，则仅做确定性单次编码并检查 `target_met`（产物复用键沿用 `image-options/v2`）。
 - 产物文件名：单输出为 `<stem>.<ext>`，多输出为 `<stem>.<name|index+1>.<ext>`（`jpeg` 使用 `jpg`）。
 - 已有相同产物（同一用户、同一源文件、同一规范化参数，搜索任务还含 `target`）的 job 直接完成，并按新 job 的 `target` 重算 `target_met` 与 `achieved`。只复用状态为 `UPLOADED` 且剩余保留期不少于其总保留期一半的产物（见[存储保留期](#存储保留期)），否则重新生成。
-- `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、规范化输出集合、文件集合）不同则 `409`。
+- `idempotency_key`：同一用户同一 key 的重复请求返回第一次创建的任务；请求内容（`workflow_id`、规范化输出集合、文件与 URL 集合）不同则 `409`。
+
+#### URL 源
+
+`{ "url": "…" }` 让 worker 从这个地址下载源图，不必先上传：
+
+- 创建时只检查格式：绝对的 `http`/`https` URL，有主机名，不带用户名密码，首尾无空白，最多 2048 字节。不发起网络请求，所以地址不可达要到执行时才知道。
+- 每个 URL item 新建一个状态为 `FETCHING` 的源文件，`source_url` 记录原地址；`name` 取 URL 路径的最后一段（没有则为 `image`）。同一个 URL 出现两次就是两个源文件。
+- worker 第一次执行时下载并存入存储，之后文件变为 `UPLOADED`，填入 `size` 与 `mime_type`，按普通上传文件计算保留期；之后的重试直接读存好的文件，不再下载。下载失败时文件保持 `FETCHING`，重试会重新下载。
+- 只允许公网地址：指向内网、本机、保留地址（含经重定向到达的）会以 `url_rejected` 失败，不可重试；超时、连接失败、远端 5xx 以 `fetch_failed` 失败并自动重试，远端 4xx 不重试。重定向最多 3 跳；文件大小上限与上传相同。完整规则见[队列契约 §URL 源](/contracts/queue#url-源)。
+- 不发送 Cookie、凭据或 `Referer`。私有存储桶的图请传预签名 URL；URL 在任务执行前过期会导致 `fetch_failed`（403，不重试）。
+- URL 源不复用已有产物：同一个 URL、同样的参数再提交一次，会重新下载并处理。
+- URL 源不是上传：对它调用 `complete` 返回 `404`。
 
 | 情况 | 响应 |
 | :--- | :--- |
-| `items` 为空 | `400 error.param.required` |
+| `items` 为空；某个 item 没有或同时给出 `file_id` 与 `url` | `400 error.param.required` |
+| `url` 不是合法的 `http`/`https` URL（见 [URL 源](#url-源)） | `400 error.param.invalid` |
 | 超过 100 个 item、超过 10 个 output、或总 job 数超过 200 | `400 error.param.invalid` |
 | `outputs` / `options` / `workflow_id` 缺失或冲突；`name` 非法/重名/序号碰撞；`options` 或 `target` 非法（含 `png` 带 `target`）；`idempotency_key` 过长 | `400 error.param.invalid` |
 | 文件不存在或未上传完成 | `400 error.param.invalid` |
@@ -160,8 +173,8 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 | 文件状态 | 结果 |
 | :--- | :--- |
-| `UPLOADED`，没有未结束的 job 读取它 | `200`，状态变为 `DELETED`，存储对象随后删除；草稿一并删除 |
-| `UPLOADED`，是未结束 job 的源文件 | `409 error.file.conflict` |
+| `UPLOADED` 或 `FETCHING`，没有未结束的 job 读取它 | `200`，状态变为 `DELETED`，存储对象（如已下载）随后删除；草稿一并删除 |
+| `UPLOADED` 或 `FETCHING`，是未结束 job 的源文件 | `409 error.file.conflict` |
 | `UPLOADING`、`ABORTED`、`FAILED` | `200`，状态变为 `ABORTING`，由上传清理回收 |
 | `EXPIRED`、`DELETED` 等已在删除中的状态 | `200`，原样返回（幂等） |
 | 不存在或不属于当前用户（含已彻底删除的文件） | `404 error.file.not_found` |
@@ -316,7 +329,11 @@ Content-Type: application/json
 { "items": [{ "file_id": "0198…" }], "options": { "format": "avif" }, "target": { "max_bytes": 102400 } }
 ```
 
-请求体与 [`POST /api/tasks`](#创建) 相同（`items`；`options`(+`target`)、`outputs`、`workflow_id` 三选一；限额与校验规则一致），只是**没有** `idempotency_key` 字段。
+请求体与 [`POST /api/tasks`](#创建) 相同（`items` 的每项为 `file_id` 或 [`url`](#url-源)；`options`(+`target`)、`outputs`、`workflow_id` 三选一；限额与校验规则一致），只是**没有** `idempotency_key` 字段。
+
+```json
+{ "items": [{ "url": "https://images.example.com/cat.jpg" }], "options": { "format": "webp" } }
+```
 
 ```http
 HTTP/1.1 202 Accepted
@@ -372,7 +389,7 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 ```
 
 - `options`、`target`、`resolved_options`、`target_met`、`achieved`、`compression`、`error_code`、`error_message` 的含义与 [`/api` 的 Job 字段](#job-字段)相同；完成的 job 总有 `resolved_options`。
-- 与 `/api` 的区别：不返回 `owner_id`、`operation`、`artifact_key`、`next_run_at`、租约与当前 attempt 等内部字段；`source_file`/`output_file` 只含上面列出的字段。
+- 与 `/api` 的区别：不返回 `owner_id`、`operation`、`artifact_key`、`next_run_at`、租约与当前 attempt 等内部字段；`source_file`/`output_file` 只含上面列出的字段。URL 源的 `source_file` 另带 `source_url`，下载前 `status` 为 `FETCHING`、`size` 为 `0`。
 - **下载链接**：`GET /v1/tasks/:id` 中，状态为 `COMPLETED` 且产物已上传的 job，其 `output_file` 带 `download_url` 与 `download_expires_at`（签名时刻 + 1 小时）。链接是存储的预签名 GET，签入了以产物文件名为附件名的 `response-content-disposition`。过期后重新 `GET` 任务即可拿到新链接。创建、取消、重试与列表的响应不带下载链接。
 - **保留期**：`source_file`、`output_file` 带 `expires_at`，即存储清理删除该文件的时间；保留期为 `0` 时省略。产物过期或被删除后，job 仍是 `COMPLETED`，`output_file.status` 为 `EXPIRED` 或 `DELETED`，不带 `download_url`。规则见[存储保留期](#存储保留期)。
 

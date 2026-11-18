@@ -105,6 +105,16 @@ TEST_DATABASE_URL='postgres://postgres@127.0.0.1:5432/lightyear_test?sslmode=dis
 
 API 与 orchestrator 从 `server/.env`（没有则用根目录 `.env`）和环境变量读取配置；worker 读取当前目录的 `.env` 与环境变量，另有 `WORKER_MAX_SOURCE_BYTES`（默认 200 MB）、`WORKER_MAX_PIXELS`（默认 1 亿）与 `WORKER_AVIF_ENCODER`（`libavif` 或 `libvips`，默认 `libavif`）。完整列表见 `.env.example`。
 
+URL 源由 worker 抓取，相关配置：
+
+| 变量 | 默认 | 说明 |
+| :--- | :--- | :--- |
+| `WORKER_FETCH_ALLOW_CIDRS` | 空 | 逗号分隔的网段，额外允许抓取的地址（默认只允许公网地址）；非空时 worker 启动打 warning。`task dev` 默认设为 `127.0.0.0/8`，方便抓取本机起的测试服务；它只影响 URL 抓取，不影响 worker 访问 `S3_ENDPOINT` |
+| `WORKER_FETCH_CONNECT_TIMEOUT_SECS` | `10` | 抓取的连接超时 |
+| `WORKER_FETCH_READ_TIMEOUT_SECS` | `30` | 抓取时两次读到数据之间的最长间隔 |
+
+抓取的大小上限沿用 `WORKER_MAX_SOURCE_BYTES`。
+
 ## 下一步
 
 - [架构总览](/architecture/overview) · [请求链路](/architecture/request-flows) · [可靠性设计](/architecture/reliability)

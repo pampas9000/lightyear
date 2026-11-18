@@ -140,6 +140,26 @@ Retry-After: 2
 
 限制：每个任务最多 100 个源文件、10 个输出、共 200 个 job；文件必须属于你、且已经 `UPLOADED`。同一源文件、同一参数以前处理过时，job 会直接以 `COMPLETED` 返回，不再重复处理。
 
+### 直接用 URL 作为源
+
+图已经在网上时，可以跳过第 1 步，在 `items` 里给 `url`，由 worker 去下载：
+
+```bash
+curl -sS -i -X POST "$LIGHTYEAR_API/v1/tasks" \
+  -H "Authorization: Bearer $LIGHTYEAR_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "items": [{ "url": "https://images.example.com/photos/cat.jpg" }],
+        "options": { "format": "webp" }
+      }'
+```
+
+- 每个 item 只能给 `file_id` 与 `url` 之一，两种可以混在同一个任务里。
+- 提交时只检查 URL 格式，下载发生在执行时；下载前 job 的 `source_file.status` 是 `FETCHING`。
+- 只能下载公网上的 `http`/`https` 地址，内网与本机地址会以 `url_rejected` 失败；远端超时或 5xx 是 `fetch_failed`，会自动重试，远端 4xx 不会。
+- 不会带任何 Cookie 或凭据。**私有存储桶的图请传预签名 URL**（如 S3/R2 的 presigned GET），并让它的有效期覆盖任务排队与执行的时间；过期的链接会以 `fetch_failed`（403）失败。
+- 同一个 URL 每次提交都会重新下载和处理，不复用以前的结果。
+
 ### 用 `Idempotency-Key` 安全重试
 
 网络超时后，你无法确定任务是否已经创建。带上 `Idempotency-Key` 后可以放心重发同一个请求：

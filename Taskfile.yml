@@ -261,6 +261,10 @@ tasks:
   worker:run:
     internal: true
     prefix: "worker"
+    env:
+      # Local dev serves URL sources from 127.0.0.1. Only URL fetches are
+      # affected; the worker's own S3_ENDPOINT access is not filtered.
+      WORKER_FETCH_ALLOW_CIDRS: '{{.WORKER_FETCH_ALLOW_CIDRS | default "127.0.0.0/8"}}'
     cmds:
       - echo "==> Starting Rust compute-worker consumer..."
       - cargo run -p compute-worker

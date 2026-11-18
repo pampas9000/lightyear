@@ -19,7 +19,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | API | `server/cmd/api` | HTTP API（`/api` 供控制台、会话认证；`/v1` 对外、API Key 认证）、上传与下载签名、任务与预设持久化 |
 | Orchestrator | `server/cmd/worker` | 从数据库领取到期任务并派发、处理 worker 结果、租约恢复 |
 | 迁移 | `server/cmd/migrate` | 建表；`-reset` 删除全部应用表后重建（仅开发） |
-| image worker | `compute/worker` | 从 `q:image` 收派发、下载源图、调用 `compute-imageops`、上传产物、回报结果；**不连数据库** |
+| image worker | `compute/worker` | 从 `q:image` 收派发、下载源图（URL 源先从外部地址抓取并存入存储）、调用 `compute-imageops`、上传产物、回报结果；**不连数据库** |
 | compute-imageops | `compute/crates/imageops` | `ImageOptions` → libvips 的映射与输入防护，见[处理核心](/compute/imageops) |
 | compute-types | `compute/crates/types` | `ImageOptions` 唯一定义、队列协议 |
 | Web | `web` | Nuxt 4 控制台；业务请求经 Nitro 代理到 API；沙盒在 Web Worker 中运行 wasm-vips |
@@ -37,7 +37,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | 表 | 说明 |
 | :--- | :--- |
 | `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定；可空的 `source_retention_days`/`output_retention_days` 按用户覆盖存储保留期（预留，暂无界面） |
-| `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256）。状态：上传中 `UPLOADING`、可用 `UPLOADED`、保留期到期 `EXPIRED`、被用户删除 `DELETED`，以及上传与草稿清理用的 `ABORTING`/`ABORTED`/`FAILED`/`DELETING`。`expires_at` 是保留期到期时间，`purged_at` 是存储对象删除完成的时间 |
+| `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256）。状态：上传中 `UPLOADING`、URL 源等待 worker 抓取 `FETCHING`、可用 `UPLOADED`、保留期到期 `EXPIRED`、被用户删除 `DELETED`，以及上传与草稿清理用的 `ABORTING`/`ABORTED`/`FAILED`/`DELETING`。`expires_at` 是保留期到期时间，`purged_at` 是存储对象删除完成的时间；URL 源的 `source_url` 记录原地址，抓取后保留 |
 | `draft_files` | 已上传但尚未提交任务的文件 |
 | `workflows` | 命名的多输出预设（`outputs` 数组，每项含 `ImageOptions` 与可选压缩 `target`） |
 | `tasks` | 一次提交；含 `idempotency_key` 与请求指纹，状态由 jobs 聚合 |
@@ -45,7 +45,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | `api_keys` | `/v1` 的 API Key：所属用户 `owner_id`、`name`、用于辨认的 `prefix`、`key_hash`（明文的 SHA-256，唯一索引；明文只在创建时返回一次）、`scopes`（`text[]`：`tasks:read`/`tasks:write`）、`last_used_at`、`revoked_at`（吊销为软删除） |
 | `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`、可选 `encode_rounds`/`compute_ms`。先写 attempt 再发消息，因此它同时充当 outbox |
 
-产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。源文件路径为 `uploads/<owner>/<uuid>.<ext>`。
+产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。源文件路径为 `uploads/<owner>/<uuid>.<ext>`；URL 源在创建任务时就建好 `FETCHING` 的记录和路径，worker 抓取后写入该路径并回报，orchestrator 再把它改为 `UPLOADED`。
 
 `EXPIRED`/`DELETED` 的文件仍有 job 指向时保留记录，job 照常显示为完成，只是产物不可下载；没有 job 指向时，存储对象删除后记录也删除。
 
@@ -99,7 +99,7 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 ## 扩展点（尚未实现）
 
 - **新操作**（AI 放大、生图、编辑）：在 `operation` 加一个值、在 orchestrator 里映射到新的队列（如 `q:gpu`）、部署对应的 worker 池；表结构不变。多输入的操作出现时再给 `jobs` 加输入列。
-- **webhook、URL 源、限流与 MCP**：对外的 `/v1` 已提供 API Key 认证、异步提交（`202` + `Location`）、ETag 轮询、`Idempotency-Key` 与结果下载链接（见 [HTTP API §对外 API](/contracts/http-api#对外-api-v1)）；其余计划见[路线图第 9 步](/roadmap#第-9-步-对外-api-与-mcp-只做异步)。
+- **webhook、限流与 MCP**：对外的 `/v1` 已提供 API Key 认证、异步提交（`202` + `Location`）、ETag 轮询、`Idempotency-Key`、URL 源与结果下载链接（见 [HTTP API §对外 API](/contracts/http-api#对外-api-v1)）；其余计划见[路线图第 9 步](/roadmap#第-9-步-对外-api-与-mcp-只做异步)。
 
 ## 相关文档
 

@@ -51,7 +51,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 
 ## 重试
 
-- worker 的错误带 `retryable`。目前只有 `storage_failed`（对象存储读写失败）和租约超时可重试；参数非法、输入不支持、处理失败都直接失败。
+- worker 的错误带 `retryable`。目前可重试的有 `storage_failed`（对象存储读写失败）、URL 源下载时的临时错误（`fetch_failed` 中的超时、连接失败、5xx、408、429）和租约超时；参数非法、输入不支持、处理失败、URL 被拒绝（`url_rejected`）都直接失败。URL 源抓取成功后即回报并记入数据库，之后的重试读存好的源文件，不再抓取。
 - 每个 job 最多 3 次 attempt（`max_attempts`）。重试时 job 回到 `PENDING`，`next_run_at` 按 5 秒起、每次翻倍、上限 5 分钟的间隔推迟。
 - 用户可在任务页对失败或取消的 job 手动重试，并可换一份参数。
 
