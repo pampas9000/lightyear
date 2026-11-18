@@ -157,7 +157,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 9.2 | API Key + scopes（只存哈希）：`api_keys` 表存 SHA-256 与前缀，明文只在创建时返回一次；`tasks:read` / `tasks:write`；`/api/api-keys` 管理接口与设置页 | ✅ |
 | 9.3 | `Idempotency-Key` 请求头：复用按 owner 的幂等键与指纹，重放返回 202 + `Idempotent-Replayed: true`，内容不同返回 409 | ✅ |
 | 9.4 | webhook：HMAC 签名、指数退避、`webhook_deliveries` | ⬜ |
-| 9.5 | URL 作为源：由 worker 拉取并防 SSRF（含重定向与 DNS rebinding）。MCP 以它为主要输入方式，见 9.8 | ⬜ |
+| 9.5 | URL 作为源：worker 拉取后存成普通 `File`，之后的重试、保留期、压缩统计沿用现有逻辑。只允许 `http` / `https`；在 HTTP 客户端的 resolver 里按白名单检查 IP（默认只放行全局可路由的公网单播地址，另放行部署配置 `WORKER_FETCH_ALLOW_CIDRS` 里的网段，默认为空，非空时启动打 warning），连接只用检查过的地址，所以 DNS rebinding 无效；重定向最多 3 跳，每跳同样检查；沿用大小上限与取消检查，加连接与读取超时。错误码先分"地址被拒绝"（不可重试）与"下载失败"（可重试）。私有桶的图用预签名 URL，不做专门支持。暂不做：按内容哈希复用 URL 源产物、域名白名单、存储连接器与私有网络接入（有需求再加）。MCP 以它为主要输入方式，见 9.8 | ⬜ |
 | 9.6 | 预签名下载 URL：已完成作业的输出带 `download_url` 与 `download_expires_at`（1 小时），ETag 按 30 分钟时间段变化 | ✅ |
 | 9.7 | 令牌桶限流、attempt 用量、`usage_daily`。计量口径待定：按输出次数、像素数还是 `compute_ms`（`Attempt` 已记 `encode_rounds` 与 `compute_ms`）；复用已有产物的 job 是否计量 | ⬜ |
 | 9.8 | MCP：远程 Streamable HTTP，认证按 MCP 规范走 OAuth 2.1。工具为 `create_upload`（返回预签名 PUT URL，二进制不经工具参数传递）/ `submit_task`（支持 URL 源、`outputs`、`target`）/ `get_task(wait_seconds)`（返回下载链接与 `compression`，不返回图片内容）。依赖 9.5 | ⬜ |
