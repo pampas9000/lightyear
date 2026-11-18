@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"transcoder/server/internal/api/handlers"
+	"transcoder/server/internal/api/mcpserver"
 	"transcoder/server/internal/api/middleware"
 	v1 "transcoder/server/internal/api/v1"
 	"transcoder/server/internal/config"
@@ -39,6 +41,7 @@ type Router struct {
 	session  *session.Store
 	keys     *apikey.Service
 	v1       *v1.Handler
+	mcp      *mcpserver.Server
 }
 
 // NewRouter wires feature handlers with the dependencies they need.
@@ -64,6 +67,13 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		return s3Storage.GetPresignedURL(ctx, cfg.S3.Bucket, path, filename, false, ttl)
 	}
 
+	// The MCP server is static configuration (tools and embedded schemas);
+	// failing to build it is a programming error.
+	mcp, err := mcpserver.New(tasks, uploads, keys, sign, limiter)
+	if err != nil {
+		panic(fmt.Sprintf("build MCP server: %v", err))
+	}
+
 	return &Router{
 		job:      handlers.NewHandler(db),
 		workflow: handlers.NewWorkflowHandler(db),
@@ -77,6 +87,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		session:  store,
 		keys:     keys,
 		v1:       v1.New(tasks, uploads, files, sign).WithUsage(quotas, limiter),
+		mcp:      mcp,
 	}
 }
 
@@ -110,4 +121,7 @@ func (r *Router) Install(app fiber.Router) {
 
 	// Public API: its own routes and representations, API key auth only.
 	r.v1.Install(app, r.keys)
+
+	// MCP for agents: same API keys, services and limits as /v1.
+	r.mcp.Install(app)
 }

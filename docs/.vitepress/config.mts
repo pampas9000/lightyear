@@ -44,6 +44,7 @@ export default defineConfig({
           { text: '总览与兼容规则', link: '/contracts/' },
           { text: 'ImageOptions', link: '/contracts/image-options' },
           { text: 'HTTP API', link: '/contracts/http-api' },
+          { text: 'MCP', link: '/contracts/mcp' },
           { text: '队列（Redis Streams）', link: '/contracts/queue' }
         ]
       },

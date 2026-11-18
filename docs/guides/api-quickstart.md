@@ -4,6 +4,8 @@
 
 API 只做异步处理：提交任务后立即返回，处理在后台进行，客户端轮询任务状态。目前没有 webhook 回调。
 
+给 Agent 用时，可以不写脚本，直接把 `/mcp` 配置成 MCP 服务器，见[通过 MCP 接入](#通过-mcp-接入)。
+
 ## 准备
 
 **API 地址。** `/v1` 由 API 服务直接提供，本地开发时是 `http://localhost:8080`。下文用环境变量 `LIGHTYEAR_API` 表示它。
@@ -341,3 +343,81 @@ curl -sS -X DELETE "$LIGHTYEAR_API/v1/files/$FILE_ID" \
 - `GET /v1/tasks?page=1&limit=20&status=FAILED`：按创建时间倒序列出任务，`limit` 最大 100，`status` 可选。列表不带下载链接。
 - `GET /v1/usage?month=2026-11`：某月（UTC）用掉的处理单位、未结束任务预占的单位、存储占用与配额，以及按天的明细；需要 `tasks:read`。普通转换算 1 个单位，按体积目标搜索按实际编码轮数算，复用已有产物与失败不算，见[契约 §用量与配额](/contracts/http-api#用量与配额)。
 - 完整的端点表见[契约 §端点](/contracts/http-api#端点)。
+
+## 通过 MCP 接入
+
+同一个 API 服务在 `/mcp` 提供远程 MCP 服务器（Streamable HTTP），用同样的 API Key 认证，提供三个工具。它调用的是与 `/v1` 相同的服务，scope、限流、配额与幂等规则都相同。逐字段的定义见 [MCP 契约](/contracts/mcp)。
+
+### 配置客户端
+
+MCP 端点不支持 OAuth，把 key 写进请求头。以 Claude Code 为例：
+
+```bash
+claude mcp add --transport http lightyear "$LIGHTYEAR_API/mcp" --header "Authorization: Bearer $LIGHTYEAR_API_KEY"
+```
+
+其他客户端的配置文件一般写成：
+
+```json
+{
+  "mcpServers": {
+    "lightyear": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": { "Authorization": "Bearer ly_…" }
+    }
+  }
+}
+```
+
+只查结果的 Agent 用 `tasks:read` 的 key 就够；要上传和提交，key 需要 `tasks:read` 与 `tasks:write` 两个权限。
+
+### 调用流程
+
+1. **取得源图。** 图片在公网上时，直接把 URL 交给 `submit_task`，跳过这一步。本地文件先调用 `create_upload`：
+
+   ```json
+   {"filename": "photo.jpg", "size": 557596, "content_type": "image/jpeg", "sha256": "…"}
+   ```
+
+   再由 Agent 用自己的 HTTP 工具把字节发到结果里的预签名地址，例如 `method` 为 `put` 时：
+
+   ```bash
+   curl -sS --fail -X PUT --upload-file photo.jpg "$URL"   # 结果里的 url，不带 Authorization 头
+   ```
+
+   图片内容不经过工具参数，所以 Agent 需要能执行 HTTP 请求（如 shell 里的 `curl`）。没有这个能力的 Agent 只能用 URL 源。`method` 为 `multipart` 时按 `part_size` 切片，依次 `PUT` 到 `part_urls`；为 `none` 时不用上传。上传后不需要通知完成。
+
+2. **提交任务。** `submit_task`：
+
+   ```json
+   {
+     "items": [{"file_id": "…"}, {"url": "https://example.com/cat.jpg"}],
+     "outputs": [
+       {"name": "small", "options": {"format": "avif"}, "target": {"max_bytes": 60000}},
+       {"name": "web", "options": {"format": "webp", "quality": 80, "resize": {"width": 1024}}}
+     ],
+     "idempotency_key": "photo-batch-1"
+   }
+   ```
+
+   上传还没完成就提交，会得到 `error.param.invalid`（`reason: "upload not finished"`），补传后再提交即可。带上 `idempotency_key` 后，调用超时、结果没拿到时可以原样重试，不会建出第二个任务。
+
+3. **等待并下载。** `get_task`，`wait_seconds` 最多 30：
+
+   ```json
+   {"task_id": "…", "wait_seconds": 30}
+   ```
+
+   任务一结束就返回，否则等满后返回当前状态，再调用一次即可。完成的 job 带 `output_file.download_url`（1 小时内有效）与 `compression`，用 HTTP 客户端下载。
+
+失败时工具返回 `isError: true`，内容是 `{"code", "message", "details"}`，`code` 与上文[错误处理](#错误处理)里 `/v1` 的相同；限流时 `details.retry_after` 给出建议等待的秒数。
+
+### 用 MCP Inspector 验证
+
+```bash
+npx @modelcontextprotocol/inspector --cli "$LIGHTYEAR_API/mcp" --transport http \
+  --header "Authorization: Bearer $LIGHTYEAR_API_KEY" --method tools/list
+```
+
+把 `--method tools/list` 换成 `--method tools/call --tool-name get_task --tool-arg task_id=… --tool-arg wait_seconds=30` 即可调用工具。

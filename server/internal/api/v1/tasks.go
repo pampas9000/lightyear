@@ -2,21 +2,15 @@ package v1
 
 import (
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
 
 	"transcoder/server/internal/api/response"
-	"transcoder/server/internal/compression"
-	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
-	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
-	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 type CreateTaskRequest struct {
@@ -41,53 +35,11 @@ type TaskList struct {
 	Limit int    `json:"limit"`
 }
 
-// respondTaskError maps task service errors to /v1 responses.
-func respondTaskError(c fiber.Ctx, err error, action string) error {
-	switch {
-	case errors.Is(err, task.ErrNoItemsProvided):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "items are required.", response.ValidationDetail{Field: "items", Reason: "empty"})
-	case errors.Is(err, task.ErrItemSource):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, err.Error(), response.ValidationDetail{Field: "items", Reason: "exactly one of file_id or url is required"})
-	case errors.Is(err, task.ErrInvalidURL):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "items", Reason: "invalid url"})
-	case errors.Is(err, task.ErrFileNotFound):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "items", Reason: "file not found or not uploaded"})
-	case errors.Is(err, task.ErrWorkflowNotFound):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "workflow_id", Reason: "not found"})
-	case errors.Is(err, task.ErrIdempotencyKey):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: HeaderIdempotencyKey, Reason: "too long"})
-	case errors.Is(err, imageoptions.ErrInvalid),
-		errors.Is(err, compression.ErrInvalidTarget),
-		errors.Is(err, compression.ErrInvalidOutputs),
-		errors.Is(err, compression.ErrTooManyOutputs),
-		errors.Is(err, compression.ErrTooManyJobs),
-		errors.Is(err, task.ErrOptionsRequired),
-		errors.Is(err, task.ErrTargetNotAllowed),
-		errors.Is(err, task.ErrTooManyItems),
-		errors.Is(err, task.ErrRetrySingleJob),
-		errors.Is(err, task.ErrInvalidJobID),
-		errors.Is(err, task.ErrNoJobsToRetry):
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
-	case errors.Is(err, usage.ErrQuotaExceeded):
-		return response.RespondQuotaExceeded(c, err)
-	case errors.Is(err, task.ErrIdempotencyConflict):
-		return response.RespondError(c, fiber.StatusConflict, response.CodeIdempotencyConflict,
-			"Idempotency-Key was already used with a different request.")
-	case errors.Is(err, task.ErrJobNotRetryable), errors.Is(err, lifecycle.ErrTaskActive):
-		return response.RespondError(c, fiber.StatusConflict, response.CodeTaskConflict, err.Error())
-	case errors.Is(err, task.ErrSourceUnavailable):
-		return response.RespondError(c, fiber.StatusConflict, response.CodeFileGone, err.Error())
-	case errors.Is(err, task.ErrTaskNotFound), errors.Is(err, lifecycle.ErrTaskNotFound), errors.Is(err, gorm.ErrRecordNotFound):
-		return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
-	}
-	return internalError(c, action, err)
-}
-
 // accepted answers a request that queued work with 202, the task and where to poll.
 func (h *Handler) accepted(c fiber.Ctx, t *models.Task, message string) error {
 	c.Location("/v1/tasks/" + t.ID.String())
 	setRetryAfter(c)
-	return response.RespondSuccess(c, fiber.StatusAccepted, response.CodeOK, message, newTask(t))
+	return response.RespondSuccess(c, fiber.StatusAccepted, response.CodeOK, message, NewTask(t))
 }
 
 func (h *Handler) CreateTask(c fiber.Ctx) error {
@@ -123,7 +75,7 @@ func (h *Handler) GetTask(c fiber.Ctx) error {
 	if err != nil {
 		return respondTaskError(c, err, "fetch task")
 	}
-	out := newTask(t)
+	out := NewTask(t)
 	now := h.now()
 	etag, err := taskETag(&out, now, etagWindow)
 	if err != nil {
@@ -131,19 +83,19 @@ func (h *Handler) GetTask(c fiber.Ctx) error {
 	}
 	c.Set(fiber.HeaderETag, etag)
 	c.Set(fiber.HeaderCacheControl, "private, no-cache")
-	if !terminal(t.Status) {
+	if !Terminal(t.Status) {
 		setRetryAfter(c)
 	}
 	if inm := c.Get(fiber.HeaderIfNoneMatch); inm != "" && matchesETag(inm, etag) {
 		return c.SendStatus(fiber.StatusNotModified)
 	}
-	if err := attachDownloads(c.Context(), &out, t, h.sign, DownloadURLTTL, now); err != nil {
+	if err := AttachDownloads(c.Context(), &out, t, h.sign, DownloadURLTTL, now); err != nil {
 		return internalError(c, "sign download URLs", err)
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task fetched.", out)
 }
 
-func terminal(s models.TaskStatus) bool {
+func Terminal(s models.TaskStatus) bool {
 	switch s {
 	case models.TaskCompleted, models.TaskFailed, models.TaskPartiallyFailed, models.TaskCancelled:
 		return true
@@ -175,7 +127,7 @@ func (h *Handler) ListTasks(c fiber.Ctx) error {
 	}
 	out := TaskList{Tasks: make([]Task, len(tasks)), Total: total, Page: page, Limit: limit}
 	for i := range tasks {
-		out.Tasks[i] = newTask(&tasks[i])
+		out.Tasks[i] = NewTask(&tasks[i])
 	}
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", out)
 }
@@ -198,7 +150,7 @@ func (h *Handler) CancelTask(c fiber.Ctx) error {
 	if err != nil {
 		return respondTaskError(c, err, "cancel task")
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task cancelled.", newTask(t))
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Task cancelled.", NewTask(t))
 }
 
 func (h *Handler) RetryTask(c fiber.Ctx) error {

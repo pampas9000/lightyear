@@ -23,30 +23,41 @@ type Limiter interface {
 // failOpenLogEvery throttles the warning logged while the limiter is down.
 const failOpenLogEvery = time.Minute
 
+// Take takes a token from user's bucket. It returns 0 when the request may
+// go ahead, or else the whole seconds to wait. When the limiter itself fails
+// (Redis down) the request goes through: rate limiting protects capacity,
+// and quotas, which live in Postgres, still apply. A nil limiter allows
+// everything. The MCP server shares these buckets with /v1.
+func Take(ctx context.Context, l Limiter, user string) (retryAfter int) {
+	if l == nil {
+		return 0
+	}
+	ok, wait, err := l.Allow(ctx, user)
+	if err != nil {
+		now := time.Now().UnixNano()
+		if last := lastFailOpenWarn.Load(); now-last >= int64(failOpenLogEvery) && lastFailOpenWarn.CompareAndSwap(last, now) {
+			slog.Warn("rate limiter unavailable, allowing requests", "error", err)
+		}
+		return 0
+	}
+	if ok {
+		return 0
+	}
+	return max(int(math.Ceil(wait.Seconds())), 1)
+}
+
+var lastFailOpenWarn atomic.Int64
+
 // RateLimit takes a token from the user's bucket (the user_id local, so all
 // of a user's API keys share it) and answers 429 with Retry-After when it is
-// empty. When the limiter itself fails (Redis down) the request goes through:
-// rate limiting protects capacity, and quotas, which live in Postgres, still
-// apply. A nil limiter allows everything.
+// empty. See Take for a limiter that fails.
 func RateLimit(l Limiter) fiber.Handler {
-	var lastWarn atomic.Int64
 	return func(c fiber.Ctx) error {
-		if l == nil {
-			return c.Next()
-		}
 		user := fmt.Sprint(c.Locals("user_id"))
-		ok, wait, err := l.Allow(c.Context(), user)
-		if err != nil {
-			now := time.Now().UnixNano()
-			if last := lastWarn.Load(); now-last >= int64(failOpenLogEvery) && lastWarn.CompareAndSwap(last, now) {
-				slog.Warn("rate limiter unavailable, allowing requests", "error", err)
-			}
+		seconds := Take(c.Context(), l, user)
+		if seconds == 0 {
 			return c.Next()
 		}
-		if ok {
-			return c.Next()
-		}
-		seconds := max(int(math.Ceil(wait.Seconds())), 1)
 		prefix := ""
 		if key, _ := c.Locals(apiKeyLocal).(*models.APIKey); key != nil {
 			prefix = key.Prefix
@@ -55,6 +66,17 @@ func RateLimit(l Limiter) fiber.Handler {
 			"method", c.Method(), "route", c.Route().Path, "retry_after", seconds)
 		c.Set(fiber.HeaderRetryAfter, strconv.Itoa(seconds))
 		return response.RespondErrorWithDetails(c, fiber.StatusTooManyRequests, response.CodeRateLimited,
-			"Too many requests. Retry after the time in Retry-After.", map[string]int{"retry_after": seconds})
+			"Too many requests. Retry after the time in Retry-After.", RateLimitDetail{RetryAfter: seconds})
 	}
+}
+
+// RateLimitDetail is the details of error.rate_limit.exceeded.
+type RateLimitDetail struct {
+	RetryAfter int `json:"retry_after"`
+}
+
+// APIKey returns the key APIKeyAuth authenticated, or nil.
+func APIKey(c fiber.Ctx) *models.APIKey {
+	key, _ := c.Locals(apiKeyLocal).(*models.APIKey)
+	return key
 }

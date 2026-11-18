@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -280,6 +281,42 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 		return nil, fmt.Errorf("mark file uploaded: %w", err)
 	}
 	return file, nil
+}
+
+// Finish completes an upload from what storage already holds, for clients
+// that send the bytes but do not report back (the MCP server). A single PUT
+// is checked as in Complete. A multipart upload is completed with the parts
+// in storage only when they are 1..n and add up to the declared size;
+// otherwise the bytes are not all there and ErrObjectMissing is returned.
+func (s *Service) Finish(ctx context.Context, file *models.File) (*models.File, error) {
+	switch {
+	case file.Status == "UPLOADED":
+		return file, nil
+	case file.Status != "UPLOADING":
+		return nil, ErrNotFound
+	case file.UploadID == "":
+		return s.Complete(ctx, file, nil)
+	}
+	parts, err := s.ListParts(ctx, file)
+	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "NoSuchUpload" {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("list parts: %w", err)
+	}
+	slices.SortFunc(parts, func(a, b Part) int { return int(a.Number - b.Number) })
+	var total int64
+	for i, p := range parts {
+		if p.Number != int32(i+1) {
+			return nil, fmt.Errorf("%w: part %d is missing", ErrObjectMissing, i+1)
+		}
+		total += p.Size
+	}
+	if total != file.Size {
+		return nil, fmt.Errorf("%w: %d of %d bytes uploaded", ErrObjectMissing, total, file.Size)
+	}
+	return s.Complete(ctx, file, parts)
 }
 
 // ListParts lists the parts of an unfinished multipart upload.

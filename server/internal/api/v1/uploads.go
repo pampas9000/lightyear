@@ -9,7 +9,6 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/upload"
-	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -55,26 +54,6 @@ type PartURL struct {
 	ExpiresAt  time.Time `json:"expires_at"`
 }
 
-func respondUploadError(c fiber.Ctx, err error, action string) error {
-	switch {
-	case errors.Is(err, errBadUploadID):
-		return badID(c, "id")
-	case errors.Is(err, usage.ErrQuotaExceeded):
-		return response.RespondQuotaExceeded(c, err)
-	case errors.Is(err, upload.ErrInvalidSize):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "size", Reason: "must be positive"})
-	case errors.Is(err, upload.ErrInvalidHash):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "sha256 must be a hex SHA-256.", response.ValidationDetail{Field: "sha256", Reason: "must be 64 hex characters"})
-	case errors.Is(err, upload.ErrInvalidPart):
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "part_number", Reason: "out of range"})
-	case errors.Is(err, upload.ErrNotFound), errors.Is(err, upload.ErrForbidden):
-		return response.RespondError(c, fiber.StatusNotFound, response.CodeFileNotFound, "Upload not found.")
-	case errors.Is(err, upload.ErrNotMultipart), errors.Is(err, upload.ErrAlreadyUploaded), errors.Is(err, upload.ErrObjectMissing):
-		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
-	}
-	return internalError(c, action, err)
-}
-
 func (h *Handler) CreateUpload(c fiber.Ctx) error {
 	var req CreateUploadRequest
 	if err := decodeJSON(c.Body(), &req, false); err != nil {
@@ -89,18 +68,27 @@ func (h *Handler) CreateUpload(c fiber.Ctx) error {
 	if err != nil {
 		return respondUploadError(c, err, "create upload")
 	}
+	out := NewUpload(res)
+	if res.FastUpload {
+		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "File with this sha256 already uploaded; no upload needed.", out)
+	}
+	return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Upload created.", out)
+}
+
+// NewUpload describes how to send the bytes of a file registered by upload.Service.Init.
+func NewUpload(res *upload.InitResult) Upload {
 	out := Upload{File: *newFile(&res.File)}
 	switch {
 	case res.FastUpload:
 		out.Method = "none"
-		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "File with this sha256 already uploaded; no upload needed.", out)
+		return out
 	case res.UploadID != "":
 		out.Method, out.PartSize, out.PartURLs = "multipart", res.PartSize, res.PartURLs
 	default:
 		out.Method, out.URL = "put", res.URL
 	}
 	out.ExpiresAt = &res.URLExpiresAt
-	return response.RespondSuccess(c, fiber.StatusCreated, response.CodeOK, "Upload created.", out)
+	return out
 }
 
 var errBadUploadID = errors.New("invalid upload id")

@@ -43,6 +43,12 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-11-18 | 超出配额返回 `403 error.quota.exceeded`（`details` 带 `quota`、`limit`、`used`、`reserved`、`requested`），限流返回 `429 error.rate_limit.exceeded` + `Retry-After`；已接受的任务照常跑完 | 配额不会因等待而恢复，限流等几秒即可，客户端需要区分；中途停掉已接受的任务对用户更糟 |
 | 2026-11-18 | 限流按用户（不是按 key）、按请求次数，只限 `/v1` 的写入口；Redis 只计数，不可用时放行 | 防止一个用户换 key 绕过；用量的事实来源是 Postgres，限流失效不影响计量和配额 |
 | 2026-11-18 | 存储配额是软限制：上传按"已用 + 申报大小"检查，产物不检查，已满后拒绝新的上传与任务 | 产物大小在处理前未知；中途因存储失败的任务比略超配额更难处理 |
+| 2026-11-18 | MCP 只支持 API Key（`Authorization: Bearer`），OAuth 另立 9.12 | 主流 Agent / Harness 都能给 MCP 服务器配置请求头，不支持的是少数；API Key 已有 scope、吊销与只存哈希，OAuth 要做授权服务器、同意页与客户端注册，等有需求再做 |
+| 2026-11-18 | MCP 用官方 Go SDK，挂在 API 进程的 `/mcp`，工具直接调用 task / upload 服务与 `/v1` 的错误映射，不另起进程、不加业务逻辑 | SDK 负责协议版本协商与 JSON-RPC；鉴权用它的 `RequireBearerToken` 接 apikey 服务；与 `/v1` 共用限流桶、配额与幂等键，只是另一个入口 |
+| 2026-11-18 | MCP 无状态、只回 JSON（不用 SSE、不做进度通知与 tasks 扩展）；`get_task` 的 `wait_seconds`（0–30，默认 0）在服务端每秒读一次库，任务结束或等满即返回 | 多实例不需要会话粘滞；30 秒低于常见客户端的工具调用超时；等待的代价只是每秒一次按主键查询 |
+| 2026-11-18 | MCP 工具结果用 `structuredContent` + `outputSchema`（即 `/v1` 的表示）并附 JSON 文本；`options` 的 Schema 嵌入生成的 ImageOptions JSON Schema（Go 侧嵌入副本，`task gen:types` 同步、`task check` 检查），输入 Schema 去掉可为 `null` 的类型数组与 Rust 整数 `format` | 参数规范只有一份；单一类型方言（如 Gemini 函数声明）的客户端也能用 |
+| 2026-11-18 | MCP 不提供 resources 与 prompts；错误作为工具结果（`isError` + `/v1` 的 `code`、`message`、`details`，限流的等待秒数放在 `details.retry_after`），不用 JSON-RPC 错误 | 三个工具覆盖整个流程；工具结果里的错误 Agent 能读到并自行处理，JSON-RPC 错误多半只显示给用户 |
+| 2026-11-18 | MCP 没有上传 complete 这一步：`submit_task` 遇到 `UPLOADING` 的文件时从存储确认对象（分片须从 1 连续且总大小等于申报值）再完成 | 少一次工具调用，Agent 也不必记录分片 ETag；对象不完整时返回 `error.param.invalid`，补传后重提即可 |
 
 ## 执行步骤
 
@@ -167,10 +173,11 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 9.5 | URL 作为源：worker 拉取后存成普通 `File`，之后的重试、保留期、压缩统计沿用现有逻辑。只允许 `http` / `https`；在 HTTP 客户端的 resolver 里按白名单检查 IP（默认只放行全局可路由的公网单播地址，另放行部署配置 `WORKER_FETCH_ALLOW_CIDRS` 里的网段，默认为空，非空时启动打 warning），连接只用检查过的地址，所以 DNS rebinding 无效；重定向最多 3 跳，每跳同样检查；沿用大小上限与取消检查，加连接与读取超时。错误码先分"地址被拒绝"（不可重试）与"下载失败"（可重试）。私有桶的图用预签名 URL，不做专门支持。暂不做：按内容哈希复用 URL 源产物、域名白名单、存储连接器与私有网络接入（有需求再加）。MCP 以它为主要输入方式，见 9.8 | ✅ |
 | 9.6 | 预签名下载 URL：已完成作业的输出带 `download_url` 与 `download_expires_at`（1 小时），ETag 按 30 分钟时间段变化 | ✅ |
 | 9.7 | 限流与用量：`/v1` 写请求按用户走 Redis 令牌桶（`RATE_LIMIT_WRITE_PER_MINUTE` 默认 60、`RATE_LIMIT_WRITE_BURST` 默认 30），超出返回 `429 error.rate_limit.exceeded` + `Retry-After`，Redis 不可用时放行；只限上传申请、创建、取消、重试与两个删除，上传后续步骤与读请求不限，`/api` 不限。用量记在 `usage_records`（一事件一行，`(attempt_id, kind)` 唯一，无外键、删除任务不删用量）：成功处理按实际 `encode_rounds` 计单位，复用产物、失败、URL 下载各记一行但不计单位。`GET /v1/usage`、`GET /api/usage` 与控制台用量页按 UTC 月汇总。只记产物像素，源图像素要改协议，暂不记 | ✅ |
-| 9.8 | MCP：远程 Streamable HTTP，认证按 MCP 规范走 OAuth 2.1。工具为 `create_upload`（返回预签名 PUT URL，二进制不经工具参数传递）/ `submit_task`（支持 URL 源、`outputs`、`target`）/ `get_task(wait_seconds)`（返回下载链接与 `compression`，不返回图片内容）。依赖 9.5 | ⬜ |
+| 9.8 | MCP：远程 Streamable HTTP，官方 Go SDK，挂在 API 进程的 `/mcp`，无状态、只回 JSON；认证用 `/v1` 的 API Key 与 scope（OAuth 见 9.12）。工具 `create_upload`（返回预签名 PUT / 分片 URL，二进制不经工具参数；没有 complete，`submit_task` 从存储确认上传完成）、`submit_task`（URL 源、`outputs`、`target`、`idempotency_key`）、`get_task(wait_seconds ≤ 30)`（下载链接与 `compression`，不返回图片内容）。结果是 `/v1` 的表示（`structuredContent` + JSON 文本，`options` 的 Schema 嵌入生成的 ImageOptions Schema），错误是带 `/v1` 错误码的工具结果；与 `/v1` 共用限流桶、配额与幂等键。见 [MCP 契约](/contracts/mcp) | ✅ |
 | 9.9 | OpenAPI 描述 `/v1`，文档与 SDK 由它生成；对外承诺的错误码单独成表 | ⬜ |
 | 9.10 | 删除接口：`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`（`tasks:write`）及 `/api` 对应端点，控制台任务详情页可删除。有未结束 job 的任务返回 409 而不是自动取消：删除不可撤销，取消只是尽力而为，调用方应显式先取消。产物按 job 引用计数，仍被其他任务复用的保留并列在 `retained_outputs`；源文件不随任务删除 | ✅ |
 | 9.11 | 简化上传：小文件单请求上传，可选"上传并提交任务"一步完成。现有 init → PUT → complete 三步是按 Uppy 设计的 | ⬜ |
+| 9.12 | MCP 的 OAuth 2.1：按 MCP 授权规范提供 Protected Resource Metadata 与授权服务器（候选 fosite），客户端注册优先 Client ID Metadata Documents，动态客户端注册按客户端支持情况再定；token 映射到同样的 `tasks:read` / `tasks:write`，API Key 继续保留。等出现只支持 OAuth 的重要客户端再做 | ⬜ |
 
 ### 第 10 步：编码器直连与默认值
 

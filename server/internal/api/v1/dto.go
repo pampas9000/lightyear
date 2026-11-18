@@ -98,7 +98,7 @@ func newJob(j *models.Job) Job {
 	return out
 }
 
-func newTask(t *models.Task) Task {
+func NewTask(t *models.Task) Task {
 	out := Task{
 		ID: t.ID, Status: t.Status, WorkflowID: t.WorkflowID, IdempotencyKey: t.IdempotencyKey,
 		Jobs: make([]Job, len(t.Jobs)), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
@@ -117,8 +117,8 @@ func downloadable(j *Job) bool {
 // Signer presigns a download of the object at path, saved as filename.
 type Signer func(ctx context.Context, path, filename string, ttl time.Duration) (string, error)
 
-// attachDownloads signs a download URL for every completed job's output.
-func attachDownloads(ctx context.Context, t *Task, src *models.Task, sign Signer, ttl time.Duration, now time.Time) error {
+// AttachDownloads signs a download URL for every completed job's output.
+func AttachDownloads(ctx context.Context, t *Task, src *models.Task, sign Signer, ttl time.Duration, now time.Time) error {
 	paths := make(map[uuid.UUID]string, len(src.Jobs))
 	for _, j := range src.Jobs {
 		if j.OutputFile != nil {
