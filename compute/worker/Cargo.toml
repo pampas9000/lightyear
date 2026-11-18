@@ -21,3 +21,8 @@ aws-sdk-s3 = { workspace = true, features = ["rustls"] }
 rustls.workspace = true
 tempfile.workspace = true
 libc = "0.2"
+bytes = "1"
+url = "2"
+# Fetches URL sources. Without default features there are no cookies and no
+# transparent decompression; `fetch.rs` also turns off proxies.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }

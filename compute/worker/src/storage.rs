@@ -2,6 +2,7 @@ use crate::error::ComputeError;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{Credentials, Region};
 use aws_sdk_s3::primitives::ByteStream;
+use bytes::Bytes;
 
 /// Builds an S3 (R2-compatible) client with static credentials.
 pub fn build_client(
@@ -28,7 +29,7 @@ pub async fn download(
     bucket: &str,
     key: &str,
     max_bytes: u64,
-) -> Result<Vec<u8>, ComputeError> {
+) -> Result<Bytes, ComputeError> {
     let object = client
         .get_object()
         .bucket(bucket)
@@ -58,14 +59,14 @@ pub async fn download(
             "source exceeds the {max_bytes}-byte limit"
         )));
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 pub async fn upload(
     client: &Client,
     bucket: &str,
     key: &str,
-    bytes: Vec<u8>,
+    bytes: Bytes,
     content_type: &str,
 ) -> Result<(), ComputeError> {
     client

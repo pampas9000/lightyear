@@ -88,12 +88,17 @@ impl Worker {
 
         let (cancel, cancelled) = tokio::sync::watch::channel(false);
         let progress = Arc::new(AtomicU8::new(0));
+        // Set once a source URL has been fetched and stored. Reported at once
+        // and on every later message, so that a retry does not fetch again.
+        let (fetched, mut fetch_reports) = tokio::sync::watch::channel(None);
+        let fetch_outcome = fetch_reports.clone();
         let mut beats = self.queue.clone();
         let watcher_progress = progress.clone();
         let watcher = async {
             let mut heartbeat = tokio::time::interval(HEARTBEAT);
             heartbeat.tick().await;
             let mut poll = tokio::time::interval(CANCEL_POLL);
+            let mut fetching = true;
             loop {
                 tokio::select! {
                     _ = heartbeat.tick() => {
@@ -108,10 +113,21 @@ impl Worker {
                             return;
                         }
                     }
+                    changed = fetch_reports.changed(), if fetching => {
+                        if changed.is_err() {
+                            fetching = false;
+                            continue;
+                        }
+                        running.source = fetch_reports.borrow_and_update().clone();
+                        running.progress = Some(watcher_progress.load(Ordering::Relaxed));
+                        if let Err(e) = beats.publish(&running).await {
+                            eprintln!("Reporting the fetched source of {attempt} failed: {e}");
+                        }
+                    }
                 }
             }
         };
-        let job = job::run(&self.ctx, &dispatch, cancelled, progress);
+        let job = job::run(&self.ctx, &dispatch, cancelled, progress, fetched);
         tokio::pin!(job);
         let outcome = tokio::select! {
             outcome = &mut job => outcome,
@@ -126,6 +142,7 @@ impl Worker {
         };
 
         let mut result = JobResult::for_dispatch(&dispatch, Status::Completed);
+        result.source = fetch_outcome.borrow().clone();
         match outcome {
             Ok(done) => {
                 result.progress = Some(100);

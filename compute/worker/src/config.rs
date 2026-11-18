@@ -28,6 +28,25 @@ pub struct WorkerConfig {
     /// `libavif` (default) or `libvips`, the fallback.
     #[serde(default = "default_avif_encoder")]
     pub avif_encoder: String,
+    /// Comma-separated networks that source URLs may reach besides the
+    /// public internet, e.g. `127.0.0.0/8` for local development. Empty by
+    /// default; does not concern the worker's own `S3_ENDPOINT`.
+    #[serde(default)]
+    pub fetch_allow_cidrs: String,
+    /// Seconds to wait for a source URL's connection.
+    #[serde(default = "default_fetch_connect_timeout_secs")]
+    pub fetch_connect_timeout_secs: u64,
+    /// Seconds to wait for any read of a source URL (head or next chunk).
+    #[serde(default = "default_fetch_read_timeout_secs")]
+    pub fetch_read_timeout_secs: u64,
+}
+
+fn default_fetch_connect_timeout_secs() -> u64 {
+    10
+}
+
+fn default_fetch_read_timeout_secs() -> u64 {
+    30
 }
 
 fn default_max_source_bytes() -> u64 {
@@ -80,6 +99,15 @@ impl WorkerConfig {
         }
         if let Ok(encoder) = std::env::var("WORKER_AVIF_ENCODER") {
             builder = builder.set_override("avif_encoder", encoder)?;
+        }
+        if let Ok(cidrs) = std::env::var("WORKER_FETCH_ALLOW_CIDRS") {
+            builder = builder.set_override("fetch_allow_cidrs", cidrs)?;
+        }
+        if let Ok(secs) = std::env::var("WORKER_FETCH_CONNECT_TIMEOUT_SECS") {
+            builder = builder.set_override("fetch_connect_timeout_secs", secs)?;
+        }
+        if let Ok(secs) = std::env::var("WORKER_FETCH_READ_TIMEOUT_SECS") {
+            builder = builder.set_override("fetch_read_timeout_secs", secs)?;
         }
 
         let settings: WorkerConfig = builder.build()?.try_deserialize()?;

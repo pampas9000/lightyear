@@ -17,6 +17,12 @@ pub enum ComputeError {
     ProcessingFailed(String),
     /// Object storage failed; usually transient.
     StorageFailed(String),
+    /// A source URL may not be fetched: not http(s), user info, an address
+    /// that is not allowed, too many redirects, or larger than the limit.
+    UrlRejected(String),
+    /// Fetching a source URL failed: timeouts, connection failures and
+    /// server errors may pass next time; most client errors would not.
+    FetchFailed { message: String, retryable: bool },
     Cancelled,
     Internal(String),
 }
@@ -29,6 +35,8 @@ impl std::fmt::Display for ComputeError {
             Self::SourceUnavailable(m) => ("source unavailable", m),
             Self::ProcessingFailed(m) => ("processing failed", m),
             Self::StorageFailed(m) => ("storage failed", m),
+            Self::UrlRejected(m) => ("url rejected", m),
+            Self::FetchFailed { message, .. } => ("fetch failed", message),
             Self::Cancelled => ("cancelled", &String::new()),
             Self::Internal(m) => ("internal error", m),
         };
@@ -46,15 +54,21 @@ impl ComputeError {
             Self::SourceUnavailable(_) => "source_unavailable",
             Self::ProcessingFailed(_) => "processing_failed",
             Self::StorageFailed(_) => "storage_failed",
+            Self::UrlRejected(_) => "url_rejected",
+            Self::FetchFailed { .. } => "fetch_failed",
             Self::Cancelled => "cancelled",
             Self::Internal(_) => "internal_error",
         }
     }
 
-    /// Only storage failures are worth another attempt; the rest would fail
-    /// the same way again.
+    /// Only storage and transient fetch failures are worth another attempt;
+    /// the rest would fail the same way again.
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::StorageFailed(_))
+        match self {
+            Self::StorageFailed(_) => true,
+            Self::FetchFailed { retryable, .. } => *retryable,
+            _ => false,
+        }
     }
 }
 

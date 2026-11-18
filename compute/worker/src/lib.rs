@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod error;
+pub mod fetch;
 pub mod job;
 pub mod process;
 pub mod queue;

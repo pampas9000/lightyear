@@ -1,5 +1,5 @@
 use anyhow::Result;
-use compute_worker::{config, job, process, queue, redis_connection, storage, worker};
+use compute_worker::{config, fetch, job, process, queue, redis_connection, storage, worker};
 
 fn main() -> Result<()> {
     // A compute child (see `process.rs`) needs neither the runtime nor the
@@ -44,6 +44,25 @@ async fn run() -> Result<()> {
     }
     println!("S3 Bucket: {}", config.s3.bucket);
 
+    let policy = fetch::FetchPolicy::parse(&config.fetch_allow_cidrs)
+        .map_err(|e| anyhow::anyhow!("WORKER_FETCH_ALLOW_CIDRS: {e}"))?;
+    if !policy.allow.is_empty() {
+        let nets: Vec<String> = policy.allow.iter().map(ToString::to_string).collect();
+        eprintln!(
+            "WARNING: source URLs may reach {} besides the public internet (WORKER_FETCH_ALLOW_CIDRS); \
+             leave it empty in production",
+            nets.join(", ")
+        );
+    }
+    let fetcher = fetch::Fetcher::new(
+        policy,
+        &fetch::FetchSettings {
+            connect_timeout: std::time::Duration::from_secs(config.fetch_connect_timeout_secs),
+            read_timeout: std::time::Duration::from_secs(config.fetch_read_timeout_secs),
+        },
+    )
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+
     let s3 = storage::build_client(
         &config.s3.endpoint,
         &config.s3.access_id,
@@ -61,6 +80,7 @@ async fn run() -> Result<()> {
         s3,
         bucket: config.s3.bucket.clone(),
         max_source_bytes: config.max_source_bytes,
+        fetcher,
         compute_program: std::env::current_exe()
             .map_err(|e| anyhow::anyhow!("Cannot locate the worker executable: {e}"))?,
         settings: compute_imageops::Settings {

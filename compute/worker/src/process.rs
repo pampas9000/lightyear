@@ -137,7 +137,11 @@ pub struct ComputeProcess {
 }
 
 impl ComputeProcess {
-    pub fn spawn(program: &Path, request: &Request, source: Vec<u8>) -> Result<Self, ComputeError> {
+    pub fn spawn(
+        program: &Path,
+        request: &Request,
+        source: bytes::Bytes,
+    ) -> Result<Self, ComputeError> {
         let internal =
             |what: &str, e: std::io::Error| ComputeError::Internal(format!("{what}: {e}"));
         let tmp = tempfile::Builder::new()

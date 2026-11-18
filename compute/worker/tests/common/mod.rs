@@ -20,7 +20,7 @@ pub fn spawn(source: Vec<u8>, options: ImageOptions, target: Option<Target>) -> 
     ComputeProcess::spawn(
         Path::new(env!("CARGO_BIN_EXE_compute-worker")),
         &request,
-        source,
+        source.into(),
     )
     .expect("compute process starts")
 }
