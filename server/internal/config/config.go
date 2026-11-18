@@ -25,6 +25,25 @@ type Config struct {
 	GoogleOAuth GoogleOAuthConfig
 	GithubOAuth GithubOAuthConfig
 	Dispatch    DispatchConfig
+	Quota       QuotaConfig
+	RateLimit   RateLimitConfig
+}
+
+// QuotaConfig is the global per-user quota; 0 is unlimited. Users can be
+// given their own values (users.storage_quota_bytes, users.monthly_unit_quota).
+type QuotaConfig struct {
+	// StorageBytes bounds the bytes a user's stored sources and outputs take.
+	StorageBytes int64 `koanf:"QUOTA_STORAGE_BYTES"`
+	// MonthlyUnits bounds the processing units (encode rounds) a user's jobs
+	// use in a calendar month (UTC).
+	MonthlyUnits int64 `koanf:"QUOTA_MONTHLY_UNITS"`
+}
+
+// RateLimitConfig is the token bucket for /v1 write requests, per user.
+// PerMinute 0 turns rate limiting off.
+type RateLimitConfig struct {
+	PerMinute int `koanf:"RATE_LIMIT_WRITE_PER_MINUTE"`
+	Burst     int `koanf:"RATE_LIMIT_WRITE_BURST"`
 }
 
 // DispatchConfig holds orchestrator limits. Zero values take the
@@ -148,6 +167,14 @@ func Load() Config {
 		ExecutionLimit:       k.Duration("EXECUTION_LIMIT"),
 		TargetExecutionLimit: k.Duration("TARGET_EXECUTION_LIMIT"),
 	}
+	cfg.Quota = QuotaConfig{
+		StorageBytes: nonNegative(k, "QUOTA_STORAGE_BYTES", DefaultStorageQuotaBytes),
+		MonthlyUnits: nonNegative(k, "QUOTA_MONTHLY_UNITS", DefaultMonthlyUnits),
+	}
+	cfg.RateLimit = RateLimitConfig{
+		PerMinute: int(nonNegative(k, "RATE_LIMIT_WRITE_PER_MINUTE", DefaultRateLimitPerMinute)),
+		Burst:     int(nonNegative(k, "RATE_LIMIT_WRITE_BURST", DefaultRateLimitBurst)),
+	}
 
 	return cfg
 }
@@ -166,6 +193,29 @@ func retentionDays(k *koanf.Koanf, key string) int {
 	n, err := strconv.Atoi(raw)
 	if err != nil || n < 0 {
 		return DefaultRetentionDays
+	}
+	return n
+}
+
+// Quota and rate limit defaults, used when a variable is unset or empty.
+const (
+	DefaultStorageQuotaBytes  int64 = 10 << 30 // 10 GiB
+	DefaultMonthlyUnits       int64 = 10_000
+	DefaultRateLimitPerMinute int64 = 60
+	DefaultRateLimitBurst     int64 = 30
+)
+
+// nonNegative reads a non-negative integer like retentionDays: unset, empty
+// or invalid values fall back to def, so 0 (unlimited, or off) must be
+// explicit.
+func nonNegative(k *koanf.Koanf, key string, def int64) int64 {
+	raw := strings.TrimSpace(k.String(key))
+	if raw == "" {
+		return def
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n < 0 {
+		return def
 	}
 	return n
 }

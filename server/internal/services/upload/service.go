@@ -16,6 +16,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
+	"transcoder/server/internal/services/usage"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -60,7 +61,14 @@ type Service struct {
 	storage   *storage.S3Service
 	bucket    string
 	retention lifecycle.Policy
+	quotas    *usage.Quotas
 	now       func() time.Time
+}
+
+// WithQuotas makes Init check the storage quota. Without it nothing is checked.
+func (s *Service) WithQuotas(q *usage.Quotas) *Service {
+	s.quotas = q
+	return s
 }
 
 // NewService builds the upload service. retention sets expires_at as an
@@ -121,6 +129,12 @@ func (s *Service) Init(ctx context.Context, owner uuid.UUID, in InitInput) (*Ini
 		}
 	}
 
+	// A fast upload stores nothing new; a new upload counts its declared size
+	// from now on (see usage.StorageUsed).
+	if err := s.quotas.CheckUpload(ctx, owner, in.Size); err != nil {
+		return nil, err
+	}
+
 	key := fmt.Sprintf("uploads/%s/%s%s", owner, uuid.New(), filepath.Ext(in.Filename))
 	contentType := in.ContentType
 	if contentType == "" {
@@ -158,6 +172,7 @@ func (s *Service) Init(ctx context.Context, owner uuid.UUID, in InitInput) (*Ini
 		Name:            in.Filename,
 		Path:            key,
 		MimeType:        contentType,
+		Size:            in.Size,
 		Status:          "UPLOADING",
 		UploadID:        res.UploadID,
 		UploadExpiresAt: &expiresAt,

@@ -9,7 +9,7 @@ import (
 // tables lists every table the application owns, for Reset.
 var tables = []any{
 	&models.APIKey{}, &models.Attempt{}, &models.Job{}, &models.Task{}, &models.Workflow{},
-	&models.DraftFile{}, &models.File{}, &models.UserOauthAccount{}, &models.User{},
+	&models.DraftFile{}, &models.File{}, &models.UserOauthAccount{}, &models.User{}, &models.UsageRecord{},
 }
 
 func Migrate(db *gorm.DB) error {
@@ -31,6 +31,7 @@ func Migrate(db *gorm.DB) error {
 		if err := tx.AutoMigrate(
 			&models.User{}, &models.UserOauthAccount{}, &models.File{}, &models.DraftFile{},
 			&models.Workflow{}, &models.Task{}, &models.Job{}, &models.Attempt{}, &models.APIKey{},
+			&models.UsageRecord{},
 		); err != nil {
 			return err
 		}

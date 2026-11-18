@@ -36,6 +36,13 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-11-13 | 一次任务支持"一份文件多种输出"（`outputs` 数组），每份输出对应一个普通 `image.convert` job，预设 `Workflow` 同步保存整组输出 | 复用现有产物复用、单 job 重试、取消、`PARTIALLY_FAILED` 聚合与并行 worker；单源图重复解码（主要是 HEIC）初期可接受，需要时再做单次解码多输出合并 |
 | 2026-11-13 | `target` 规则：给了 `quality`、`distance` 或 `lossless: true` 时不搜索、只检查；`format: png` 带 `target` 报 400；`max_bytes` 与 `min_ssimu2` 同在且都能满足时取刚达标的最小体积，冲突时体积优先；达不到目标时交付最小结果并标 `target_met: false`；`larger_than_source` 无条件按字节对比打标，不退回原图 | 避免隐式退回原图泄露默认 `strip` 的元数据或违背格式/缩放意图；保证与 `ratio`、`saved_ratio` 口径一致 |
 | 2026-11-13 | 队列协议在 `v2` 上新增可选字段（`target`、`resolved_options`、`target_met`、`achieved`、`encode_rounds`、`compute_ms`）；第 1 期搜索任务共用 `q:image`，`Attempt` 记队列名、编码轮数与耗时 | 尚无线上运行，可直接在 `v2` 上向后兼容扩字段；`Attempt` 已按次记录队列，第 2 期做 `min_ssimu2` 或出现队头阻塞时只需按配置改投独立队列 |
+| 2026-11-18 | 计量单位是"处理单位"，一次成功处理按实际 `encode_rounds` 计（普通转换为 1）；创建时按估算预占（体积目标搜索 7、JXL 搜索 9、其余 1，给了 `quality`/`distance`/`lossless` 的目标只检查，按 1），完成后按实际轮数结算 | 编码是主要成本，搜索的成本随轮数变化，固定按 8 算会多收或少收；预占让并发提交和长时间运行的搜索也受上限约束 |
+| 2026-11-18 | 复用已有产物、失败的 attempt、URL 下载都记录但不计单位；下载的文件计入存储 | 复用和失败没有给用户带来新产物；下载成本主要是存储，已由存储配额覆盖 |
+| 2026-11-18 | 用量记成一事件一行的 `usage_records`，`(attempt_id, kind)` 唯一、无外键，暂时永久保留；不做按天汇总表 | 能幂等写入、能对账；按天和按月都是查询时汇总，量大了再加汇总表 |
+| 2026-11-18 | 配额只按 `User`，不引入组织 / 项目层级；全局默认值加按用户覆盖列（存储 10 GiB、每月 10000 单位，本地开发同样启用），月份按 UTC 自然月，job 算在完成的月份 | 目前没有多人协作的需求，加层级前先看实际用法 |
+| 2026-11-18 | 超出配额返回 `403 error.quota.exceeded`（`details` 带 `quota`、`limit`、`used`、`reserved`、`requested`），限流返回 `429 error.rate_limit.exceeded` + `Retry-After`；已接受的任务照常跑完 | 配额不会因等待而恢复，限流等几秒即可，客户端需要区分；中途停掉已接受的任务对用户更糟 |
+| 2026-11-18 | 限流按用户（不是按 key）、按请求次数，只限 `/v1` 的写入口；Redis 只计数，不可用时放行 | 防止一个用户换 key 绕过；用量的事实来源是 Postgres，限流失效不影响计量和配额 |
+| 2026-11-18 | 存储配额是软限制：上传按"已用 + 申报大小"检查，产物不检查，已满后拒绝新的上传与任务 | 产物大小在处理前未知；中途因存储失败的任务比略超配额更难处理 |
 
 ## 执行步骤
 
@@ -159,7 +166,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 9.4 | webhook：HMAC 签名、指数退避、`webhook_deliveries` | ⬜ |
 | 9.5 | URL 作为源：worker 拉取后存成普通 `File`，之后的重试、保留期、压缩统计沿用现有逻辑。只允许 `http` / `https`；在 HTTP 客户端的 resolver 里按白名单检查 IP（默认只放行全局可路由的公网单播地址，另放行部署配置 `WORKER_FETCH_ALLOW_CIDRS` 里的网段，默认为空，非空时启动打 warning），连接只用检查过的地址，所以 DNS rebinding 无效；重定向最多 3 跳，每跳同样检查；沿用大小上限与取消检查，加连接与读取超时。错误码先分"地址被拒绝"（不可重试）与"下载失败"（可重试）。私有桶的图用预签名 URL，不做专门支持。暂不做：按内容哈希复用 URL 源产物、域名白名单、存储连接器与私有网络接入（有需求再加）。MCP 以它为主要输入方式，见 9.8 | ✅ |
 | 9.6 | 预签名下载 URL：已完成作业的输出带 `download_url` 与 `download_expires_at`（1 小时），ETag 按 30 分钟时间段变化 | ✅ |
-| 9.7 | 令牌桶限流、attempt 用量、`usage_daily`。计量口径待定：按输出次数、像素数还是 `compute_ms`（`Attempt` 已记 `encode_rounds` 与 `compute_ms`）；复用已有产物的 job 是否计量 | ⬜ |
+| 9.7 | 限流与用量：`/v1` 写请求按用户走 Redis 令牌桶（`RATE_LIMIT_WRITE_PER_MINUTE` 默认 60、`RATE_LIMIT_WRITE_BURST` 默认 30），超出返回 `429 error.rate_limit.exceeded` + `Retry-After`，Redis 不可用时放行；只限上传申请、创建、取消、重试与两个删除，上传后续步骤与读请求不限，`/api` 不限。用量记在 `usage_records`（一事件一行，`(attempt_id, kind)` 唯一，无外键、删除任务不删用量）：成功处理按实际 `encode_rounds` 计单位，复用产物、失败、URL 下载各记一行但不计单位。`GET /v1/usage`、`GET /api/usage` 与控制台用量页按 UTC 月汇总。只记产物像素，源图像素要改协议，暂不记 | ✅ |
 | 9.8 | MCP：远程 Streamable HTTP，认证按 MCP 规范走 OAuth 2.1。工具为 `create_upload`（返回预签名 PUT URL，二进制不经工具参数传递）/ `submit_task`（支持 URL 源、`outputs`、`target`）/ `get_task(wait_seconds)`（返回下载链接与 `compression`，不返回图片内容）。依赖 9.5 | ⬜ |
 | 9.9 | OpenAPI 描述 `/v1`，文档与 SDK 由它生成；对外承诺的错误码单独成表 | ⬜ |
 | 9.10 | 删除接口：`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`（`tasks:write`）及 `/api` 对应端点，控制台任务详情页可删除。有未结束 job 的任务返回 409 而不是自动取消：删除不可撤销，取消只是尽力而为，调用方应显式先取消。产物按 job 引用计数，仍被其他任务复用的保留并列在 `retained_outputs`；源文件不随任务删除 | ✅ |
@@ -208,8 +215,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.1 | 按用户公平派发：每个用户同时 `PROCESSING` 的 job 数有上限（`DISPATCH_MAX_PROCESSING_PER_USER`，默认 8），领取时在用户之间轮询；按用户的部分索引与 advisory lock 保证多实例下不超限、不重复派发。交互与批量优先级留作后续 | ✅ |
 | 12.2 | 单个 attempt 的最长执行时间：从 `started_at` 起算，普通 10 分钟、搜索任务 30 分钟（`EXECUTION_LIMIT`/`TARGET_EXECUTION_LIMIT`）；心跳续租不越过上限，到期由恢复循环按 `execution_timeout` 重试 | ✅ |
 | 12.3 | 存储生命周期：`SOURCE_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS`（默认 30 天）与按用户覆盖字段（暂无界面）；`services/lifecycle` 每 10 分钟把到期文件标为 `EXPIRED` 后删对象，失败重试，跳过未结束 job 的源文件；复用与秒传只选剩余保留期过半的文件。R2 生命周期规则只写了文档。已知遗留：显式重试已完成的 job 时旧产物不再被引用，要等到期才删；清理没有跨实例互斥（可并发，只是重复劳动） | ✅ |
-| 12.4 | 配额：存储用量、每月处理量、单任务 job 数（现有上限为 `compression.MaxItems` 与 `MaxOutputs`）。是否引入组织 / 项目层级待定，目前只有 `User` | ⬜ |
-| 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志 | ⬜ |
+| 12.4 | 配额：按用户的存储（`QUOTA_STORAGE_BYTES`，默认 10 GiB）与每月处理单位（`QUOTA_MONTHLY_UNITS`，默认 10000），`users` 上可按用户覆盖（暂无界面），`0` 为不限。创建任务与重试时按"已结算 + 未结束 job 预占 + 本次预占"检查（搜索预占 7、JXL 搜索 9、其余 1，完成后按实际轮数结算），按用户 advisory lock 串行；上传 `init` 按申报大小检查，存储为软限制。超出返回 `403 error.quota.exceeded`，已接受的任务照常跑完。单任务 job 数沿用全局常量 `MaxItems` 100、`MaxOutputs` 10、`MaxTotalJobs` 200（`400 error.param.invalid`）。不引入组织层级 | ✅ |
+| 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志（限流、配额拒绝、用量写入失败都有结构化日志）；按用户用量直接从 `usage_records` 汇总，不另做指标 | ⬜ |
 | 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）。目前只有本地开发 | ⬜ |
 | 12.7 | 审计与数据删除：API Key 的使用记录、按用户删除全部数据、对外的数据保留说明 | ⬜ |
 | 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |

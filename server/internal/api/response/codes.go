@@ -54,6 +54,11 @@ const (
 	CodeFileConflict ResponseCode = "error.file.conflict"
 	// CodeFileGone: the file has expired or was deleted; its content is no longer stored.
 	CodeFileGone ResponseCode = "error.file.gone"
+	// CodeQuotaExceeded: the request would exceed the user's storage or
+	// monthly processing quota; details name the quota.
+	CodeQuotaExceeded ResponseCode = "error.quota.exceeded"
+	// CodeRateLimited: too many write requests; retry after Retry-After.
+	CodeRateLimited ResponseCode = "error.rate_limit.exceeded"
 
 	// Infrastructure / server errors.
 	CodeDatabaseUnavailable ResponseCode = "error.database.unavailable"

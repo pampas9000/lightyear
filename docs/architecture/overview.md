@@ -36,7 +36,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 
 | 表 | 说明 |
 | :--- | :--- |
-| `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定；可空的 `source_retention_days`/`output_retention_days` 按用户覆盖存储保留期（预留，暂无界面） |
+| `users` / `user_oauth_accounts` | 用户、bcrypt 密码哈希、GitHub/Google 绑定；可空的 `source_retention_days`/`output_retention_days` 按用户覆盖存储保留期，`storage_quota_bytes`/`monthly_unit_quota` 按用户覆盖配额（均预留，暂无界面） |
 | `files` | 源文件与产物（路径、大小、MIME、宽高、SHA-256）。状态：上传中 `UPLOADING`、URL 源等待 worker 抓取 `FETCHING`、可用 `UPLOADED`、保留期到期 `EXPIRED`、被用户删除 `DELETED`，以及上传与草稿清理用的 `ABORTING`/`ABORTED`/`FAILED`/`DELETING`。`expires_at` 是保留期到期时间，`purged_at` 是存储对象删除完成的时间；URL 源的 `source_url` 记录原地址，抓取后保留 |
 | `draft_files` | 已上传但尚未提交任务的文件 |
 | `workflows` | 命名的多输出预设（`outputs` 数组，每项含 `ImageOptions` 与可选压缩 `target`） |
@@ -44,6 +44,7 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 | `jobs` | 一个源文件 + 一份输出规格 → 一个产物：`operation`（目前只有 `image.convert`）、`output_index`/`output_name`、规范化后的 `options`、可选 `target`、实际执行的 `resolved_options`、`target_met`、`achieved`、`source_file_id`、`output_file_id`、`artifact_key`、重试计数、当前 attempt 与租约 |
 | `api_keys` | `/v1` 的 API Key：所属用户 `owner_id`、`name`、用于辨认的 `prefix`、`key_hash`（明文的 SHA-256，唯一索引；明文只在创建时返回一次）、`scopes`（`text[]`：`tasks:read`/`tasks:write`）、`last_used_at`、`revoked_at`（吊销为软删除） |
 | `attempts` | 一次派发：完整的派发负载、产物 key、`dispatched_at`/`started_at`/`finished_at`、可选 `encode_rounds`/`compute_ms`。先写 attempt 再发消息，因此它同时充当 outbox |
+| `usage_records` | 用量流水，一个事件一行：`kind` 为 `process`（成功处理，`units` = 编码轮数）、`reuse`（复用产物，0 单位）、`failed`（失败的 attempt，0 单位）、`fetch`（URL 源下载，记 `input_bytes`），另记 `owner_id`、`attempt_id`、`job_id`、`task_id`、`encode_rounds`、`compute_ms`、`output_bytes`、`output_pixels`。`(attempt_id, kind)` 唯一，重放不重复计量；不随任务或文件删除，按月配额与 `GET /api/usage` 都从这里汇总。规则见[用量与配额](/contracts/http-api#用量与配额) |
 
 产物文件在任务**完成时**才创建 `files` 记录，路径为 `outputs/<owner>/<job>/<attempt>.<ext>`，按 attempt 隔离。源文件路径为 `uploads/<owner>/<uuid>.<ext>`；URL 源在创建任务时就建好 `FETCHING` 的记录和路径，worker 抓取后写入该路径并回报，orchestrator 再把它改为 `UPLOADED`。
 

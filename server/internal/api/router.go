@@ -10,9 +10,11 @@ import (
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/services/apikey"
 	"transcoder/server/internal/services/lifecycle"
+	"transcoder/server/internal/services/ratelimit"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
+	"transcoder/server/internal/services/usage"
 
 	"gorm.io/gorm"
 
@@ -33,6 +35,7 @@ type Router struct {
 	file     *handlers.FileHandler
 	auth     *handlers.AuthHandler
 	apiKeys  *handlers.APIKeyHandler
+	usage    *handlers.UsageHandler
 	session  *session.Store
 	keys     *apikey.Service
 	v1       *v1.Handler
@@ -49,8 +52,12 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		IdleTimeout:    7 * 24 * time.Hour,
 	})
 
-	tasks := task.NewService(db, kv)
-	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
+	quotas := usage.NewQuotas(db, usage.Limits{
+		StorageBytes: cfg.Quota.StorageBytes, MonthlyUnits: cfg.Quota.MonthlyUnits,
+	})
+	limiter := ratelimit.New(kv, "rl:v1:write:", cfg.RateLimit.PerMinute, cfg.RateLimit.Burst)
+	tasks := task.NewService(db, kv).WithQuotas(quotas)
+	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg)).WithQuotas(quotas)
 	keys := apikey.NewService(db)
 	files := lifecycle.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
 	sign := func(ctx context.Context, path, filename string, ttl time.Duration) (string, error) {
@@ -66,9 +73,10 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket, files),
 		auth:     handlers.NewAuthHandler(db, store, cfg),
 		apiKeys:  handlers.NewAPIKeyHandler(keys),
+		usage:    handlers.NewUsageHandler(quotas),
 		session:  store,
 		keys:     keys,
-		v1:       v1.New(tasks, uploads, files, sign),
+		v1:       v1.New(tasks, uploads, files, sign).WithUsage(quotas, limiter),
 	}
 }
 
@@ -98,6 +106,7 @@ func (r *Router) Install(app fiber.Router) {
 	r.draft.Install(protected)
 	r.file.Install(protected)
 	r.apiKeys.Install(protected)
+	r.usage.Install(protected)
 
 	// Public API: its own routes and representations, API key auth only.
 	r.v1.Install(app, r.keys)

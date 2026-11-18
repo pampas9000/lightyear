@@ -7,6 +7,7 @@ import (
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/upload"
+	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -41,6 +42,8 @@ type InitUploadRequest struct {
 // respondUploadError maps upload service errors for both /api and /v1.
 func respondUploadError(c fiber.Ctx, err error, action string) error {
 	switch {
+	case errors.Is(err, usage.ErrQuotaExceeded):
+		return response.RespondQuotaExceeded(c, err)
 	case errors.Is(err, upload.ErrInvalidSize):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "size", Reason: "must be positive"})
 	case errors.Is(err, upload.ErrInvalidHash):

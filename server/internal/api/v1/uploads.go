@@ -9,6 +9,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/upload"
+	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -58,6 +59,8 @@ func respondUploadError(c fiber.Ctx, err error, action string) error {
 	switch {
 	case errors.Is(err, errBadUploadID):
 		return badID(c, "id")
+	case errors.Is(err, usage.ErrQuotaExceeded):
+		return response.RespondQuotaExceeded(c, err)
 	case errors.Is(err, upload.ErrInvalidSize):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error(), response.ValidationDetail{Field: "size", Reason: "must be positive"})
 	case errors.Is(err, upload.ErrInvalidHash):

@@ -27,7 +27,8 @@
         "logout": "退出登录",
         "select_language": "选择语言",
         "local_transcode": "本地转码",
-        "api_keys": "API 密钥"
+        "api_keys": "API 密钥",
+        "usage": "用量"
     },
     "sidebar": {
         "tagline": "专业媒体中枢",
@@ -296,5 +297,29 @@
         "toast_created": "API 密钥已创建。",
         "toast_revoked": "API 密钥已吊销。",
         "toast_copy_failed": "无法复制到剪贴板。"
+    },
+    "usage": {
+        "title": "用量",
+        "description": "本月的处理用量和当前占用的存储，以及各自的配额。",
+        "sign_in_required": "登录后即可查看用量。",
+        "load_failed": "用量加载失败。",
+        "retry": "重试",
+        "units_title": "处理单位",
+        "units_help": "编码一次计 1 个单位。按体积目标搜索会编码多次；复用已有产物不计。",
+        "unlimited": "不限",
+        "reserved": "未结束的任务预留了 {n} 个",
+        "resets": "{date} 重置",
+        "storage_title": "存储",
+        "storage_help": "已上传的源文件和产物。已过期或已删除的文件不再计入。",
+        "outputs": "输出",
+        "reused_outputs": "复用的产物",
+        "failed_attempts": "失败的执行",
+        "fetched": "从 URL 下载",
+        "daily_title": "按天（UTC）",
+        "daily_empty": "本月还没有用量。",
+        "col_date": "日期",
+        "col_units": "单位",
+        "quota_monthly_exceeded": "本月的处理配额已用完，下个月才能再创建任务。",
+        "quota_storage_exceeded": "存储空间已满。请删除文件，或等文件到期。"
     }
 }

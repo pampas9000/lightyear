@@ -27,7 +27,8 @@
         "logout": "ログアウト",
         "select_language": "言語を選択",
         "local_transcode": "ローカル変換",
-        "api_keys": "API キー"
+        "api_keys": "API キー",
+        "usage": "使用量"
     },
     "sidebar": {
         "tagline": "プレミアムメディアハブ",
@@ -296,5 +297,29 @@
         "toast_created": "API キーを作成しました。",
         "toast_revoked": "API キーを無効化しました。",
         "toast_copy_failed": "クリップボードにコピーできませんでした。"
+    },
+    "usage": {
+        "title": "使用量",
+        "description": "今月の処理量と現在のストレージ使用量、それぞれの上限です。",
+        "sign_in_required": "使用量を確認するにはサインインしてください。",
+        "load_failed": "使用量を読み込めませんでした。",
+        "retry": "再試行",
+        "units_title": "処理ユニット",
+        "units_help": "1 回のエンコードが 1 ユニットです。サイズ目標の探索は複数回エンコードします。既存の出力の再利用は数えません。",
+        "unlimited": "無制限",
+        "reserved": "未完了のジョブが {n} ユニットを確保中",
+        "resets": "{date} にリセット",
+        "storage_title": "ストレージ",
+        "storage_help": "アップロードしたソースと出力です。期限切れや削除済みのファイルは含みません。",
+        "outputs": "出力",
+        "reused_outputs": "再利用した出力",
+        "failed_attempts": "失敗した実行",
+        "fetched": "URL からのダウンロード",
+        "daily_title": "日別（UTC）",
+        "daily_empty": "今月の使用量はまだありません。",
+        "col_date": "日付",
+        "col_units": "ユニット",
+        "quota_monthly_exceeded": "今月の処理上限に達しました。新しいタスクは来月から作成できます。",
+        "quota_storage_exceeded": "ストレージがいっぱいです。ファイルを削除するか、期限切れになるのを待ってください。"
     }
 }

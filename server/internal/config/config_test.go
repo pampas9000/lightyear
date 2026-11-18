@@ -19,3 +19,19 @@ func TestLoadReadsS3Settings(t *testing.T) {
 		t.Fatalf("S3 config = %+v, want %+v", got, want)
 	}
 }
+
+// Unset or invalid quota variables take the defaults; 0 must be explicit.
+func TestLoadQuotaAndRateLimit(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("QUOTA_STORAGE_BYTES", "")
+	t.Setenv("QUOTA_MONTHLY_UNITS", "0")
+	t.Setenv("RATE_LIMIT_WRITE_PER_MINUTE", "-5")
+	t.Setenv("RATE_LIMIT_WRITE_BURST", "7")
+	cfg := Load()
+	if cfg.Quota != (QuotaConfig{StorageBytes: DefaultStorageQuotaBytes, MonthlyUnits: 0}) {
+		t.Fatalf("quota = %+v", cfg.Quota)
+	}
+	if cfg.RateLimit != (RateLimitConfig{PerMinute: int(DefaultRateLimitPerMinute), Burst: 7}) {
+		t.Fatalf("rate limit = %+v", cfg.RateLimit)
+	}
+}

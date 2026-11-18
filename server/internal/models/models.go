@@ -76,11 +76,16 @@ type User struct {
 	// SourceRetentionDays and OutputRetentionDays override the global
 	// retention of the user's source files and outputs (0 keeps them
 	// forever). NULL uses the global default. Reserved: no UI sets them yet.
-	SourceRetentionDays *int       `json:"-"`
-	OutputRetentionDays *int       `json:"-"`
-	Tasks               []Task     `gorm:"foreignKey:OwnerID" json:"tasks,omitempty"`
-	Workflows           []Workflow `gorm:"foreignKey:OwnerID" json:"workflows,omitempty"`
-	Files               []File     `gorm:"foreignKey:OwnerID" json:"files,omitempty"`
+	SourceRetentionDays *int `json:"-"`
+	OutputRetentionDays *int `json:"-"`
+	// StorageQuotaBytes and MonthlyUnitQuota override the global quotas
+	// (QUOTA_STORAGE_BYTES, QUOTA_MONTHLY_UNITS); 0 is unlimited and NULL
+	// uses the global value. Reserved: no UI sets them yet.
+	StorageQuotaBytes *int64     `json:"-"`
+	MonthlyUnitQuota  *int64     `json:"-"`
+	Tasks             []Task     `gorm:"foreignKey:OwnerID" json:"tasks,omitempty"`
+	Workflows         []Workflow `gorm:"foreignKey:OwnerID" json:"workflows,omitempty"`
+	Files             []File     `gorm:"foreignKey:OwnerID" json:"files,omitempty"`
 }
 
 type UserOauthAccount struct {
@@ -293,3 +298,40 @@ type APIKey struct {
 }
 
 func (APIKey) TableName() string { return "api_keys" }
+
+// Usage record kinds.
+const (
+	// UsageProcess is a completed attempt; Units are its encode rounds.
+	UsageProcess = "process"
+	// UsageFailed is an attempt the worker reported failed; it costs no
+	// units and keeps ComputeMS for cost tracking.
+	UsageFailed = "failed"
+	// UsageReuse is a job completed with an existing output; no units.
+	UsageReuse = "reuse"
+	// UsageFetch is a URL source the worker downloaded; InputBytes is its size.
+	UsageFetch = "fetch"
+)
+
+// UsageRecord is one metered event, the ledger behind quotas and
+// GET /v1/usage. It keeps job and task ids without foreign keys, so deleting
+// a task does not remove its usage. Attempt events are unique per
+// (attempt_id, kind), so a replayed result is not counted twice.
+type UsageRecord struct {
+	ID           uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CreatedAt    time.Time  `gorm:"not null;index:idx_usage_records_owner_created,priority:2"`
+	OwnerID      uuid.UUID  `gorm:"type:uuid;not null;index:idx_usage_records_owner_created,priority:1"`
+	Kind         string     `gorm:"type:varchar(16);not null;uniqueIndex:idx_usage_records_attempt_kind,priority:2"`
+	AttemptID    *uuid.UUID `gorm:"type:uuid;uniqueIndex:idx_usage_records_attempt_kind,priority:1"`
+	JobID        uuid.UUID  `gorm:"type:uuid;not null"`
+	TaskID       uuid.UUID  `gorm:"type:uuid;not null"`
+	Units        int64      `gorm:"not null;default:0"`
+	EncodeRounds int        `gorm:"not null;default:0"`
+	ComputeMS    int64      `gorm:"not null;default:0"`
+	// InputBytes is the downloaded size of a fetch; OutputBytes and
+	// OutputPixels describe the output of a process or reuse.
+	InputBytes   int64 `gorm:"not null;default:0"`
+	OutputBytes  int64 `gorm:"not null;default:0"`
+	OutputPixels int64 `gorm:"not null;default:0"`
+}
+
+func (UsageRecord) TableName() string { return "usage_records" }

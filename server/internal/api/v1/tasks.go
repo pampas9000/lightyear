@@ -12,6 +12,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
+	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -67,6 +68,8 @@ func respondTaskError(c fiber.Ctx, err error, action string) error {
 		errors.Is(err, task.ErrInvalidJobID),
 		errors.Is(err, task.ErrNoJobsToRetry):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
+	case errors.Is(err, usage.ErrQuotaExceeded):
+		return response.RespondQuotaExceeded(c, err)
 	case errors.Is(err, task.ErrIdempotencyConflict):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeIdempotencyConflict,
 			"Idempotency-Key was already used with a different request.")

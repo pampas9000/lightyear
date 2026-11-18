@@ -24,6 +24,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
 	"transcoder/server/internal/services/storage"
+	"transcoder/server/internal/services/usage"
 	taskqueue "transcoder/server/internal/task"
 	"transcoder/server/pkg/util"
 
@@ -158,9 +159,17 @@ func sanitizeName(name string) string {
 }
 
 type Service struct {
-	db    *gorm.DB
-	kv    *redis.Client
-	queue taskqueue.Queue
+	db     *gorm.DB
+	kv     *redis.Client
+	queue  taskqueue.Queue
+	quotas *usage.Quotas
+}
+
+// WithQuotas makes the service check work against q when tasks are created
+// or retried. Without it nothing is checked.
+func (s *Service) WithQuotas(q *usage.Quotas) *Service {
+	s.quotas = q
+	return s
 }
 
 func NewService(db *gorm.DB, kv *redis.Client) *Service {
@@ -302,6 +311,7 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 		}
 		taskID = t.ID
 		now := time.Now()
+		var requested int64
 		for _, item := range input.Items {
 			fileID := files[item.FileID].ID
 			if item.URL != "" {
@@ -329,13 +339,20 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 					NextRunAt:    &now,
 					MaxAttempts:  3,
 				}
-				if err := reuseOutput(tx, &job); err != nil {
+				reused, err := reuseOutput(tx, &job)
+				if err != nil {
 					return err
 				}
 				if err := tx.Create(&job).Error; err != nil {
 					return fmt.Errorf("create job: %w", err)
 				}
+				if err := meter(tx, &job, reused, &requested); err != nil {
+					return err
+				}
 			}
+		}
+		if err := s.quotas.CheckWork(tx, input.OwnerID, requested); err != nil {
+			return err
 		}
 		return jobstate.Aggregate(tx, t.ID)
 	})
@@ -385,12 +402,23 @@ func lockSourceFiles(tx *gorm.DB, owner uuid.UUID, items []TaskItemInput) (map[u
 	return files, nil
 }
 
+// meter records a job completed by reuse, or adds the units a PENDING job
+// reserves to requested.
+func meter(tx *gorm.DB, job *models.Job, reused *models.File, requested *int64) error {
+	if reused != nil {
+		return usage.RecordReuse(tx, job, reused)
+	}
+	*requested += usage.EstimateUnits(job.Options, job.Target)
+	return nil
+}
+
 // reuseOutput sets the job's artifact key and, when the same owner already has
-// that artifact, completes the job with it instead of queueing work.
-func reuseOutput(tx *gorm.DB, job *models.Job) error {
+// that artifact, completes the job with it instead of queueing work, and
+// returns the reused output.
+func reuseOutput(tx *gorm.DB, job *models.Job) (*models.File, error) {
 	key, err := compression.ArtifactKey(job.SourceFileID.String(), job.Options, job.Target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	job.ArtifactKey = key
 	var done models.Job
@@ -399,10 +427,10 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 		Where(storage.FreshEnough, time.Now()).
 		Order("jobs.created_at DESC").First(&done).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Lock the output so expiry or deletion (which lock it FOR UPDATE and then
 	// count the jobs using it) either finishes first, and the status re-check
@@ -411,10 +439,10 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 	err = tx.Clauses(clause.Locking{Strength: "SHARE"}).
 		First(&output, "id = ? AND status = ?", *done.OutputFileID, models.FileUploaded).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	done.OutputFile = &output
 	job.Status, job.Progress, job.OutputFileID, job.NextRunAt = models.JobCompleted, 100, done.OutputFileID, nil
@@ -434,7 +462,7 @@ func reuseOutput(tx *gorm.DB, job *models.Job) error {
 		job.TargetMet = nil
 		job.Achieved = nil
 	}
-	return nil
+	return &output, nil
 }
 
 func (s *Service) GetTask(ctx context.Context, ownerID uuid.UUID, id uuid.UUID) (*models.Task, error) {
@@ -494,6 +522,7 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 			}
 		}
 		now, selected := time.Now(), 0
+		var requested int64
 		for _, j := range jobs {
 			explicit := slices.Contains(input.JobIDs, j.ID)
 			if len(input.JobIDs) > 0 && !explicit {
@@ -557,7 +586,8 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 			j.CurrentAttemptID, j.LeaseExpiresAt, j.OutputFileID = nil, nil, nil
 			j.ResolvedOptions, j.TargetMet, j.Achieved = nil, nil, nil
 			j.ErrorCode, j.ErrorMessage = "", ""
-			if err := reuseOutput(tx, &j); err != nil {
+			reused, err := reuseOutput(tx, &j)
+			if err != nil {
 				return err
 			}
 			updates := map[string]any{
@@ -589,10 +619,16 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 			if err := tx.Model(&j).Updates(updates).Error; err != nil {
 				return err
 			}
+			if err := meter(tx, &j, reused, &requested); err != nil {
+				return err
+			}
 			selected++
 		}
 		if selected == 0 {
 			return ErrNoJobsToRetry
+		}
+		if err := s.quotas.CheckWork(tx, input.OwnerID, requested); err != nil {
+			return err
 		}
 		return jobstate.Aggregate(tx, parent.ID)
 	})

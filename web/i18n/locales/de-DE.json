@@ -27,7 +27,8 @@
         "logout": "Abmelden",
         "select_language": "Sprache auswählen",
         "local_transcode": "Lokale Transkodierung",
-        "api_keys": "API-Schlüssel"
+        "api_keys": "API-Schlüssel",
+        "usage": "Nutzung"
     },
     "sidebar": {
         "tagline": "Premium Media Hub",
@@ -296,5 +297,29 @@
         "toast_created": "API-Schlüssel erstellt.",
         "toast_revoked": "API-Schlüssel widerrufen.",
         "toast_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen."
+    },
+    "usage": {
+        "title": "Nutzung",
+        "description": "Verarbeitung in diesem Monat und belegter Speicher, jeweils mit Kontingent.",
+        "sign_in_required": "Melden Sie sich an, um Ihre Nutzung zu sehen.",
+        "load_failed": "Nutzung konnte nicht geladen werden.",
+        "retry": "Erneut versuchen",
+        "units_title": "Verarbeitungseinheiten",
+        "units_help": "Eine Einheit ist eine Kodierung. Die Suche nach einer Zielgröße kodiert mehrmals; wiederverwendete Ausgaben kosten nichts.",
+        "unlimited": "unbegrenzt",
+        "reserved": "{n} von laufenden Aufträgen reserviert",
+        "resets": "Wird am {date} zurückgesetzt",
+        "storage_title": "Speicher",
+        "storage_help": "Hochgeladene Quellen und Ausgaben. Abgelaufene und gelöschte Dateien zählen nicht mehr.",
+        "outputs": "Ausgaben",
+        "reused_outputs": "Wiederverwendete Ausgaben",
+        "failed_attempts": "Fehlgeschlagene Versuche",
+        "fetched": "Von URLs geladen",
+        "daily_title": "Nach Tag (UTC)",
+        "daily_empty": "In diesem Monat noch keine Nutzung.",
+        "col_date": "Datum",
+        "col_units": "Einheiten",
+        "quota_monthly_exceeded": "Das Verarbeitungskontingent für diesen Monat ist aufgebraucht. Neue Aufgaben sind ab nächstem Monat wieder möglich.",
+        "quota_storage_exceeded": "Ihr Speicher ist voll. Löschen Sie Dateien oder warten Sie, bis sie ablaufen."
     }
 }

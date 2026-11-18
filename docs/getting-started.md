@@ -102,6 +102,8 @@ TEST_DATABASE_URL='postgres://postgres@127.0.0.1:5432/lightyear_test?sslmode=dis
 | Redis | `REDIS_URL`，默认 `redis://localhost:6379/0` | 会话、队列、取消标记 |
 | S3 / R2 | `S3_ENDPOINT`、`S3_ACCESS_ID`、`S3_ACCESS_KEY`、`S3_BUCKET`、`S3_REGION`（空为 `auto`） | |
 | 存储保留期 | `SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天 | `0` 为永久保留，见[保留期与删除](/architecture/overview#保留期与删除) |
+| 配额 | `QUOTA_STORAGE_BYTES`（默认 10 GiB）、`QUOTA_MONTHLY_UNITS`（默认 10000） | 每个用户的存储与每月处理单位，`0` 为不限，见[用量与配额](/contracts/http-api#用量与配额) |
+| `/v1` 写请求限流 | `RATE_LIMIT_WRITE_PER_MINUTE`（默认 60）、`RATE_LIMIT_WRITE_BURST`（默认 30） | 每个用户的令牌桶，计数放在 Redis；`0` 关闭，见[限流](/contracts/http-api#限流) |
 
 API 与 orchestrator 从 `server/.env`（没有则用根目录 `.env`）和环境变量读取配置；worker 读取当前目录的 `.env` 与环境变量，另有 `WORKER_MAX_SOURCE_BYTES`（默认 200 MB）、`WORKER_MAX_PIXELS`（默认 1 亿）与 `WORKER_AVIF_ENCODER`（`libavif` 或 `libvips`，默认 `libavif`）。完整列表见 `.env.example`。
 

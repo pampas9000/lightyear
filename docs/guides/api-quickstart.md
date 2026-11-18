@@ -329,12 +329,15 @@ curl -sS -X DELETE "$LIGHTYEAR_API/v1/files/$FILE_ID" \
 | :--- | :--- | :--- |
 | `400` | 请求体或参数不合法，`details` 指出字段 | 修正请求，不要原样重试 |
 | `401` | 没带 key、key 写错或已吊销 | 检查 `Authorization` 头与 key 状态 |
-| `403` | key 缺少权限，`details.required_scope` 给出所需权限 | 换一个有该权限的 key |
+| `403 error.auth.insufficient_scope` | key 缺少权限，`details.required_scope` 给出所需权限 | 换一个有该权限的 key |
+| `403 error.quota.exceeded` | 本月处理量用完，或存储已满；`details` 给出 `quota`、`limit`、`used`、`reserved`、`requested` | 等下个月（UTC），或删除不再需要的文件；用 `GET /v1/usage` 查看用量 |
 | `404` | 任务或文件不存在，或不属于这个 key 的账户 | 检查 ID |
 | `409` | `Idempotency-Key` 已用于不同的请求；重试了未结束的 job；删除仍在处理的任务或文件；重试时源文件已过期（`error.file.gone`） | 按 `code` 处理，见[契约 §错误码](/contracts/http-api#错误码) |
+| `429 error.rate_limit.exceeded` | 写请求太频繁（默认每个用户每分钟 60 次，可连续 30 次） | 等 `Retry-After` 秒后原样重试 |
 | `5xx`、超时、连接失败 | 服务端或网络问题 | 等待后重试；提交任务时带 `Idempotency-Key`，重试不会产生重复任务 |
 
 ## 其他端点
 
 - `GET /v1/tasks?page=1&limit=20&status=FAILED`：按创建时间倒序列出任务，`limit` 最大 100，`status` 可选。列表不带下载链接。
+- `GET /v1/usage?month=2026-11`：某月（UTC）用掉的处理单位、未结束任务预占的单位、存储占用与配额，以及按天的明细；需要 `tasks:read`。普通转换算 1 个单位，按体积目标搜索按实际编码轮数算，复用已有产物与失败不算，见[契约 §用量与配额](/contracts/http-api#用量与配额)。
 - 完整的端点表见[契约 §端点](/contracts/http-api#端点)。

@@ -46,7 +46,7 @@ func (r recordingStore) DeleteObject(_ context.Context, _, key string) error {
 	return nil
 }
 
-func setup(t *testing.T) *env {
+func setup(t *testing.T, opts ...func(*Handler, *gorm.DB)) *env {
 	t.Helper()
 	db := testutil.OpenDatabase(t)
 	// Presigning is local, so no store is contacted.
@@ -63,6 +63,9 @@ func setup(t *testing.T) *env {
 	deleted := &[]string{}
 	files := lifecycle.NewService(db, recordingStore{deleted}, "bucket", lifecycle.Days(30, 30))
 	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket", lifecycle.Days(30, 30)), files, sign)
+	for _, opt := range opts {
+		opt(h, db)
+	}
 	app := fiber.New()
 	h.Install(app, keys)
 	return &env{t: t, db: db, app: app, h: h, keys: keys, owner: uuid.New(), deleted: deleted}

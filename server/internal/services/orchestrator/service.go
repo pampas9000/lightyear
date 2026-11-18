@@ -12,6 +12,7 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/jobstate"
 	"transcoder/server/internal/services/lifecycle"
+	"transcoder/server/internal/services/usage"
 	taskqueue "transcoder/server/internal/task"
 	"transcoder/server/pkg/util"
 
@@ -282,7 +283,7 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			return err
 		}
 		if r.Source != nil {
-			if err := s.recordFetched(tx, job, *r.Source, now); err != nil {
+			if err := s.recordFetched(tx, job, attemptID, *r.Source, now); err != nil {
 				return err
 			}
 		}
@@ -328,6 +329,9 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			if err := tx.Model(&attempt).Updates(attemptUpdates).Error; err != nil {
 				return err
 			}
+			if err := usage.RecordAttempt(tx, models.UsageFailed, job, attemptID, r.EncodeRounds, r.ComputeMS, nil); err != nil {
+				return err
+			}
 			return s.retryOrFail(tx, job, code, message, retryable, now)
 		default:
 			return ErrInvalidResult
@@ -339,7 +343,7 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 // fetched and stored the URL, whatever happens to the job afterwards, so a
 // retry reads the stored object instead of fetching again. Lock order: job
 // (held by the caller), then file.
-func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, src taskqueue.FetchedSource, now time.Time) error {
+func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, attemptID uuid.UUID, src taskqueue.FetchedSource, now time.Time) error {
 	var file models.File
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&file, "id = ? AND owner_id = ?", job.SourceFileID, job.OwnerID).Error; err != nil {
@@ -362,6 +366,9 @@ func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, src taskqueue.Fetc
 		"status": models.FileUploaded, "size": src.Size, "mime_type": src.Mime, "uploaded_at": now,
 		"expires_at": nil,
 	}).Error; err != nil {
+		return err
+	}
+	if err := usage.RecordFetch(tx, job, attemptID, src.Size); err != nil {
 		return err
 	}
 	_, err := lifecycle.Schedule(tx, s.retention, file.ID)
@@ -396,6 +403,9 @@ func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt
 		attemptUpdates["compute_ms"] = *r.ComputeMS
 	}
 	if err := tx.Model(attempt).Updates(attemptUpdates).Error; err != nil {
+		return err
+	}
+	if err := usage.RecordAttempt(tx, models.UsageProcess, job, attempt.ID, r.EncodeRounds, r.ComputeMS, &output); err != nil {
 		return err
 	}
 	resolved := job.Options

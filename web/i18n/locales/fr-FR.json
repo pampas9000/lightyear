@@ -27,7 +27,8 @@
         "logout": "Se déconnecter",
         "select_language": "Choisir la langue",
         "local_transcode": "Transcodage local",
-        "api_keys": "Clés API"
+        "api_keys": "Clés API",
+        "usage": "Utilisation"
     },
     "sidebar": {
         "tagline": "Hub Média Premium",
@@ -296,5 +297,29 @@
         "toast_created": "Clé API créée.",
         "toast_revoked": "Clé API révoquée.",
         "toast_copy_failed": "Impossible de copier dans le presse-papiers."
+    },
+    "usage": {
+        "title": "Utilisation",
+        "description": "Le traitement de ce mois-ci et le stockage occupé, avec leurs quotas.",
+        "sign_in_required": "Connectez-vous pour voir votre utilisation.",
+        "load_failed": "Impossible de charger l’utilisation.",
+        "retry": "Réessayer",
+        "units_title": "Unités de traitement",
+        "units_help": "Une unité correspond à un encodage. La recherche d’une taille cible encode plusieurs fois ; les sorties réutilisées ne coûtent rien.",
+        "unlimited": "illimité",
+        "reserved": "{n} réservées par des tâches en cours",
+        "resets": "Réinitialisé le {date}",
+        "storage_title": "Stockage",
+        "storage_help": "Sources envoyées et sorties. Les fichiers expirés ou supprimés ne comptent plus.",
+        "outputs": "Sorties",
+        "reused_outputs": "Sorties réutilisées",
+        "failed_attempts": "Exécutions échouées",
+        "fetched": "Téléchargé depuis des URL",
+        "daily_title": "Par jour (UTC)",
+        "daily_empty": "Aucune utilisation ce mois-ci.",
+        "col_date": "Date",
+        "col_units": "Unités",
+        "quota_monthly_exceeded": "Le quota de traitement de ce mois est épuisé. Vous pourrez créer de nouvelles tâches le mois prochain.",
+        "quota_storage_exceeded": "Votre stockage est plein. Supprimez des fichiers ou attendez qu’ils expirent."
     }
 }

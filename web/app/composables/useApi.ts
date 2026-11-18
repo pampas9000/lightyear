@@ -74,6 +74,18 @@ export const parseApiError = (err: unknown): ApiError => {
         'error.not_found': 'The requested resource was not found.',
     };
 
+    // Quota errors are expected in normal use, so they get a translated
+    // message instead of the backend's English one.
+    if (code === 'error.quota.exceeded') {
+        const key = data?.details?.quota === 'storage'
+            ? 'usage.quota_storage_exceeded'
+            : 'usage.quota_monthly_exceeded';
+        const i18n = tryUseNuxtApp()?.$i18n as { t: (key: string) => string } | undefined;
+        if (i18n) {
+            userMessage = i18n.t(key);
+        }
+    }
+
     // If there is no backend-supplied message, try to map from the code or status
     if (!data || !data.message) {
         if (code && friendlyMessages[code]) {

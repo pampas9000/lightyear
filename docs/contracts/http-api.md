@@ -59,6 +59,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.insufficient_scope`（仅 `/v1`） |
 | 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
 | 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`、`error.file.conflict` |
+| 限额 | `error.quota.exceeded`（见[用量与配额](#用量与配额)）、`error.rate_limit.exceeded`（仅 `/v1`，见[限流](#限流)） |
 | 基础设施 | `error.database.unavailable`、`error.queue.unavailable`、`error.internal` |
 
 ## 任务
@@ -117,6 +118,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 | 文件不存在或未上传完成 | `400 error.param.invalid` |
 | `workflow_id` 不存在 | `400 error.param.invalid` |
 | 同 key 不同内容 | `409 error.param.invalid` |
+| 超出每月处理量或存储已满（见[用量与配额](#用量与配额)） | `403 error.quota.exceeded`，什么都不创建 |
 
 ### 重试
 
@@ -131,6 +133,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 - 替换参数后也会清除上一次运行的 `resolved_options`、`target_met`、`achieved`。
 - 有未结束的 job 被点名时返回 `409`；没有可重试的 job 返回 `400`。
 - 源文件已过期或已被删除时返回 `409 error.file.gone`：重新上传后创建新任务。
+- 重试同样要过配额检查，超出时返回 `403 error.quota.exceeded`，job 保持原状。
 
 ### Job 字段
 
@@ -199,6 +202,64 @@ API 进程每 10 分钟运行一次清理：
 - 产物复用与秒传（同 SHA-256 上传）只使用剩余保留期不少于一半的文件，所以复用不会让对象活过它自己的保留期，也不会把即将过期的文件交给新任务。
 - 用过期源文件重试返回 `409 error.file.gone`。
 
+### 用量与配额
+
+**计量单位**是"处理单位"：一次成功的处理按实际编码轮数（attempt 的 `encode_rounds`）计，普通转换是 1 个单位，按体积目标搜索通常要 5～9 个单位。下面这些不计单位，但仍有记录：
+
+- 复用已有产物的 job（见[产物复用](/architecture/overview#产物复用)）：0 个单位。
+- 失败的 attempt：0 个单位，记下 `compute_ms`。
+- URL 源的下载：记下载字节数；下载下来的文件和上传的一样占存储。
+
+每个事件在 `usage_records` 里记一行，同一个 attempt 的同一类事件只记一次，所以队列重投、结果重放不会重复计量。删除任务或文件不会删除用量记录。月份按 UTC 自然月，job 算在它完成的那个月。
+
+**配额**按用户计，有两项：
+
+| 配额 | 默认 | 配置 | 检查 |
+| :--- | :--- | :--- | :--- |
+| 每月处理量 | 10,000 单位 | `QUOTA_MONTHLY_UNITS` | 创建任务与重试 |
+| 存储 | 10 GiB | `QUOTA_STORAGE_BYTES` | 上传 `init`；创建任务与重试时只看存储是否已满 |
+
+`0` 表示不限。`users` 表上的 `monthly_unit_quota`、`storage_quota_bytes` 可按用户覆盖（`NULL` 用全局默认，暂无界面）。
+
+- **每月处理量**：本月已结算的单位，加上所有未结束 job 预占的单位，再加上这次请求要预占的单位，超过上限就拒绝。预占按 job 估算：按体积目标搜索的 job 预占 7 个单位（JXL 是 9 个），其余 1 个；全部复用已有产物的任务不预占，因此不会被拒绝。job 完成后按实际轮数结算，预占随之释放。同一用户的配额检查串行执行，并发提交不会一起越过上限。
+- **存储**：已上传完成（`UPLOADED`）的文件大小，加上上传中（`UPLOADING`）文件申报的大小。上传 `init` 按"已用 + 本次申报大小 > 上限"拒绝；秒传不占新空间，不检查。存储是软限制：任务的产物可能让用量略超上限，超过后再上传或创建任务都会被拒绝，直到删除文件或文件过期。
+- 已经接受的任务总会跑完，配额只在入口检查。
+
+超出时返回 `403`：
+
+```json
+{
+  "success": false,
+  "code": "error.quota.exceeded",
+  "message": "Monthly processing quota exceeded.",
+  "data": null,
+  "details": { "quota": "monthly_units", "limit": 10000, "used": 9990, "reserved": 7, "requested": 7 }
+}
+```
+
+`quota` 是 `monthly_units` 或 `storage`（单位是字节）；`used` 是已结算的用量（存储为当前占用），`reserved` 是其他未结束 job 已预占的单位，`requested` 是这次请求要用的量。
+
+`GET /api/usage?month=YYYY-MM`（`/v1` 为 `GET /v1/usage`，需要 `tasks:read`）返回某月的用量，`month` 省略时为当月，格式不对返回 `400 error.param.invalid`：
+
+```json
+{
+  "month": "2026-11",
+  "period_start": "2026-11-01T00:00:00Z",
+  "period_end": "2026-12-01T00:00:00Z",
+  "units": { "used": 277, "reserved": 7, "limit": 10000 },
+  "storage": { "used_bytes": 859832320, "limit_bytes": 10737418240 },
+  "totals": {
+    "outputs": 121, "reused_outputs": 16, "failed_attempts": 11, "encode_rounds": 277,
+    "compute_ms": 64000, "output_bytes": 19200000, "output_pixels": 320000000, "fetched_bytes": 42000000
+  },
+  "daily": [{ "date": "2026-11-01", "units": 21, "outputs": 9, "reused_outputs": 0, "failed_attempts": 0 }]
+}
+```
+
+- `limit`、`limit_bytes` 不限时为 `null`。`reserved` 只在当月有值。`storage` 总是当前占用，与 `month` 无关。
+- `outputs` 是本月成功处理的产物数（不含复用），`output_pixels` 是产物的像素数（源图像素暂不记录）。
+- `daily` 只列有用量的日期（UTC），按日期升序。
+
 ## 预设（Workflows）
 
 | 方法 | 路径 | 说明 |
@@ -229,6 +290,8 @@ API 进程每 10 分钟运行一次清理：
 - `size` 不超过 10 MB：`{fileId, key, url}`。向 `url` 单次 `PUT` 文件内容；`hash` 已签进 URL，内容不符时存储拒绝写入。
 - 更大的文件：`{fileId, key, uploadId, partUrls}`。分片大小为 `max(5 MiB, ceil(size / 10000))`，`partUrls[i]` 对应第 `i + 1` 片。
 
+除秒传外，`size` 加上已占用的存储超过配额时返回 `403 error.quota.exceeded`，见[用量与配额](#用量与配额)。
+
 ## 文件、草稿与 Job
 
 | 方法 | 路径 | 说明 |
@@ -255,7 +318,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 
 | scope | 允许 |
 | :--- | :--- |
-| `tasks:read` | `GET /v1/tasks`、`GET /v1/tasks/:id` |
+| `tasks:read` | `GET /v1/tasks`、`GET /v1/tasks/:id`、`GET /v1/usage` |
 | `tasks:write` | 上传（`/v1/uploads/**`）、`POST /v1/tasks`、取消、重试、删除（`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`） |
 
 两个 scope 互不包含；写操作的响应里也会带回任务本身。
@@ -287,6 +350,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | `POST` | `/v1/tasks/:id/retry` | write | `202` + `Task`，`Location`、`Retry-After` |
 | `DELETE` | `/v1/tasks/:id` | write | `200 {id, deleted_outputs, retained_outputs}` |
 | `DELETE` | `/v1/files/:id` | write | `200` + `File` |
+| `GET` | `/v1/usage` | read | `200` + 用量（见[用量与配额](#用量与配额)） |
 
 `:id` 不是 UUID 时返回 `400 error.param.invalid`；不属于当前 key 所有者的任务、上传与文件一律按不存在处理（`404`）。
 
@@ -303,7 +367,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 - 响应 `Upload`：
 
 ```json
-{ "file": { "id": "0198…", "name": "a.jpg", "status": "UPLOADING", "size": 0, "mime_type": "image/jpeg", "sha256": "9f86d0…", "created_at": "…" },
+{ "file": { "id": "0198…", "name": "a.jpg", "status": "UPLOADING", "size": 245760, "mime_type": "image/jpeg", "sha256": "9f86d0…", "created_at": "…" },
   "method": "put", "url": "https://…", "expires_at": "…" }
 ```
 
@@ -317,6 +381,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 - `complete` 后文件为 `UPLOADED`，`size` 与 `mime_type` 以存储实际为准。对已上传的文件重复调用直接返回；分片上传未带 `parts` 返回 `400 error.param.required`；存储里还没有该对象（`PUT` 未完成或被存储拒绝，例如 `sha256` 不符）返回 `409 error.param.invalid`，文件仍为 `UPLOADING`，可以重新 `PUT` 后再调用。
 - 对单次 PUT 的上传调用分片相关端点、对已完成的上传中止，返回 `409 error.param.invalid`。
 - 未完成的上传 24 小时后由清理任务回收。
+- 上传中的文件按申报的 `size` 计入存储；申报后会超出存储配额时返回 `403 error.quota.exceeded`（秒传不检查），见[用量与配额](#用量与配额)。
 
 ### 创建任务
 
@@ -402,6 +467,15 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 
 `DELETE /v1/tasks/:id` 与 `DELETE /v1/files/:id` 无请求体，需要 `tasks:write`，行为与 [`/api` 的删除](#删除)相同：任务有未结束的 job 时 `409 error.task.conflict`（先取消）；产物按引用计数删除，仍被其他任务复用的列在 `retained_outputs`；文件被未结束的 job 读取时 `409 error.file.conflict`。
 
+### 限流
+
+`/v1` 的写请求按用户限流（同一用户的所有 key 共用额度），用令牌桶：默认每分钟 60 次、最多连续 30 次，由 `RATE_LIMIT_WRITE_PER_MINUTE`、`RATE_LIMIT_WRITE_BURST` 配置，`RATE_LIMIT_WRITE_PER_MINUTE=0` 关闭。
+
+- 计入限流的只有 `POST /v1/uploads`、`POST /v1/tasks`、取消、重试、`DELETE /v1/tasks/:id`、`DELETE /v1/files/:id`。上传的后续步骤（`complete`、分片、`abort`）与所有读请求不计。
+- 超出时返回 `429 error.rate_limit.exceeded`，带 `Retry-After`（整数秒），`details: {"retry_after": 2}`。等待后原样重试即可；创建任务时带 `Idempotency-Key`。
+- 计数放在 Redis，只用来限流。Redis 不可用时放行请求，并在日志里告警。
+- `/api`（Web 控制台）不限流，但同样检查配额。
+
 ### 错误码
 
 | 状态 | 码 | 场景 |
@@ -410,12 +484,14 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 | `400` | `error.param.invalid` / `error.param.required` | 参数校验失败（规则同 `/api`），`details` 指出字段 |
 | `401` | `error.auth.unauthorized` | 无 key、key 无效或已吊销 |
 | `403` | `error.auth.insufficient_scope` | key 缺少 scope |
+| `403` | `error.quota.exceeded` | 超出每月处理量或存储配额，见[用量与配额](#用量与配额) |
 | `404` | `error.task.not_found` / `error.file.not_found` | 任务 / 上传 / 文件不存在或不属于该用户 |
 | `409` | `error.idempotency.conflict` | `Idempotency-Key` 已用于不同内容的请求 |
 | `409` | `error.task.conflict` | 重试点名了未结束的 job；删除仍有未结束 job 的任务 |
 | `409` | `error.file.conflict` | 删除仍被未结束 job 读取的文件 |
 | `409` | `error.file.gone` | 重试时源文件已过期或已删除 |
 | `409` | `error.param.invalid` | 上传状态不允许该操作（见上传） |
+| `429` | `error.rate_limit.exceeded` | 写请求过于频繁，按 `Retry-After` 等待，见[限流](#限流) |
 | `500` | `error.internal` | 其他 |
 
 ## 已知不一致

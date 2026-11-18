@@ -11,6 +11,7 @@ import (
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
+	"transcoder/server/internal/services/usage"
 
 	"gorm.io/gorm"
 
@@ -171,6 +172,8 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "url must be an absolute http or https URL without user info, at most 2048 bytes.", response.ValidationDetail{Field: "items", Reason: "invalid url"})
 	case errors.Is(err, task.ErrFileNotFound):
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "input file not found or not uploaded.", response.ValidationDetail{Field: "items", Reason: "input file not found or not uploaded"})
+	case errors.Is(err, usage.ErrQuotaExceeded):
+		return response.RespondQuotaExceeded(c, err)
 	case errors.Is(err, task.ErrIdempotencyConflict):
 		return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, "Idempotency key conflict: request payload mismatch.")
 	}
@@ -257,6 +260,8 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 			return response.RespondError(c, fiber.StatusConflict, response.CodeParamInvalid, err.Error())
 		case errors.Is(err, task.ErrSourceUnavailable):
 			return response.RespondError(c, fiber.StatusConflict, response.CodeFileGone, err.Error())
+		case errors.Is(err, usage.ErrQuotaExceeded):
+			return response.RespondQuotaExceeded(c, err)
 		case errors.Is(err, task.ErrTaskNotFound):
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		case errors.Is(err, task.ErrNoJobsToRetry):

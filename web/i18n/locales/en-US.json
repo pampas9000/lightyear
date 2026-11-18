@@ -27,7 +27,8 @@
         "logout": "Logout",
         "select_language": "Select Language",
         "local_transcode": "Local Transcode",
-        "api_keys": "API Keys"
+        "api_keys": "API Keys",
+        "usage": "Usage"
     },
     "sidebar": {
         "tagline": "Premium Media Hub",
@@ -296,5 +297,29 @@
         "toast_created": "API key created.",
         "toast_revoked": "API key revoked.",
         "toast_copy_failed": "Could not copy to the clipboard."
+    },
+    "usage": {
+        "title": "Usage",
+        "description": "Processing used this month and storage in use, against your quotas.",
+        "sign_in_required": "Sign in to see your usage.",
+        "load_failed": "Could not load usage.",
+        "retry": "Try again",
+        "units_title": "Processing units",
+        "units_help": "One unit is one encode. A size-target search encodes several times; reused outputs cost nothing.",
+        "unlimited": "unlimited",
+        "reserved": "{n} held by unfinished jobs",
+        "resets": "Resets {date}",
+        "storage_title": "Storage",
+        "storage_help": "Uploaded sources and outputs. Expired and deleted files no longer count.",
+        "outputs": "Outputs",
+        "reused_outputs": "Reused outputs",
+        "failed_attempts": "Failed attempts",
+        "fetched": "Downloaded from URLs",
+        "daily_title": "By day (UTC)",
+        "daily_empty": "No usage this month yet.",
+        "col_date": "Date",
+        "col_units": "Units",
+        "quota_monthly_exceeded": "This month's processing quota is used up. New tasks are accepted again next month.",
+        "quota_storage_exceeded": "Your storage is full. Delete files or wait for them to expire."
     }
 }

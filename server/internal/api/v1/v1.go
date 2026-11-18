@@ -18,6 +18,7 @@ import (
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/services/upload"
+	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
@@ -41,7 +42,16 @@ type Handler struct {
 	uploads *upload.Service
 	files   *lifecycle.Service
 	sign    Signer
+	quotas  *usage.Quotas
+	limiter middleware.Limiter
 	now     func() time.Time
+}
+
+// WithUsage serves GET /v1/usage from quotas and rate limits write requests
+// with limiter (nil: no limit).
+func (h *Handler) WithUsage(quotas *usage.Quotas, limiter middleware.Limiter) *Handler {
+	h.quotas, h.limiter = quotas, limiter
+	return h
 }
 
 func New(tasks *task.Service, uploads *upload.Service, files *lifecycle.Service, sign Signer) *Handler {
@@ -53,21 +63,27 @@ func (h *Handler) Install(app fiber.Router, keys *apikey.Service) {
 	v1 := app.Group("/v1", middleware.APIKeyAuth(keys))
 	read := middleware.RequireScope(apikey.ScopeTasksRead)
 	write := middleware.RequireScope(apikey.ScopeTasksWrite)
+	// Requests that start work or change state share one bucket per user.
+	// The later steps of an upload (complete, parts, abort) belong to an
+	// upload that was already counted, so they are not limited.
+	limit := middleware.RateLimit(h.limiter)
 
-	v1.Post("/uploads", write, h.CreateUpload)
+	v1.Post("/uploads", write, limit, h.CreateUpload)
 	v1.Post("/uploads/:id/complete", write, h.CompleteUpload)
 	v1.Get("/uploads/:id/parts", write, h.ListParts)
 	v1.Post("/uploads/:id/parts/:part_number/url", write, h.SignPart)
 	v1.Post("/uploads/:id/abort", write, h.AbortUpload)
 
-	v1.Post("/tasks", write, h.CreateTask)
+	v1.Post("/tasks", write, limit, h.CreateTask)
 	v1.Get("/tasks", read, h.ListTasks)
 	v1.Get("/tasks/:id", read, h.GetTask)
-	v1.Post("/tasks/:id/cancel", write, h.CancelTask)
-	v1.Post("/tasks/:id/retry", write, h.RetryTask)
-	v1.Delete("/tasks/:id", write, h.DeleteTask)
+	v1.Post("/tasks/:id/cancel", write, limit, h.CancelTask)
+	v1.Post("/tasks/:id/retry", write, limit, h.RetryTask)
+	v1.Delete("/tasks/:id", write, limit, h.DeleteTask)
 
-	v1.Delete("/files/:id", write, h.DeleteFile)
+	v1.Delete("/files/:id", write, limit, h.DeleteFile)
+
+	v1.Get("/usage", read, h.GetUsage)
 }
 
 func owner(c fiber.Ctx) uuid.UUID {
