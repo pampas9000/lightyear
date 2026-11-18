@@ -125,49 +125,60 @@ func (s *Service) Sweep(ctx context.Context, now time.Time) (SweepResult, error)
 	return res, nil
 }
 
-// schedule gives every unscheduled UPLOADED file its expires_at. Files are
-// normally scheduled as they become UPLOADED (Schedule); this catches the
-// rest, such as files uploaded before a retention change or by a process
-// that does not know the policy.
+// schedule gives every unscheduled UPLOADED or FETCHING file its expires_at.
+// Files are normally scheduled as they become UPLOADED (Schedule); this
+// catches the rest, such as files uploaded before a retention change, files
+// stored by a process that does not know the policy, and URL sources that are
+// still waiting to be fetched.
 func (s *Service) schedule(ctx context.Context) (int64, error) {
 	return Schedule(s.db.WithContext(ctx), s.policy)
 }
 
-// Schedule sets expires_at = uploaded_at + retention on the given UPLOADED
-// files that have none, or on all such files when ids is empty. A file that
-// some job produced is an output; any other file is a source. Retention 0
-// (the user's or, without one, the policy's) leaves it NULL. Run it in the
-// transaction that marks the file UPLOADED, after the job that produced an
-// output points at it.
+// expirable are the statuses Schedule and expire handle. A FETCHING file is a
+// URL source no worker has fetched yet; if every job reading it ends first
+// (all cancelled, say), it would otherwise stay FETCHING forever.
+var expirable = []string{models.FileUploaded, models.FileFetching}
+
+// Schedule sets expires_at on the given UPLOADED or FETCHING files that have
+// none, or on all such files when ids is empty: uploaded_at + retention for
+// UPLOADED, created_at + source retention for FETCHING (it can be retried
+// until then). A file that some job produced is an output; any other file is
+// a source. Retention 0 (the user's or, without one, the policy's) leaves it
+// NULL. Run it in the transaction that marks the file UPLOADED, after the job
+// that produced an output points at it.
 func Schedule(db *gorm.DB, policy Policy, ids ...uuid.UUID) (int64, error) {
 	days := func(d time.Duration) int { return int(d / (24 * time.Hour)) }
-	only, args := "", []any{days(policy.Output), days(policy.Source), models.FileUploaded}
+	only, args := "", []any{models.FileFetching, days(policy.Output), days(policy.Source), expirable}
 	if len(ids) > 0 {
 		only, args = " AND f.id IN ?", append(args, ids)
 	}
 	res := db.Exec(`
 		WITH due AS (
-			SELECT f.id, f.uploaded_at,
+			SELECT f.id,
+				CASE WHEN f.status = ? THEN f.created_at ELSE f.uploaded_at END AS since,
 				CASE WHEN EXISTS (SELECT 1 FROM jobs j WHERE j.output_file_id = f.id)
 					THEN COALESCE((SELECT u.output_retention_days FROM users u WHERE u.id = f.owner_id), ?::int)
 					ELSE COALESCE((SELECT u.source_retention_days FROM users u WHERE u.id = f.owner_id), ?::int)
 				END AS days
 			FROM files f
-			WHERE f.status = ? AND f.expires_at IS NULL AND f.uploaded_at IS NOT NULL`+only+`
+			WHERE f.status IN ? AND f.expires_at IS NULL`+only+`
 		)
-		UPDATE files SET expires_at = due.uploaded_at + make_interval(days => due.days::int)
+		UPDATE files SET expires_at = due.since + make_interval(days => due.days::int)
 		FROM due
-		WHERE files.id = due.id AND due.days > 0 AND files.status = ? AND files.expires_at IS NULL`,
-		append(args, models.FileUploaded)...)
+		WHERE files.id = due.id AND due.since IS NOT NULL AND due.days > 0
+			AND files.status IN ? AND files.expires_at IS NULL`,
+		append(args, expirable)...)
 	return res.RowsAffected, res.Error
 }
 
-// expire marks UPLOADED files past expires_at as EXPIRED and removes their
-// objects. A file an unfinished job reads is skipped until the job ends.
+// expire marks UPLOADED and FETCHING files past expires_at as EXPIRED and
+// removes their objects (a FETCHING file may have one: a worker can store the
+// fetch and stop before reporting it). A file an unfinished job reads is
+// skipped until the job ends.
 func (s *Service) expire(ctx context.Context, now time.Time, res *SweepResult, tried map[uuid.UUID]bool) error {
 	var due []models.File
 	if err := s.db.WithContext(ctx).
-		Where("status = ? AND expires_at IS NOT NULL AND expires_at <= ?", models.FileUploaded, now).
+		Where("status IN ? AND expires_at IS NOT NULL AND expires_at <= ?", expirable, now).
 		Order("expires_at").Limit(s.BatchSize).Find(&due).Error; err != nil {
 		return err
 	}
@@ -185,7 +196,7 @@ func (s *Service) expire(ctx context.Context, now time.Time, res *SweepResult, t
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&file, "id = ?", f.ID).Error; err != nil {
 				return err
 			}
-			if file.Status != models.FileUploaded || file.ExpiresAt == nil || file.ExpiresAt.After(now) {
+			if !slices.Contains(expirable, file.Status) || file.ExpiresAt == nil || file.ExpiresAt.After(now) {
 				return nil
 			}
 			busy, err := inUse(tx, file.ID)

@@ -102,7 +102,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 - 创建时只检查格式：绝对的 `http`/`https` URL，有主机名，不带用户名密码，首尾无空白，最多 2048 字节。不发起网络请求，所以地址不可达要到执行时才知道。
 - 每个 URL item 新建一个状态为 `FETCHING` 的源文件，`source_url` 记录原地址；`name` 取 URL 路径的最后一段（没有则为 `image`）。同一个 URL 出现两次就是两个源文件。
-- worker 第一次执行时下载并存入存储，之后文件变为 `UPLOADED`，填入 `size` 与 `mime_type`，按普通上传文件计算保留期；之后的重试直接读存好的文件，不再下载。下载失败时文件保持 `FETCHING`，重试会重新下载。
+- worker 第一次执行时下载并存入存储，之后文件变为 `UPLOADED`，填入 `size` 与 `mime_type`，按普通上传文件计算保留期；之后的重试直接读存好的文件，不再下载。下载失败时文件保持 `FETCHING`，重试会重新下载；一直没下载成功的文件从创建时起按源文件保留期过期（见[存储保留期](#存储保留期)），之后重试返回 `409 error.file.gone`。
 - 只允许公网地址：指向内网、本机、保留地址（含经重定向到达的）会以 `url_rejected` 失败，不可重试；超时、连接失败、远端 5xx 以 `fetch_failed` 失败并自动重试，远端 4xx 不重试。重定向最多 3 跳；文件大小上限与上传相同。完整规则见[队列契约 §URL 源](/contracts/queue#url-源)。
 - 不发送 Cookie、凭据或 `Referer`。私有存储桶的图请传预签名 URL；URL 在任务执行前过期会导致 `fetch_failed`（403，不重试）。
 - URL 源不复用已有产物：同一个 URL、同样的参数再提交一次，会重新下载并处理。
@@ -185,12 +185,12 @@ Fiber session，存储在 Redis。两种等价凭据：
 
 源文件与产物各有保留期，从上传完成（`uploaded_at`）算起，默认均为 30 天，由环境变量 `SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS` 配置（`0` 表示永久保留）。用户表上的 `source_retention_days`、`output_retention_days` 可按用户覆盖（预留，暂无界面）。被任意 job 产出的文件按产物计，其余按源文件计。
 
-文件变为 `UPLOADED` 时（上传 `complete`、worker 产出产物）在同一事务里写入 `expires_at`，所以 `complete` 的响应已带到期时间。
+文件变为 `UPLOADED` 时（上传 `complete`、worker 产出产物或下载完 URL 源）在同一事务里写入 `expires_at`，所以 `complete` 的响应已带到期时间。还没下载成功的 URL 源（`FETCHING`）从创建时间（`created_at`）算起，按源文件保留期到期；下载成功后改从 `uploaded_at` 重新计算。
 
 API 进程每 10 分钟运行一次清理：
 
-1. 为仍没有到期时间的 `UPLOADED` 文件补写 `expires_at`（例如上线前已有的文件、清理任务把中断的上传修复为 `UPLOADED` 的文件）。
-2. 到期的文件改为 `EXPIRED`，再删除存储对象。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。
+1. 为仍没有到期时间的 `UPLOADED` 与 `FETCHING` 文件补写 `expires_at`（例如上线前已有的文件、清理任务把中断的上传修复为 `UPLOADED` 的文件、所有 job 在下载前就已结束的 URL 源）。
+2. 到期的文件（`UPLOADED` 或 `FETCHING`）改为 `EXPIRED`，再删除存储对象（`FETCHING` 文件可能留有下载到一半的对象）。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。
 3. 重试此前删除失败的对象（`EXPIRED`/`DELETED` 且尚未清除的文件）。
 
 到期后：

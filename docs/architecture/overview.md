@@ -75,7 +75,7 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 
 ### 保留期与删除
 
-代码在 `server/internal/services/lifecycle`。源文件与产物各有保留期（`SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天，`0` 为永久），从 `uploaded_at` 算起，用户可单独覆盖。被任意 job 产出的文件算产物，其余算源文件。文件变为 `UPLOADED` 时（上传完成、orchestrator 记录产物）在同一事务里写入 `expires_at`（`lifecycle.Schedule`）。API 进程每 10 分钟清理一次：给仍没有 `expires_at` 的文件补写，把到期的文件改为 `EXPIRED` 并删除对象，再重试此前删除失败的对象。用户删除任务或文件（[HTTP API §删除](/contracts/http-api#删除)）走同一套删除。
+代码在 `server/internal/services/lifecycle`。源文件与产物各有保留期（`SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天，`0` 为永久），从 `uploaded_at` 算起，用户可单独覆盖。被任意 job 产出的文件算产物，其余算源文件。文件变为 `UPLOADED` 时（上传完成、orchestrator 记录产物）在同一事务里写入 `expires_at`（`lifecycle.Schedule`）；还没下载的 URL 源（`FETCHING`）从 `created_at` 起按源文件保留期计算，下载成功后改从 `uploaded_at` 重算。API 进程每 10 分钟清理一次：给仍没有 `expires_at` 的文件补写，把到期的文件改为 `EXPIRED` 并删除对象，再重试此前删除失败的对象。用户删除任务或文件（[HTTP API §删除](/contracts/http-api#删除)）走同一套删除。
 
 不变式：
 

@@ -64,11 +64,17 @@ func TestURLSourceIsFetchedOnceAndNotAgainOnRetry(t *testing.T) {
 		t.Fatalf("first dispatch must carry the URL: %+v", f.queue.sent)
 	}
 	job := f.job(t, 0)
+	// The lifecycle sweep may have scheduled the FETCHING file from its
+	// creation; the fetch restarts retention from uploaded_at.
+	stale := time.Now().Add(-time.Hour)
+	if err := f.db.Model(&models.File{}).Where("id = ?", file.ID).Update("expires_at", stale).Error; err != nil {
+		t.Fatal(err)
+	}
 	f.process(t, fetchedReport(job, file))
 	file = f.source(t)
 	if file.Status != models.FileUploaded || file.Size != 4321 || file.MimeType != "image/jpeg" ||
-		file.UploadedAt == nil || file.ExpiresAt == nil {
-		t.Fatalf("fetched file must be UPLOADED with its size, type and retention: %+v", file)
+		file.UploadedAt == nil || file.ExpiresAt == nil || !file.ExpiresAt.After(*file.UploadedAt) {
+		t.Fatalf("fetched file must be UPLOADED with its size, type and a retention from uploaded_at: %+v", file)
 	}
 	// A repeated report changes nothing.
 	f.process(t, fetchedReport(job, file))

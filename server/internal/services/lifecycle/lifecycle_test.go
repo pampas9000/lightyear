@@ -257,6 +257,77 @@ func TestSourceOfUnfinishedJobIsKept(t *testing.T) {
 	}
 }
 
+// A URL source whose jobs all end before any worker fetches it must not stay
+// FETCHING forever: it expires at created_at + source retention, and can be
+// retried until then.
+func TestUnfetchedURLSourceExpires(t *testing.T) {
+	e := setup(t)
+	tk, err := e.tasks.CreateTask(t.Context(), task.CreateTaskInput{OwnerID: e.owner,
+		Items: []task.TaskItemInput{{URL: "https://example.com/a.png"}}, Options: []byte(`{"format":"webp"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := *tk.Jobs[0].SourceFile
+
+	// Scheduled from created_at, like any source.
+	e.sweep()
+	got, _ := e.file(src.ID)
+	if got.Status != models.FileFetching || got.ExpiresAt == nil ||
+		!got.ExpiresAt.Round(time.Second).Equal(got.CreatedAt.Add(30*24*time.Hour).Round(time.Second)) {
+		t.Fatalf("FETCHING source: %s, expires_at %v, created_at %v", got.Status, got.ExpiresAt, got.CreatedAt)
+	}
+
+	// While its job is pending it is kept, even past expiry.
+	e.setExpiry(src.ID, time.Now().Add(-time.Minute))
+	if res := e.sweep(); res.Skipped != 1 || res.Expired != 0 {
+		t.Fatalf("sweep with a pending job %+v", res)
+	}
+
+	// Cancelled before any fetch: still retryable before expiry.
+	if _, err := e.tasks.CancelTask(t.Context(), e.owner, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.setExpiry(src.ID, time.Now().Add(time.Hour))
+	if res := e.sweep(); res.Expired != 0 {
+		t.Fatalf("expired before its time %+v", res)
+	}
+	if _, err := e.tasks.RetryTask(t.Context(), task.RetryTaskInput{OwnerID: e.owner, TaskID: tk.ID, RetryAll: true}); err != nil {
+		t.Fatalf("retry before expiry: %v", err)
+	}
+	if _, err := e.tasks.CancelTask(t.Context(), e.owner, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Past expiry with no unfinished job: EXPIRED, any stray object removed,
+	// the row kept for the job, and a retry is refused.
+	e.setExpiry(src.ID, time.Now().Add(-time.Minute))
+	if res := e.sweep(); res.Expired != 1 || res.Purged != 1 {
+		t.Fatalf("sweep after cancel %+v", res)
+	}
+	if got, ok := e.file(src.ID); !ok || got.Status != models.FileExpired || got.PurgedAt == nil || !e.store.has(src.Path) {
+		t.Fatalf("URL source after expiry: ok=%v %+v", ok, got)
+	}
+	_, err = e.tasks.RetryTask(t.Context(), task.RetryTaskInput{OwnerID: e.owner, TaskID: tk.ID, RetryAll: true})
+	if !errors.Is(err, task.ErrSourceUnavailable) {
+		t.Fatalf("retry with expired URL source: %v", err)
+	}
+}
+
+// With source retention 0 an unfetched URL source is kept, like an upload.
+func TestUnfetchedURLSourceKeptWithoutRetention(t *testing.T) {
+	e := setup(t)
+	e.svc = NewService(e.db, e.store, "bucket", Days(0, 30))
+	tk, err := e.tasks.CreateTask(t.Context(), task.CreateTaskInput{OwnerID: e.owner,
+		Items: []task.TaskItemInput{{URL: "https://example.com/a.png"}}, Options: []byte(`{"format":"webp"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.sweep()
+	if got, _ := e.file(tk.Jobs[0].SourceFile.ID); got.Status != models.FileFetching || got.ExpiresAt != nil {
+		t.Fatalf("retention 0: %s, expires_at %v", got.Status, got.ExpiresAt)
+	}
+}
+
 func TestFailedObjectDeletionIsRetried(t *testing.T) {
 	e := setup(t)
 	src := e.source("a.png")

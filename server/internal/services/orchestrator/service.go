@@ -356,8 +356,11 @@ func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, src taskqueue.Fetc
 	if src.Key != file.Path || src.Size <= 0 || src.Mime == "" || len(src.Mime) > 127 {
 		return fmt.Errorf("%w: fetched source invalid or outside the file", ErrInvalidResult)
 	}
+	// expires_at is cleared so Schedule counts retention from the fetch, not
+	// from when the URL was submitted (the sweep may have scheduled it).
 	if err := tx.Model(&file).Updates(map[string]any{
 		"status": models.FileUploaded, "size": src.Size, "mime_type": src.Mime, "uploaded_at": now,
+		"expires_at": nil,
 	}).Error; err != nil {
 		return err
 	}
