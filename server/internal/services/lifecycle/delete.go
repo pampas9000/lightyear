@@ -59,6 +59,10 @@ func (s *Service) DeleteTask(ctx context.Context, owner, taskID uuid.UUID) (*Tas
 			}
 		}
 		if len(jobIDs) > 0 {
+			if err := tx.Where("attempt_id IN (?)", tx.Model(&models.Attempt{}).Select("id").Where("job_id IN ?", jobIDs)).
+				Delete(&models.OutboxMessage{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("job_id IN ?", jobIDs).Delete(&models.Attempt{}).Error; err != nil {
 				return err
 			}

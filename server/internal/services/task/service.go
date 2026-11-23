@@ -670,6 +670,12 @@ func (s *Service) CancelTask(ctx context.Context, ownerID uuid.UUID, taskID uuid
 					Updates(map[string]any{"status": models.AttemptCancelled, "finished_at": now}).Error; err != nil {
 					return err
 				}
+				// An unsent dispatch would only make a worker start a
+				// cancelled attempt.
+				if err := tx.Where("attempt_id = ? AND sent_at IS NULL", *j.CurrentAttemptID).
+					Delete(&models.OutboxMessage{}).Error; err != nil {
+					return err
+				}
 				running = append(running, *j.CurrentAttemptID)
 			}
 		}

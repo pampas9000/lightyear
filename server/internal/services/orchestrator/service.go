@@ -29,9 +29,18 @@ const (
 	StartTimeout = 10 * time.Minute
 	// LeaseDuration is renewed by every heartbeat (workers send one every 20s).
 	LeaseDuration = 2 * time.Minute
-	// UnsentGrace is how old a never-sent attempt must be before recovery
-	// sends it, so it does not race the dispatcher's own send.
-	UnsentGrace = 30 * time.Second
+	// UnsentGrace is how long the relay leaves a new outbox message to the
+	// send its writer makes right after commit, so the two rarely both send.
+	UnsentGrace = 5 * time.Second
+	// RelayClaim is how long a relay instance owns the messages it claimed;
+	// if it dies mid-batch, another instance sends them after this.
+	RelayClaim = 30 * time.Second
+	// OutboxRetention is how long sent messages are kept for diagnosis.
+	OutboxRetention = 7 * 24 * time.Hour
+	// PruneInterval is how often sent messages past OutboxRetention are deleted.
+	PruneInterval = time.Hour
+	relayBatch    = 100
+	pruneBatch    = 1000
 	// FetchWait is how long a job waits before it is claimed again while a
 	// sibling job is fetching their shared URL source.
 	FetchWait     = 2 * time.Second
@@ -145,7 +154,7 @@ type candidate struct {
 }
 
 // DispatchDue claims due PENDING jobs and sends their attempts. A failed send
-// leaves the attempt QUEUED and unsent, and Recover sends it later.
+// leaves the outbox message unsent, and Relay sends it later.
 func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
 	var due []candidate
 	if err := s.db.WithContext(ctx).Raw(dueQuery, map[string]any{
@@ -153,27 +162,27 @@ func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
 	}).Scan(&due).Error; err != nil {
 		return 0, err
 	}
-	sent := 0
+	claimed := 0
 	for _, c := range due {
-		attempt, err := s.claim(ctx, c, now)
+		msg, err := s.claim(ctx, c, now)
 		if err != nil {
-			return sent, err
+			return claimed, err
 		}
-		if attempt != nil {
-			s.send(ctx, attempt)
-			sent++
+		if msg != nil {
+			s.deliver(ctx, msg)
+			claimed++
 		}
 	}
-	return sent, nil
+	return claimed, nil
 }
 
-// claim turns one PENDING job into a QUEUED attempt. The per-owner advisory
-// lock serializes claims for one user across orchestrator instances, so the
-// PROCESSING count it re-checks cannot be raced past the cap. It is taken
-// before the task → job locks and nothing else takes it, so it adds no
-// deadlock cycle.
-func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*models.Attempt, error) {
-	var attempt *models.Attempt
+// claim turns one PENDING job into a QUEUED attempt and the outbox message
+// that sends it. The per-owner advisory lock serializes claims for one user
+// across orchestrator instances, so the PROCESSING count it re-checks cannot
+// be raced past the cap. It is taken before the task → job locks and nothing
+// else takes it, so it adds no deadlock cycle.
+func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*models.OutboxMessage, error) {
+	var msg *models.OutboxMessage
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended('lightyear:dispatch:' || ?, 0))`, c.OwnerID.String()).Error; err != nil {
 			return err
@@ -227,9 +236,12 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 		if err != nil {
 			return err
 		}
-		attempt = &models.Attempt{Base: models.Base{ID: attemptID}, JobID: job.ID, Status: models.AttemptQueued,
+		attempt := &models.Attempt{Base: models.Base{ID: attemptID}, JobID: job.ID, Status: models.AttemptQueued,
 			Queue: taskqueue.QueueImage, Payload: models.JSON(payload), OutputKey: outputKey}
 		if err := tx.Create(attempt).Error; err != nil {
+			return err
+		}
+		if msg, err = enqueue(tx, attempt, now); err != nil {
 			return err
 		}
 		if err := tx.Model(job).Updates(map[string]any{
@@ -240,19 +252,97 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 		}
 		return jobstate.Aggregate(tx, job.TaskID)
 	})
-	return attempt, err
+	return msg, err
 }
 
-func (s *Service) send(ctx context.Context, attempt *models.Attempt) {
-	if err := s.queue.Send(ctx, attempt.Queue, attempt.Payload); err != nil {
-		slog.Warn("send attempt; recovery will retry", "attempt_id", attempt.ID, "error", err)
+// enqueue writes an outbox message that sends attempt as dispatched. It must
+// run in the transaction that makes the send necessary.
+func enqueue(tx *gorm.DB, attempt *models.Attempt, now time.Time) (*models.OutboxMessage, error) {
+	msg := &models.OutboxMessage{CreatedAt: now, Queue: attempt.Queue, Payload: attempt.Payload,
+		AttemptID: &attempt.ID, AvailableAt: now.Add(UnsentGrace)}
+	return msg, tx.Create(msg).Error
+}
+
+// deliver sends one outbox message and records the outcome. A failed send
+// stays unsent and becomes available to the relay again after a backoff.
+func (s *Service) deliver(ctx context.Context, msg *models.OutboxMessage) {
+	db := s.db.WithContext(ctx).Model(&models.OutboxMessage{}).Where("id = ? AND sent_at IS NULL", msg.ID)
+	if err := s.queue.Send(ctx, msg.Queue, msg.Payload); err != nil {
+		slog.Warn("send outbox message; relay will retry", "message_id", msg.ID, "attempt_id", msg.AttemptID, "error", err)
+		tries := msg.Tries + 1
+		if err := db.Updates(map[string]any{
+			"tries": tries, "last_error": truncate(err.Error(), 255), "available_at": time.Now().Add(relayBackoff(tries)),
+		}).Error; err != nil {
+			slog.Warn("record outbox send failure", "message_id", msg.ID, "error", err)
+		}
 		return
 	}
-	if err := s.db.WithContext(ctx).Model(&models.Attempt{}).
-		Where("id = ? AND dispatched_at IS NULL", attempt.ID).
-		Update("dispatched_at", time.Now()).Error; err != nil {
-		slog.Warn("record attempt dispatch", "attempt_id", attempt.ID, "error", err)
+	if err := db.Updates(map[string]any{"sent_at": time.Now(), "tries": msg.Tries + 1}).Error; err != nil {
+		slog.Warn("record outbox send", "message_id", msg.ID, "error", err)
 	}
+}
+
+// relayBackoff is 1s after the first failed send, doubling up to a minute.
+func relayBackoff(tries int) time.Duration {
+	return time.Duration(min(1<<min(max(tries-1, 0), 6), 60)) * time.Second
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+// relayQuery claims a batch of due unsent messages by pushing their
+// available_at past RelayClaim, so concurrent relays take disjoint batches
+// and a relay that dies leaves its batch to the next one. The literal
+// predicate lets the planner use idx_outbox_unsent.
+const relayQuery = `
+UPDATE outbox_messages SET available_at = @claim
+WHERE id IN (
+	SELECT id FROM outbox_messages
+	WHERE sent_at IS NULL AND available_at <= @now
+	ORDER BY available_at, id
+	LIMIT @batch
+	FOR UPDATE SKIP LOCKED
+)
+RETURNING *`
+
+// Relay sends outbox messages whose writer did not send them: the send after
+// commit failed, or the process stopped before making it.
+func (s *Service) Relay(ctx context.Context, now time.Time) (int, error) {
+	var due []models.OutboxMessage
+	if err := s.db.WithContext(ctx).Raw(relayQuery, map[string]any{
+		"claim": now.Add(RelayClaim), "now": now, "batch": relayBatch,
+	}).Scan(&due).Error; err != nil {
+		return 0, err
+	}
+	for i := range due {
+		s.deliver(ctx, &due[i])
+	}
+	return len(due), nil
+}
+
+// PruneOutbox deletes sent messages older than OutboxRetention. It deletes in
+// batches, so no single statement holds locks on a large backlog, and returns
+// how many it deleted.
+func (s *Service) PruneOutbox(ctx context.Context, now time.Time) (int64, error) {
+	var total int64
+	for ctx.Err() == nil {
+		res := s.db.WithContext(ctx).Exec(`
+DELETE FROM outbox_messages WHERE id IN (
+	SELECT id FROM outbox_messages WHERE sent_at IS NOT NULL AND sent_at < ? LIMIT ?
+)`, now.Add(-OutboxRetention), pruneBatch)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < pruneBatch {
+			break
+		}
+	}
+	return total, ctx.Err()
 }
 
 // ProcessResult applies a worker heartbeat or outcome. Results for anything
@@ -470,24 +560,14 @@ func (s *Service) retryOrFail(tx *gorm.DB, job *models.Job, code, message string
 	return jobstate.Aggregate(tx, job.TaskID)
 }
 
-// Recover handles lost messages and dead workers:
-//   - an attempt that was never sent is sent;
-//   - a sent attempt with no RUNNING heartbeat before StartTimeout is re-sent
-//     as the same attempt, without consuming a retry;
+// Recover handles lost messages and dead workers (sends that never reached
+// the queue are Relay's):
+//   - an attempt with no RUNNING heartbeat before StartTimeout is re-sent as
+//     the same attempt through the outbox, without consuming a retry;
 //   - a RUNNING attempt whose lease expired is abandoned and the job retried.
 //     Heartbeats cap the lease at the attempt's execution limit, so this is
 //     also where an attempt that runs too long is stopped.
 func (s *Service) Recover(ctx context.Context, now time.Time) error {
-	var unsent []models.Attempt
-	if err := s.db.WithContext(ctx).
-		Where("status = ? AND dispatched_at IS NULL AND created_at < ?", models.AttemptQueued, now.Add(-UnsentGrace)).
-		Order("created_at").Limit(100).Find(&unsent).Error; err != nil {
-		return err
-	}
-	for i := range unsent {
-		s.send(ctx, &unsent[i])
-	}
-
 	var expired []uuid.UUID
 	if err := s.db.WithContext(ctx).Model(&models.Job{}).
 		Where("status = ? AND lease_expires_at <= ?", models.JobProcessing, now).
@@ -495,7 +575,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		return err
 	}
 	for _, id := range expired {
-		var resend *models.Attempt
+		var resend *models.OutboxMessage
 		var abandoned *uuid.UUID
 		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			job, err := jobstate.Lock(tx, id)
@@ -510,7 +590,18 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 				return err
 			}
 			if attempt.Status == models.AttemptQueued {
-				resend = &attempt
+				// A send still pending (the queue has been down) already
+				// covers the re-send; adding another would only duplicate it.
+				var pending int64
+				if err := tx.Model(&models.OutboxMessage{}).
+					Where("attempt_id = ? AND sent_at IS NULL", attempt.ID).Count(&pending).Error; err != nil {
+					return err
+				}
+				if pending == 0 {
+					if resend, err = enqueue(tx, &attempt, now); err != nil {
+						return err
+					}
+				}
 				return tx.Model(job).Update("lease_expires_at", now.Add(StartTimeout)).Error
 			}
 			if err := tx.Model(&attempt).Updates(map[string]any{"status": models.AttemptExpired, "finished_at": now}).Error; err != nil {
@@ -526,7 +617,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if resend != nil {
-			s.send(ctx, resend)
+			s.deliver(ctx, resend)
 		}
 		if abandoned != nil {
 			if err := s.queue.Cancel(ctx, abandoned.String()); err != nil {

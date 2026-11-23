@@ -264,19 +264,128 @@ func TestNonRetryableFailureFailsImmediately(t *testing.T) {
 	}
 }
 
-func TestUnsentAttemptIsSentByRecovery(t *testing.T) {
+// outbox returns the outbox messages of job's current attempt, oldest first.
+func (f fixture) outbox(t *testing.T, job models.Job) []models.OutboxMessage {
+	t.Helper()
+	var msgs []models.OutboxMessage
+	if err := f.db.Where("attempt_id = ?", *job.CurrentAttemptID).Order("id").Find(&msgs).Error; err != nil {
+		t.Fatal(err)
+	}
+	return msgs
+}
+
+func (f fixture) relay(t *testing.T, at time.Time) int {
+	t.Helper()
+	n, err := f.svc.Relay(t.Context(), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestDispatchRecordsItsSendInTheOutbox(t *testing.T) {
+	f := setup(t, 1)
+	f.dispatch(t)
+	job := f.job(t, 0)
+	msgs := f.outbox(t, job)
+	if len(msgs) != 1 || msgs[0].SentAt == nil || msgs[0].Tries != 1 || msgs[0].Queue != taskqueue.QueueImage {
+		t.Fatalf("expected one sent outbox message: %+v", msgs)
+	}
+	if string(msgs[0].Payload) != string(f.attempt(t, job).Payload) {
+		t.Fatal("outbox payload differs from the attempt's dispatch")
+	}
+	if n := f.relay(t, time.Now().Add(time.Hour)); n != 0 || len(f.queue.sent) != 1 {
+		t.Fatalf("relay re-sent a sent message: relayed=%d sent=%d", n, len(f.queue.sent))
+	}
+}
+
+func TestUnsentAttemptIsSentByRelay(t *testing.T) {
 	f := setup(t, 1)
 	f.queue.failSends = 1
 	f.dispatch(t)
 	job := f.job(t, 0)
-	if len(f.queue.sent) != 0 || f.attempt(t, job).DispatchedAt != nil {
-		t.Fatal("failed send must leave the attempt unsent")
+	msgs := f.outbox(t, job)
+	if len(f.queue.sent) != 0 || len(msgs) != 1 || msgs[0].SentAt != nil || msgs[0].Tries != 1 || msgs[0].LastError == "" {
+		t.Fatalf("failed send must leave the message unsent with the error: %+v", msgs)
 	}
-	if err := f.svc.Recover(t.Context(), time.Now().Add(orchestrator.UnsentGrace+time.Second)); err != nil {
+	if n := f.relay(t, time.Now()); n != 0 {
+		t.Fatal("relay must wait out the backoff")
+	}
+	f.relay(t, time.Now().Add(orchestrator.UnsentGrace+time.Second))
+	if len(f.queue.sent) != 1 || f.queue.sent[0].AttemptID != job.CurrentAttemptID.String() {
+		t.Fatalf("relay did not send the stored attempt: %+v", f.queue.sent)
+	}
+	if msgs := f.outbox(t, job); msgs[0].SentAt == nil || msgs[0].Tries != 2 {
+		t.Fatalf("relay did not record the send: %+v", msgs)
+	}
+}
+
+// Before the outbox was its own table, a re-send that failed waited for the
+// next StartTimeout (10 minutes); now the relay retries it within seconds.
+func TestFailedResendIsRetriedByRelay(t *testing.T) {
+	f := setup(t, 1)
+	f.dispatch(t)
+	job := f.job(t, 0)
+	start := time.Now()
+	f.queue.failSends = 1
+	if err := f.svc.Recover(t.Context(), start.Add(orchestrator.StartTimeout+time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.queue.sent) != 1 || f.queue.sent[0].AttemptID != job.CurrentAttemptID.String() || f.attempt(t, job).DispatchedAt == nil {
-		t.Fatalf("recovery did not send the stored attempt: %+v", f.queue.sent)
+	if len(f.queue.sent) != 1 || len(f.outbox(t, job)) != 2 {
+		t.Fatalf("expected the failed re-send to be queued in the outbox: sent=%d", len(f.queue.sent))
+	}
+	// The queue stays down past the next StartTimeout: the pending re-send
+	// already covers it, so no second one is added.
+	if err := f.svc.Recover(t.Context(), start.Add(2*orchestrator.StartTimeout+2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if msgs := f.outbox(t, job); len(msgs) != 2 {
+		t.Fatalf("a pending re-send must not be duplicated: %d messages", len(msgs))
+	}
+	f.relay(t, time.Now().Add(orchestrator.UnsentGrace+time.Second))
+	if len(f.queue.sent) != 2 || f.queue.sent[1].AttemptID != job.CurrentAttemptID.String() {
+		t.Fatalf("relay did not re-send the attempt: %+v", f.queue.sent)
+	}
+}
+
+func TestCancelDropsUnsentDispatch(t *testing.T) {
+	f := setup(t, 1)
+	f.queue.failSends = 1
+	f.dispatch(t)
+	job := f.job(t, 0)
+	if _, err := f.tasks.CancelTask(t.Context(), f.task.OwnerID, f.task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if msgs := f.outbox(t, job); len(msgs) != 0 {
+		t.Fatalf("cancel must drop the unsent dispatch: %+v", msgs)
+	}
+	if f.relay(t, time.Now().Add(time.Hour)); len(f.queue.sent) != 0 {
+		t.Fatal("a cancelled attempt was sent")
+	}
+}
+
+func TestPruneOutboxDeletesOnlyOldSentMessages(t *testing.T) {
+	f := setup(t, 2)
+	f.queue.failSends = 1
+	f.dispatch(t)
+	var unsent, sent models.Job
+	for i := range 2 {
+		job := f.job(t, i)
+		if f.outbox(t, job)[0].SentAt == nil {
+			unsent = job
+		} else {
+			sent = job
+		}
+	}
+	if n, err := f.svc.PruneOutbox(t.Context(), time.Now().Add(time.Hour)); err != nil || n != 0 {
+		t.Fatalf("a recent sent message was pruned: n=%d err=%v", n, err)
+	}
+	n, err := f.svc.PruneOutbox(t.Context(), time.Now().Add(orchestrator.OutboxRetention+time.Hour))
+	if err != nil || n != 1 {
+		t.Fatalf("expected the old sent message pruned: n=%d err=%v", n, err)
+	}
+	if len(f.outbox(t, sent)) != 0 || len(f.outbox(t, unsent)) != 1 {
+		t.Fatal("prune must delete old sent messages and keep unsent ones")
 	}
 }
 

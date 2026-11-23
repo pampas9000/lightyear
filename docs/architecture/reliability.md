@@ -12,15 +12,22 @@ orchestrator 每 500 毫秒取一批（最多 20 个）到期 job，在用户之
 - **轮询**：每个用户最多取"剩余名额"个到期 job，按 `next_run_at, id` 排序；然后所有用户的第 1 个排在任何人的第 2 个之前，同一轮次内按到期时间先后。一个用户的大批量积压不会让其他用户的第一个 job 多等一轮以上。
 - **索引**：查询先用 `idx_jobs_pending_owner`（`(owner_id, next_run_at, id) WHERE status = 'PENDING'`）跳跃扫描出有待处理 job 的用户，再按用户取到期 job；`PROCESSING` 计数走 `idx_jobs_processing_owner`。代价随"有积压的用户数 × 名额"增长，与积压总量无关（50 万积压 + 2000 个用户约 8 毫秒）。两个部分索引在 `schema.Migrate` 中创建。
 
-## Attempt：派发记录兼 outbox
+## 派发与 outbox
 
 orchestrator 领取 job 时，在同一个事务中：
 
 1. 取该用户的事务级 advisory lock（`lightyear:dispatch:<owner_id>`），再锁定 task 与 job（固定顺序 task → job，避免死锁），确认 job 仍为 `PENDING` 且已到 `next_run_at`，并重新统计该用户的 `PROCESSING` 数，已到上限则放弃。advisory lock 让多个 orchestrator 实例对同一用户的领取串行，上限不会被并发领取突破；只有领取会取这个锁，且总是最先取，不会形成死锁；
 2. 创建 attempt（`QUEUED`），保存完整派发负载与产物 key `outputs/<owner>/<job>/<attempt>.<ext>`；
-3. job 置为 `PROCESSING`，`current_attempt_id` 指向新 attempt，`attempts + 1`，租约设为 `StartTimeout`（10 分钟）。
+3. 写一条 `outbox_messages`：内容是 attempt 的派发负载，`available_at` 为 5 秒后；
+4. job 置为 `PROCESSING`，`current_attempt_id` 指向新 attempt，`attempts + 1`，租约设为 `StartTimeout`（10 分钟）。
 
-提交后才 `XADD q:image`。发送失败时 attempt 保持未发送状态，由恢复流程补发——attempt 行本身就是 outbox，不需要单独的 outbox 表。
+提交后立即 `XADD q:image` 并记录 `sent_at`。发送失败时记下 `tries` 与 `last_error`，`available_at` 按 1 秒起、每次翻倍、上限 1 分钟推迟。
+
+attempt 记录一次执行，outbox 只负责把消息可靠地送进 Redis，两者分开。一个 attempt 可能发送多次（下文的原样重发），每次发送都是一条 outbox 消息，因此首次派发和重发有同样的保证，每次发送的时间、次数和失败原因也都留有记录。
+
+**投递循环**：orchestrator 每秒取一批（最多 100 条）未发送且已到 `available_at` 的消息逐条发送。领取时用 `FOR UPDATE SKIP LOCKED` 把这批的 `available_at` 推后 30 秒，多个 orchestrator 实例各取不同的一批；实例在发送途中退出，这批消息 30 秒后由其他实例接手。投递是至少一次：写入方和投递循环偶尔会各发一次，重复的派发由结果只认当前 attempt、产物按 attempt 隔离吸收。查询走部分索引 `idx_outbox_unsent`（`WHERE sent_at IS NULL`），代价与已发送消息的数量无关；已发送超过 7 天的消息由 orchestrator 每小时分批删除一次，未发送的消息不会被删除。
+
+取消 job 时，在同一事务中删除其当前 attempt 未发送的 outbox 消息；删除任务时一并删除其 attempt 的全部 outbox 消息。
 
 ## 结果只认当前 attempt
 
@@ -32,12 +39,11 @@ orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `
 
 ## 恢复
 
-orchestrator 每 15 秒运行一次恢复：
+消息没能送进 Redis 由上文的投递循环处理。orchestrator 另每 15 秒运行一次恢复：
 
 | 情况 | 判定 | 处理 |
 | :--- | :--- | :--- |
-| attempt 从未发出 | `QUEUED`、无 `dispatched_at`、创建超过 30 秒 | 补发同一 attempt |
-| 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 原样重发同一 attempt，不消耗重试次数，租约再延 10 分钟 |
+| 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 在同一事务中续租 10 分钟并为同一 attempt 写一条新的 outbox 消息，提交后立即发送；不消耗重试次数。该 attempt 已有未发送的消息（Redis 一直不可用）时不再重复写入 |
 | worker 执行中失联 | `RUNNING` 后租约（每次心跳续到 2 分钟后）到期 | attempt 置 `EXPIRED` 并发取消标记；按 `execution_timeout`（可重试）进入重试 |
 | 执行超过上限 | 租约到达执行上限（见下） | 同上，错误信息为 `attempt exceeded the execution time limit` |
 

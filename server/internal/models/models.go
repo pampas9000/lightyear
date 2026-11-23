@@ -246,8 +246,8 @@ const (
 	AttemptCancelled AttemptStatus = "CANCELLED"
 )
 
-// Attempt is one dispatch of a job. Its row is written before the queue
-// message, so it doubles as the outbox: a lost message is re-sent from Payload.
+// Attempt is one execution of a job. Payload is exactly what was dispatched;
+// every send of the attempt, first or repeated, goes through OutboxMessage.
 type Attempt struct {
 	Base
 	JobID        uuid.UUID     `gorm:"type:uuid;not null;index" json:"job_id"`
@@ -255,13 +255,41 @@ type Attempt struct {
 	Queue        string        `gorm:"not null" json:"-"`
 	Payload      JSON          `gorm:"type:jsonb;not null" json:"-"`
 	OutputKey    string        `gorm:"not null" json:"-"`
-	DispatchedAt *time.Time    `json:"dispatched_at,omitempty"`
 	StartedAt    *time.Time    `json:"started_at,omitempty"`
 	FinishedAt   *time.Time    `json:"finished_at,omitempty"`
 	EncodeRounds *int          `json:"encode_rounds,omitempty"`
 	ComputeMS    *int64        `json:"compute_ms,omitempty"`
 	ErrorCode    string        `gorm:"type:varchar(64)" json:"error_code,omitempty"`
 }
+
+// OutboxMessage is a queue message written in the same transaction as the
+// state change that needs it and sent after commit, by the writer right away
+// or by the orchestrator's relay once AvailableAt passes. Sending is at least
+// once: a message may reach the queue more than once.
+//
+// AttemptID is set on job dispatches, so an attempt's sends can be listed and
+// its unsent ones dropped when it is cancelled. The partial index on unsent
+// messages is created by schema.Migrate.
+type OutboxMessage struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CreatedAt   time.Time  `gorm:"not null"`
+	Queue       string     `gorm:"type:varchar(64);not null"`
+	Payload     JSON       `gorm:"type:jsonb;not null"`
+	AttemptID   *uuid.UUID `gorm:"type:uuid;index"`
+	AvailableAt time.Time  `gorm:"not null"`
+	Tries       int        `gorm:"not null;default:0"`
+	LastError   string     `gorm:"type:varchar(255);not null;default:''"`
+	SentAt      *time.Time
+}
+
+func (m *OutboxMessage) BeforeCreate(tx *gorm.DB) error {
+	if m.ID == uuid.Nil {
+		m.ID = util.NewUuidV7()
+	}
+	return nil
+}
+
+func (OutboxMessage) TableName() string { return "outbox_messages" }
 
 type Task struct {
 	Base

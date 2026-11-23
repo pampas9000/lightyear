@@ -52,10 +52,32 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, rete
 	})
 	wg.Go(func() {
 		for {
+			if _, err := service.Relay(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				slog.Error("outbox relay failed", "error", err)
+			}
+			if !wait(ctx, time.Second) {
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		for {
 			if err := service.Recover(ctx, time.Now()); err != nil && ctx.Err() == nil {
 				slog.Error("job recovery failed", "error", err)
 			}
 			if !wait(ctx, 15*time.Second) {
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		for {
+			if n, err := service.PruneOutbox(ctx, time.Now()); err != nil && ctx.Err() == nil {
+				slog.Error("outbox prune failed", "error", err)
+			} else if n > 0 {
+				slog.Info("pruned sent outbox messages", "count", n)
+			}
+			if !wait(ctx, PruneInterval) {
 				return
 			}
 		}

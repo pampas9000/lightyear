@@ -10,6 +10,7 @@ import (
 var tables = []any{
 	&models.APIKey{}, &models.Attempt{}, &models.Job{}, &models.Task{}, &models.Workflow{},
 	&models.DraftFile{}, &models.File{}, &models.UserOauthAccount{}, &models.User{}, &models.UsageRecord{},
+	&models.OutboxMessage{},
 }
 
 func Migrate(db *gorm.DB) error {
@@ -31,13 +32,39 @@ func Migrate(db *gorm.DB) error {
 		if err := tx.AutoMigrate(
 			&models.User{}, &models.UserOauthAccount{}, &models.File{}, &models.DraftFile{},
 			&models.Workflow{}, &models.Task{}, &models.Job{}, &models.Attempt{}, &models.APIKey{},
-			&models.UsageRecord{},
+			&models.UsageRecord{}, &models.OutboxMessage{},
 		); err != nil {
 			return err
 		}
-		return tx.Exec(dispatchIndexes).Error
+		if err := tx.Exec(dispatchIndexes).Error; err != nil {
+			return err
+		}
+		return tx.Exec(outboxSchema).Error
 	})
 }
+
+// outboxSchema indexes the relay's scan of unsent messages, which stays small
+// however many sent messages are kept, and the pruning of old sent ones.
+//
+// attempts.dispatched_at predates the outbox, when an attempt row was its own
+// outbox entry. Attempts it marks as never sent are moved into the outbox
+// before the column goes (AutoMigrate never drops columns); sent attempts
+// that never started are re-sent by the StartTimeout path as before.
+const outboxSchema = `
+CREATE INDEX IF NOT EXISTS idx_outbox_unsent ON outbox_messages (available_at, id) WHERE sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_outbox_sent ON outbox_messages (sent_at) WHERE sent_at IS NOT NULL;
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'attempts' AND column_name = 'dispatched_at'
+	) THEN
+		INSERT INTO outbox_messages (id, created_at, queue, payload, attempt_id, available_at)
+		SELECT gen_random_uuid(), now(), queue, payload, id, now()
+		FROM attempts WHERE status = 'QUEUED' AND dispatched_at IS NULL;
+		ALTER TABLE attempts DROP COLUMN dispatched_at;
+	END IF;
+END $$;`
 
 // dispatchIndexes back the orchestrator's fair dispatch query: a skip scan
 // over the owners of PENDING jobs, each owner's due jobs in (next_run_at, id)

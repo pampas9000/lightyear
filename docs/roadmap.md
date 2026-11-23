@@ -49,6 +49,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-11-18 | MCP 工具结果用 `structuredContent` + `outputSchema`（即 `/v1` 的表示）并附 JSON 文本；`options` 的 Schema 嵌入生成的 ImageOptions JSON Schema（Go 侧嵌入副本，`task gen:types` 同步、`task check` 检查），输入 Schema 去掉可为 `null` 的类型数组与 Rust 整数 `format` | 参数规范只有一份；单一类型方言（如 Gemini 函数声明）的客户端也能用 |
 | 2026-11-18 | MCP 不提供 resources 与 prompts；错误作为工具结果（`isError` + `/v1` 的 `code`、`message`、`details`，限流的等待秒数放在 `details.retry_after`），不用 JSON-RPC 错误 | 三个工具覆盖整个流程；工具结果里的错误 Agent 能读到并自行处理，JSON-RPC 错误多半只显示给用户 |
 | 2026-11-18 | MCP 没有上传 complete 这一步：`submit_task` 遇到 `UPLOADING` 的文件时从存储确认对象（分片须从 1 连续且总大小等于申报值）再完成 | 少一次工具调用，Agent 也不必记录分片 ETag；对象不完整时返回 `error.param.invalid`，补传后重提即可 |
+| 2026-11-23 | 把 outbox 从 `attempts` 拆成独立的 `outbox_messages`：首次派发和 `StartTimeout` 重发都在事务中写一条消息，由每秒运行的投递循环补发；`attempts` 删掉 `dispatched_at`，保留 `payload` 作为该次执行派发内容的记录（取代 4.3 中"attempt 行充当 outbox"） | 一个 attempt 只有一个 `dispatched_at`，表示不了"又要发一次但还没发出"，所以重发不经过 outbox，一次失败就要再等 10 分钟；拆开后两类发送有同样的保证，发送记录可查，未发送消息的扫描与 attempts 的历史量无关，以后别的消息（如 webhook）可以复用同一条路径 |
 
 ## 执行步骤
 

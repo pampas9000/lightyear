@@ -7,6 +7,8 @@ import (
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/schema"
 	"transcoder/server/internal/testutil"
+
+	"github.com/google/uuid"
 )
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -52,6 +54,38 @@ func TestConcurrentMigrationsAreSerialized(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// A database from before the outbox table recorded sends in
+// attempts.dispatched_at. Its never-sent attempts must still be sent.
+func TestMigrateMovesUnsentAttemptsIntoTheOutbox(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	if err := db.Exec(`ALTER TABLE attempts ADD COLUMN dispatched_at timestamptz`).Error; err != nil {
+		t.Fatal(err)
+	}
+	unsent := models.Attempt{JobID: uuid.New(), Status: models.AttemptQueued, Queue: "q:image", Payload: models.JSON(`{"v":2}`), OutputKey: "a"}
+	sent := models.Attempt{JobID: uuid.New(), Status: models.AttemptQueued, Queue: "q:image", Payload: models.JSON(`{"v":2}`), OutputKey: "b"}
+	for _, a := range []*models.Attempt{&unsent, &sent} {
+		if err := db.Create(a).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec(`UPDATE attempts SET dispatched_at = now() WHERE id = ?`, sent.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	var msgs []models.OutboxMessage
+	if err := db.Find(&msgs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || *msgs[0].AttemptID != unsent.ID || msgs[0].SentAt != nil || msgs[0].Queue != "q:image" {
+		t.Fatalf("expected only the unsent attempt in the outbox: %+v", msgs)
+	}
+	if db.Migrator().HasColumn(&models.Attempt{}, "dispatched_at") {
+		t.Error("attempts.dispatched_at survived migration")
 	}
 }
 
