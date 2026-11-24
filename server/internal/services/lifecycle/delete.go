@@ -134,12 +134,15 @@ func (s *Service) purgeNow(ctx context.Context, files ...models.File) {
 }
 
 // DeleteFile deletes one of the owner's files, a source or an output. An
-// unfinished upload is aborted. A file an unfinished job reads returns
-// ErrFileInUse. Jobs that used the file keep pointing at it and show it as
-// DELETED. Deleting a file that is already expired or deleted succeeds.
+// unfinished upload is deleted too: its multipart upload is aborted now and
+// its object removed once its signed URLs run out. A file an unfinished job
+// reads returns ErrFileInUse. Jobs that used the file keep pointing at it and
+// show it as DELETED. Deleting a file that is already expired or deleted
+// succeeds.
 func (s *Service) DeleteFile(ctx context.Context, owner, fileID uuid.UUID) (*models.File, error) {
 	var file models.File
 	purge := false
+	now := time.Now()
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("file_id = ? AND owner_id = ?", fileID, owner).Find(&[]models.DraftFile{}).Error; err != nil {
@@ -152,30 +155,9 @@ func (s *Service) DeleteFile(ctx context.Context, owner, fileID uuid.UUID) (*mod
 			}
 			return err
 		}
-		switch file.Status {
-		// A FETCHING file may already have an object: a worker can write it
-		// and stop before the fetch is reported.
-		case models.FileUploaded, models.FileFetching:
-			busy, err := inUse(tx, file.ID)
-			if err != nil {
-				return err
-			}
-			if busy {
-				return ErrFileInUse
-			}
-			file.Status, purge = models.FileDeleted, true
-		case models.FileUploading, models.FileAborted, models.FileFailed:
-			// The upload cleanup aborts the multipart upload (if any),
-			// removes a stray object and deletes the row.
-			file.Status = models.FileAborting
-		default:
-			// EXPIRED, DELETED, DELETING, ABORTING: already on the way out.
-			return nil
-		}
-		if err := tx.Where("file_id = ?", file.ID).Delete(&models.DraftFile{}).Error; err != nil {
-			return err
-		}
-		return tx.Model(&file).Update("status", file.Status).Error
+		var err error
+		purge, err = markDeleted(tx, &file, now)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -184,4 +166,66 @@ func (s *Service) DeleteFile(ctx context.Context, owner, fileID uuid.UUID) (*mod
 		s.purgeNow(ctx, file)
 	}
 	return &file, nil
+}
+
+// DeleteDraft removes one of the owner's drafts. Its file is deleted too
+// unless a job points at it: a draft that was submitted, or whose file
+// another task uses, only stops being a draft. It reports whether the file
+// was deleted. A draft whose file is gone is removed.
+func (s *Service) DeleteDraft(ctx context.Context, owner, fileID uuid.UUID) (bool, error) {
+	var file *models.File
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		_, file, err = dropDraft(tx, owner, fileID, time.Now(), nil)
+		return err
+	})
+	if err != nil {
+		return false, err
+	}
+	if file != nil {
+		s.purgeNow(ctx, *file)
+	}
+	return file != nil, nil
+}
+
+// dropDraft removes the owner's draft of the file and deletes the file unless
+// a job points at it. If keep is set and returns true for the file, nothing
+// changes. It reports whether the draft was removed, and returns the file if
+// it was deleted and has an object to purge.
+func dropDraft(tx *gorm.DB, owner, fileID uuid.UUID, now time.Time, keep func(models.File) bool) (bool, *models.File, error) {
+	var draft models.DraftFile
+	// Drafts before files, as task creation locks them.
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		First(&draft, "file_id = ? AND owner_id = ?", fileID, owner).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil, ErrDraftNotFound
+		}
+		return false, nil, err
+	}
+	var file models.File
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&file, "id = ?", fileID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil, tx.Delete(&draft).Error
+	}
+	if err != nil {
+		return false, nil, err
+	}
+	if keep != nil && keep(file) {
+		return false, nil, nil
+	}
+	if err := tx.Delete(&draft).Error; err != nil {
+		return false, nil, err
+	}
+	used, err := referenced(tx, file.ID)
+	if err != nil || used {
+		return err == nil, nil, err
+	}
+	purge, err := markDeleted(tx, &file, now)
+	if err != nil {
+		return false, nil, err
+	}
+	if !purge {
+		return true, nil, nil
+	}
+	return true, &file, nil
 }

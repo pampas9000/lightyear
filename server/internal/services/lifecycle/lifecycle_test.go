@@ -14,15 +14,20 @@ import (
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/testutil"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// fakeStore records deleted keys and fails while fail is set.
+// fakeStore records deleted keys and aborted uploads, holds the keys of
+// objects HeadObject finds, and fails while fail is set.
 type fakeStore struct {
 	mu      sync.Mutex
 	fail    bool
 	deleted []string
+	aborted []string
+	objects map[string]int64
 	calls   int
 }
 
@@ -34,7 +39,56 @@ func (f *fakeStore) DeleteObject(_ context.Context, _, key string) error {
 		return errors.New("store unavailable")
 	}
 	f.deleted = append(f.deleted, key)
+	delete(f.objects, key)
 	return nil
+}
+
+func (f *fakeStore) AbortMultipartUpload(_ context.Context, _, _, uploadID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail {
+		return errors.New("store unavailable")
+	}
+	again := slices.Contains(f.aborted, uploadID)
+	f.aborted = append(f.aborted, uploadID)
+	if again {
+		return &smithy.GenericAPIError{Code: "NoSuchUpload"}
+	}
+	return nil
+}
+
+func (f *fakeStore) HeadObject(_ context.Context, _, key string) (*s3.HeadObjectOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail {
+		return nil, errors.New("store unavailable")
+	}
+	size, ok := f.objects[key]
+	if !ok {
+		return nil, &smithy.GenericAPIError{Code: "NotFound"}
+	}
+	return &s3.HeadObjectOutput{ContentLength: &size}, nil
+}
+
+func (f *fakeStore) put(key string, size int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.objects == nil {
+		f.objects = map[string]int64{}
+	}
+	f.objects[key] = size
+}
+
+func (f *fakeStore) abortCount(uploadID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, id := range f.aborted {
+		if id == uploadID {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *fakeStore) has(key string) bool {

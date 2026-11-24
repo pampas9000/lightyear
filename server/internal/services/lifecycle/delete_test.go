@@ -128,10 +128,10 @@ func TestDeleteFile(t *testing.T) {
 		t.Fatalf("output status %s", j.OutputFile.Status)
 	}
 
-	// An unfinished upload is handed to the upload cleanup.
+	// An unfinished upload is deleted too (see TestDeletedUploadWaitsForItsURLs).
 	up := models.File{OwnerID: e.owner, Name: "u.png", Path: "uploads/x/u.png", Status: models.FileUploading}
 	e.db.Create(&up)
-	if f, err := e.svc.DeleteFile(t.Context(), e.owner, up.ID); err != nil || f.Status != models.FileAborting {
+	if f, err := e.svc.DeleteFile(t.Context(), e.owner, up.ID); err != nil || f.Status != models.FileDeleted {
 		t.Fatalf("delete upload: %v %s", err, f.Status)
 	}
 }

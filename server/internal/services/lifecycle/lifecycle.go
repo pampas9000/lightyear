@@ -1,6 +1,8 @@
-// Package lifecycle removes source files and outputs from storage: when their
-// retention runs out (Sweep) and when the owner deletes a file or a task
-// (DeleteFile, DeleteTask).
+// Package lifecycle removes files from storage: sources and outputs when their
+// retention runs out (Sweep), uploads that were never finished and drafts that
+// were never submitted (SweepUploads), and whatever the owner deletes
+// (DeleteFile, DeleteDraft, DeleteTask). It is the only code that deletes a
+// file.
 //
 // Every removal has two steps. A transaction first changes the file's status
 // (to EXPIRED or DELETED), so nothing reads, reuses or signs it any more; only
@@ -8,6 +10,12 @@
 // purged_at NULL and the next sweep tries again, so the database never claims
 // an object that is gone. After the object is gone the row stays while jobs
 // still point at it (they show the status) and is deleted otherwise.
+//
+// A deleted upload that never finished may still receive the browser's PUT
+// or parts while its signed URLs are valid, so its object is removed only
+// once upload_expires_at, which deletion brings forward to at most
+// UploadURLExpiry away, has passed. Its multipart upload is aborted at once
+// and again then.
 package lifecycle
 
 import (
@@ -20,6 +28,7 @@ import (
 
 	"transcoder/server/internal/models"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -27,8 +36,9 @@ import (
 )
 
 var (
-	ErrTaskNotFound = errors.New("task not found")
-	ErrFileNotFound = errors.New("file not found")
+	ErrTaskNotFound  = errors.New("task not found")
+	ErrFileNotFound  = errors.New("file not found")
+	ErrDraftNotFound = errors.New("draft not found")
 	// ErrTaskActive: the task has unfinished jobs; cancel it first.
 	ErrTaskActive = errors.New("task has unfinished jobs; cancel it before deleting")
 	// ErrFileInUse: an unfinished job reads the file as its source.
@@ -47,9 +57,16 @@ func Days(source, output int) Policy {
 	return Policy{Source: time.Duration(source) * 24 * time.Hour, Output: time.Duration(output) * 24 * time.Hour}
 }
 
-// ObjectStore deletes objects; storage.S3Service implements it.
+// UploadURLExpiry is how long signed upload and part URLs stay valid. The
+// upload service signs with it; deletion waits it out before removing the
+// object of an unfinished upload.
+const UploadURLExpiry = time.Hour
+
+// ObjectStore is the storage lifecycle needs; storage.S3Service implements it.
 type ObjectStore interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
+	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
+	HeadObject(ctx context.Context, bucket, key string) (*s3.HeadObjectOutput, error)
 }
 
 type Service struct {
@@ -71,24 +88,39 @@ var unfinished = []models.JobStatus{models.JobPending, models.JobProcessing}
 // gone are the statuses whose object is (being) removed and whose row is kept.
 var gone = []string{models.FileExpired, models.FileDeleted}
 
-// Start runs Sweep every interval until ctx is done.
+// UploadSweepInterval is how often Start runs SweepUploads. Unfinished
+// uploads are given a day and drafts a week, so an hour is soon enough.
+const UploadSweepInterval = time.Hour
+
+// Start runs Sweep every interval and SweepUploads every UploadSweepInterval
+// until ctx is done.
 func (s *Service) Start(ctx context.Context, interval time.Duration) {
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		slog.Info("storage lifecycle sweep started", "interval", interval,
-			"source_retention", s.policy.Source, "output_retention", s.policy.Output)
-		for {
-			if _, err := s.Sweep(ctx, time.Now()); err != nil && ctx.Err() == nil {
-				slog.Error("storage lifecycle sweep", "error", err)
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
+	slog.Info("storage lifecycle sweep started", "interval", interval, "upload_interval", UploadSweepInterval,
+		"source_retention", s.policy.Source, "output_retention", s.policy.Output)
+	go every(ctx, interval, func() error {
+		_, err := s.Sweep(ctx, time.Now())
+		return err
+	}, "storage lifecycle sweep")
+	go every(ctx, UploadSweepInterval, func() error {
+		_, err := s.SweepUploads(ctx, time.Now())
+		return err
+	}, "upload sweep")
+}
+
+// every runs fn now and then every interval until ctx is done.
+func every(ctx context.Context, interval time.Duration, fn func() error, name string) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		if err := fn(); err != nil && ctx.Err() == nil {
+			slog.Error(name, "error", err)
 		}
-	}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // SweepResult counts what one Sweep did.
@@ -230,11 +262,13 @@ func (s *Service) expire(ctx context.Context, now time.Time, res *SweepResult, t
 	return nil
 }
 
-// purgePending retries removing objects of EXPIRED and DELETED files.
+// purgePending retries removing objects of EXPIRED and DELETED files, and
+// removes those of deleted uploads whose signed URLs have run out.
 func (s *Service) purgePending(ctx context.Context, now time.Time, res *SweepResult, tried map[uuid.UUID]bool) error {
 	var pending []models.File
 	if err := s.db.WithContext(ctx).
 		Where("status IN ? AND purged_at IS NULL", gone).
+		Where("uploaded_at IS NOT NULL OR upload_expires_at IS NULL OR upload_expires_at <= ?", now).
 		Order("updated_at").Limit(s.BatchSize).Find(&pending).Error; err != nil {
 		return err
 	}
@@ -258,7 +292,21 @@ func (s *Service) purgePending(ctx context.Context, now time.Time, res *SweepRes
 // the row is deleted when no job points at the file, otherwise purged_at is
 // set. It reports whether the object is gone; on failure the row keeps
 // purged_at NULL and the next sweep retries.
+//
+// For an upload that never finished, it first aborts the multipart upload,
+// if there is one, and stops there while upload_expires_at is ahead: a
+// signed URL could still write the object after it was deleted.
 func (s *Service) purge(ctx context.Context, f models.File, now time.Time) bool {
+	if f.UploadedAt == nil && f.UploadID != "" {
+		err := s.store.AbortMultipartUpload(ctx, s.bucket, f.Path, f.UploadID)
+		if err != nil && !isNoSuchUpload(err) {
+			slog.Warn("abort multipart upload; will retry", "file_id", f.ID, "path", f.Path, "error", err)
+			return false
+		}
+	}
+	if f.UploadedAt == nil && f.UploadExpiresAt != nil && f.UploadExpiresAt.After(now) {
+		return false
+	}
 	if err := s.store.DeleteObject(ctx, s.bucket, f.Path); err != nil && !isNotFound(err) {
 		slog.Warn("delete object; will retry", "file_id", f.ID, "path", f.Path, "error", err)
 		return false
@@ -302,6 +350,49 @@ func isNotFound(err error) bool {
 		}
 	}
 	return false
+}
+
+func isNoSuchUpload(err error) bool {
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) && apiErr.ErrorCode() == "NoSuchUpload"
+}
+
+// markDeleted marks the file, which the caller has locked after its drafts,
+// DELETED and removes its drafts. An UPLOADED or FETCHING file an unfinished
+// job reads returns ErrFileInUse. An unfinished upload's upload_expires_at is
+// brought forward to at most UploadURLExpiry from now, when its object can be
+// removed. An EXPIRED or DELETED file is left as it is. It reports whether
+// the file has an object to purge.
+func markDeleted(tx *gorm.DB, file *models.File, now time.Time) (bool, error) {
+	updates := map[string]any{"status": models.FileDeleted}
+	switch file.Status {
+	// A FETCHING file may already have an object: a worker can write it
+	// and stop before the fetch is reported.
+	case models.FileUploaded, models.FileFetching:
+		busy, err := inUse(tx, file.ID)
+		if err != nil {
+			return false, err
+		}
+		if busy {
+			return false, ErrFileInUse
+		}
+	case models.FileUploading:
+		limit := now.Add(UploadURLExpiry)
+		if file.UploadExpiresAt == nil || file.UploadExpiresAt.After(limit) {
+			file.UploadExpiresAt = &limit
+		}
+		updates["upload_expires_at"] = *file.UploadExpiresAt
+	default:
+		return false, nil
+	}
+	if err := tx.Where("file_id = ?", file.ID).Delete(&models.DraftFile{}).Error; err != nil {
+		return false, err
+	}
+	if err := tx.Model(file).Updates(updates).Error; err != nil {
+		return false, err
+	}
+	file.Status = models.FileDeleted
+	return true, nil
 }
 
 func lockDrafts(tx *gorm.DB, fileID uuid.UUID) error {

@@ -11,6 +11,8 @@ import (
 	"transcoder/server/internal/services/task"
 	"transcoder/server/internal/testutil"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -18,6 +20,12 @@ import (
 type nopStore struct{}
 
 func (nopStore) DeleteObject(context.Context, string, string) error { return nil }
+
+func (nopStore) AbortMultipartUpload(context.Context, string, string, string) error { return nil }
+
+func (nopStore) HeadObject(context.Context, string, string) (*s3.HeadObjectOutput, error) {
+	return nil, &smithy.GenericAPIError{Code: "NotFound"}
+}
 
 func TestConsoleDeleteEndpoints(t *testing.T) {
 	db := testutil.OpenDatabase(t)

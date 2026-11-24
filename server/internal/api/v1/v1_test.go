@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -44,6 +45,12 @@ type recordingStore struct{ deleted *[]string }
 func (r recordingStore) DeleteObject(_ context.Context, _, key string) error {
 	*r.deleted = append(*r.deleted, key)
 	return nil
+}
+
+func (recordingStore) AbortMultipartUpload(context.Context, string, string, string) error { return nil }
+
+func (recordingStore) HeadObject(context.Context, string, string) (*s3sdk.HeadObjectOutput, error) {
+	return nil, &smithy.GenericAPIError{Code: "NotFound"}
 }
 
 func setup(t *testing.T, opts ...func(*Handler, *gorm.DB)) *env {
