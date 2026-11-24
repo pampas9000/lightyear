@@ -33,18 +33,13 @@ type TaskDeletion struct {
 func (s *Service) DeleteTask(ctx context.Context, owner, taskID uuid.UUID) (*TaskDeletion, error) {
 	out := &TaskDeletion{ID: taskID, DeletedOutputs: []uuid.UUID{}, RetainedOutputs: []uuid.UUID{}}
 	var purge []models.File
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var t models.Task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&t, "id = ? AND owner_id = ?", taskID, owner).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrTaskNotFound
-			}
-			return err
+	err := jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
+		t, jobs, err := st.LockTask(owner, taskID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTaskNotFound
 		}
-		var jobs []models.Job
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("task_id = ?", t.ID).Order("id").Find(&jobs).Error; err != nil {
+		if err != nil {
 			return err
 		}
 		jobIDs := make([]uuid.UUID, 0, len(jobs))
@@ -70,7 +65,7 @@ func (s *Service) DeleteTask(ctx context.Context, owner, taskID uuid.UUID) (*Tas
 				return err
 			}
 		}
-		if err := tx.Delete(&t).Error; err != nil {
+		if err := tx.Delete(t).Error; err != nil {
 			return err
 		}
 		// Lock outputs in a fixed order. Task creation locks a reused output

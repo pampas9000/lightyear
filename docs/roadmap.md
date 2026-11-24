@@ -239,6 +239,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.17 | 优雅退出：API 收到 SIGINT/SIGTERM 后 `ShutdownWithContext`（10 秒），后台清理随之停止；worker 只设退出标志、不打断进行中的 `NOACK` 读取（读取阻塞 1.5 秒），正在跑的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 30 秒）宽限期，超时被杀并回报可重试的 `worker_shutdown`，照常计一次尝试。API 与 orchestrator 的后台协程没有等待退出，进行中的事务随 ctx 取消回滚 | ✅ |
 | 12.18 | `AUTO_MIGRATE` 默认关闭，迁移只经 `task migrate`（`cmd/migrate`）显式执行 | ✅ |
 | 12.19 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.13 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
+| 12.20 | Job 状态转换只有一份实现：领取、心跳、完成、复用、重试、失败、取消、手动重试都经 `jobstate.Run`/`Tx`，转换检查起始状态与 task 锁，写回前用 `jobstate.Check` 校验字段规则，状态变过的 task 在提交前聚合一次；测试结束时对库里全部 job 跑 `Check` | ✅ |
 
 ### 以后（结构已预留，暂不排期）
 

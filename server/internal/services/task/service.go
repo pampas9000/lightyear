@@ -296,7 +296,8 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 	}
 
 	var taskID uuid.UUID
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
 		files, err := lockSourceFiles(tx, input.OwnerID, input.Items)
 		if err != nil {
 			return err
@@ -306,7 +307,7 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 		if key != "" {
 			t.IdempotencyKey = &key
 		}
-		if err := tx.Create(&t).Error; err != nil {
+		if err := st.CreateTask(&t); err != nil {
 			return err
 		}
 		taskID = t.ID
@@ -335,26 +336,25 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 					Options:      out.Options,
 					Target:       out.Target,
 					SourceFileID: fileID,
-					Status:       models.JobPending,
-					NextRunAt:    &now,
 					MaxAttempts:  3,
 				}
-				reused, err := reuseOutput(tx, &job)
+				reusable, err := findReusable(tx, &job)
 				if err != nil {
 					return err
 				}
-				if err := tx.Create(&job).Error; err != nil {
+				if err := st.Insert(&job, now); err != nil {
 					return fmt.Errorf("create job: %w", err)
+				}
+				reused, err := reuse(st, &job, reusable)
+				if err != nil {
+					return err
 				}
 				if err := meter(tx, &job, reused, &requested); err != nil {
 					return err
 				}
 			}
 		}
-		if err := s.quotas.CheckWork(tx, input.OwnerID, requested); err != nil {
-			return err
-		}
-		return jobstate.Aggregate(tx, t.ID)
+		return s.quotas.CheckWork(tx, input.OwnerID, requested)
 	})
 	if err != nil {
 		if key != "" && isUniqueConstraintViolation(err) {
@@ -388,7 +388,7 @@ func lockSourceFiles(tx *gorm.DB, owner uuid.UUID, items []TaskItemInput) (map[u
 	for _, id := range ids {
 		var f models.File
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&f, "id = ? AND owner_id = ? AND status = ?", id, owner, "UPLOADED").Error; err != nil {
+			First(&f, "id = ? AND owner_id = ? AND status = ?", id, owner, models.FileUploaded).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, ErrFileNotFound
 			}
@@ -412,10 +412,15 @@ func meter(tx *gorm.DB, job *models.Job, reused *models.File, requested *int64) 
 	return nil
 }
 
-// reuseOutput sets the job's artifact key and, when the same owner already has
-// that artifact, completes the job with it instead of queueing work, and
-// returns the reused output.
-func reuseOutput(tx *gorm.DB, job *models.Job) (*models.File, error) {
+// reusable is an existing output a new run of a job can complete with.
+type reusable struct {
+	output   *models.File
+	resolved imageoptions.Options
+}
+
+// findReusable sets the job's artifact key and returns the same owner's
+// existing output for it, if there is one still fresh enough to hand out.
+func findReusable(tx *gorm.DB, job *models.Job) (*reusable, error) {
 	key, err := compression.ArtifactKey(job.SourceFileID.String(), job.Options, job.Target)
 	if err != nil {
 		return nil, err
@@ -444,25 +449,19 @@ func reuseOutput(tx *gorm.DB, job *models.Job) (*models.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	done.OutputFile = &output
-	job.Status, job.Progress, job.OutputFileID, job.NextRunAt = models.JobCompleted, 100, done.OutputFileID, nil
 	resolved := done.Options
 	if done.ResolvedOptions != nil {
 		resolved = *done.ResolvedOptions
 	}
-	job.ResolvedOptions = &resolved
-	if done.OutputFile != nil {
-		job.TargetMet = compression.IsTargetMet(done.OutputFile.Size, job.Target)
-		if job.Target != nil {
-			job.Achieved = &compression.Achieved{Bytes: new(done.OutputFile.Size)}
-		} else {
-			job.Achieved = nil
-		}
-	} else {
-		job.TargetMet = nil
-		job.Achieved = nil
+	return &reusable{output: &output, resolved: resolved}, nil
+}
+
+// reuse completes a fresh job with r, if there is one, and returns the output.
+func reuse(st *jobstate.Tx, job *models.Job, r *reusable) (*models.File, error) {
+	if r == nil {
+		return nil, nil
 	}
-	return &output, nil
+	return r.output, st.Reuse(job, r.output, r.resolved)
 }
 
 func (s *Service) GetTask(ctx context.Context, ownerID uuid.UUID, id uuid.UUID) (*models.Task, error) {
@@ -502,18 +501,13 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 			return nil, err
 		}
 	}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var parent models.Task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&parent, "id = ? AND owner_id = ?", input.TaskID, input.OwnerID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrTaskNotFound
-			}
-			return err
+	err := jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
+		_, jobs, err := st.LockTask(input.OwnerID, input.TaskID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTaskNotFound
 		}
-		var jobs []models.Job
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("task_id = ?", parent.ID).Order("id, output_index").Find(&jobs).Error; err != nil {
+		if err != nil {
 			return err
 		}
 		for _, id := range input.JobIDs {
@@ -523,7 +517,8 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 		}
 		now, selected := time.Now(), 0
 		var requested int64
-		for _, j := range jobs {
+		for i := range jobs {
+			j := &jobs[i]
 			explicit := slices.Contains(input.JobIDs, j.ID)
 			if len(input.JobIDs) > 0 && !explicit {
 				continue
@@ -582,44 +577,18 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 				}
 				j.Options, j.Target = newOpts, newTarget
 			}
-			j.Status, j.Progress, j.Attempts, j.NextRunAt = models.JobPending, 0, 0, &now
-			j.CurrentAttemptID, j.LeaseExpiresAt, j.OutputFileID = nil, nil, nil
-			j.ResolvedOptions, j.TargetMet, j.Achieved = nil, nil, nil
-			j.ErrorCode, j.ErrorMessage = "", ""
-			reused, err := reuseOutput(tx, &j)
+			reusable, err := findReusable(tx, j)
 			if err != nil {
 				return err
 			}
-			updates := map[string]any{
-				"options":            j.Options,
-				"target":             nil,
-				"resolved_options":   nil,
-				"target_met":         j.TargetMet,
-				"achieved":           nil,
-				"status":             j.Status,
-				"progress":           j.Progress,
-				"attempts":           j.Attempts,
-				"next_run_at":        j.NextRunAt,
-				"current_attempt_id": j.CurrentAttemptID,
-				"lease_expires_at":   j.LeaseExpiresAt,
-				"output_file_id":     j.OutputFileID,
-				"error_code":         j.ErrorCode,
-				"error_message":      j.ErrorMessage,
-				"artifact_key":       j.ArtifactKey,
-			}
-			if j.Target != nil {
-				updates["target"] = *j.Target
-			}
-			if j.ResolvedOptions != nil {
-				updates["resolved_options"] = *j.ResolvedOptions
-			}
-			if j.Achieved != nil {
-				updates["achieved"] = *j.Achieved
-			}
-			if err := tx.Model(&j).Updates(updates).Error; err != nil {
+			if err := st.Reset(j, now); err != nil {
 				return err
 			}
-			if err := meter(tx, &j, reused, &requested); err != nil {
+			reused, err := reuse(st, j, reusable)
+			if err != nil {
+				return err
+			}
+			if err := meter(tx, j, reused, &requested); err != nil {
 				return err
 			}
 			selected++
@@ -627,10 +596,7 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 		if selected == 0 {
 			return ErrNoJobsToRetry
 		}
-		if err := s.quotas.CheckWork(tx, input.OwnerID, requested); err != nil {
-			return err
-		}
-		return jobstate.Aggregate(tx, parent.ID)
+		return s.quotas.CheckWork(tx, input.OwnerID, requested)
 	})
 	if err != nil {
 		return nil, err
@@ -640,46 +606,40 @@ func (s *Service) RetryTask(ctx context.Context, input RetryTaskInput) (*models.
 
 func (s *Service) CancelTask(ctx context.Context, ownerID uuid.UUID, taskID uuid.UUID) (*models.Task, error) {
 	var running []uuid.UUID
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var parent models.Task
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&parent, "id = ? AND owner_id = ?", taskID, ownerID).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrTaskNotFound
-			}
-			return err
+	err := jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
+		_, jobs, err := st.LockTask(ownerID, taskID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTaskNotFound
 		}
-		var jobs []models.Job
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("task_id = ?", taskID).Order("id").Find(&jobs).Error; err != nil {
+		if err != nil {
 			return err
 		}
 		now := time.Now()
-		for _, j := range jobs {
-			if jobstate.Terminal(j.Status) {
+		for i := range jobs {
+			if jobstate.Terminal(jobs[i].Status) {
 				continue
 			}
-			if err := tx.Model(&j).Updates(map[string]any{
-				"status": models.JobCancelled, "error_code": "cancelled",
-				"error_message": "Task cancelled by user", "lease_expires_at": nil, "next_run_at": nil,
-			}).Error; err != nil {
-				return fmt.Errorf("cancel job %s: %w", j.ID, err)
+			stopped, err := st.Cancel(&jobs[i])
+			if err != nil {
+				return fmt.Errorf("cancel job %s: %w", jobs[i].ID, err)
 			}
-			if j.CurrentAttemptID != nil {
-				if err := tx.Model(&models.Attempt{}).Where("id = ?", *j.CurrentAttemptID).
-					Updates(map[string]any{"status": models.AttemptCancelled, "finished_at": now}).Error; err != nil {
-					return err
-				}
-				// An unsent dispatch would only make a worker start a
-				// cancelled attempt.
-				if err := tx.Where("attempt_id = ? AND sent_at IS NULL", *j.CurrentAttemptID).
-					Delete(&models.OutboxMessage{}).Error; err != nil {
-					return err
-				}
-				running = append(running, *j.CurrentAttemptID)
+			if stopped == nil {
+				continue
 			}
+			if err := tx.Model(&models.Attempt{}).Where("id = ?", *stopped).
+				Updates(map[string]any{"status": models.AttemptCancelled, "finished_at": now}).Error; err != nil {
+				return err
+			}
+			// An unsent dispatch would only make a worker start a
+			// cancelled attempt.
+			if err := tx.Where("attempt_id = ? AND sent_at IS NULL", *stopped).
+				Delete(&models.OutboxMessage{}).Error; err != nil {
+				return err
+			}
+			running = append(running, *stopped)
 		}
-		return jobstate.Aggregate(tx, parent.ID)
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -774,7 +734,7 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (*StatsRespon
 	}
 
 	if err := s.db.WithContext(ctx).Model(&models.File{}).
-		Select("COALESCE(SUM(size), 0)").Where("owner_id = ? AND status = ?", ownerID, "UPLOADED").
+		Select("COALESCE(SUM(size), 0)").Where("owner_id = ? AND status = ?", ownerID, models.FileUploaded).
 		Row().Scan(&stats.StorageUsed); err != nil {
 		slog.Error("failed to query storage used", "owner_id", ownerID, "error", err)
 	}

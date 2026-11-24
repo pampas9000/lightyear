@@ -394,22 +394,3 @@ func Check(job models.Job) error {
 	}
 	return nil
 }
-
-// Lock locks the job's task and then the job, outside a Tx.
-//
-// Deprecated: use Run and Tx.Lock.
-func Lock(tx *gorm.DB, id uuid.UUID) (*models.Job, error) {
-	var ref models.Job
-	if err := tx.Select("id", "task_id").First(&ref, "id = ?", id).Error; err != nil {
-		return nil, err
-	}
-	var task models.Task
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&task, "id = ?", ref.TaskID).Error; err != nil {
-		return nil, err
-	}
-	var job models.Job
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&job, "id = ?", id).Error; err != nil {
-		return nil, err
-	}
-	return &job, nil
-}

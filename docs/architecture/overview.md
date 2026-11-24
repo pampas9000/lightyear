@@ -64,6 +64,13 @@ Attempt:  QUEUED ──▶ RUNNING ──▶ COMPLETED | FAILED | EXPIRED | CANC
 
 `Task` 状态由其 jobs 聚合：`PENDING`、`PROCESSING`、`COMPLETED`、`PARTIALLY_FAILED`、`FAILED`、`CANCELLED`（`server/internal/services/jobstate`）。
 
+Job 的每种转换只在 `server/internal/services/jobstate` 实现一次：领取 `Claim`、推迟 `Postpone`、心跳 `Heartbeat`、完成 `Complete`、复用即完成 `Reuse`、自动重试 `Requeue`、失败 `Fail`、取消 `Cancel`、手动重试 `Reset`。调用方在 `jobstate.Run` 的事务里先加锁（先 task 后 job；心跳只锁 job），再调用转换。转换检查起始状态和锁，写回全部状态列前用 `jobstate.Check` 校验字段规则；事务提交前，每个状态变过的 task 聚合一次。字段规则：
+
+- `current_attempt_id`：`PENDING` 为空，`PROCESSING` 为在跑的 attempt，终态为最后一个 attempt（复用完成或从未领取则为空）。
+- `lease_expires_at` 仅 `PROCESSING` 非空；`next_run_at` 仅 `PENDING` 非空。
+- `output_file_id`、`resolved_options`、`target_met`、`achieved` 只在 `COMPLETED` 时可以非空，且 `COMPLETED` 的 `progress` 为 100、没有错误码。
+- `FAILED` 必有错误码，`CANCELLED` 的错误码为 `cancelled`；自动重试回到 `PENDING` 时保留上次的错误。
+
 ### 产物复用
 
 创建任务时，同一用户、同一源文件、同一规范化参数如果已有完成的产物（状态为 `UPLOADED`，且剩余保留期不少于其总保留期的一半），job 直接标记为完成并指向该产物，不再派发（带参数搜索的 `target` 请求额外将 `target` 计入复用键 `compression-target/v1`；普通或仅校验 `target` 的请求沿用 `image-options/v2`，并按新 job 的 `target` 重算 `target_met` 与 `achieved`）。键的计算见 [ImageOptions §产物键](/contracts/image-options#规范化与产物键)。

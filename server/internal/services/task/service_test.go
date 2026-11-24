@@ -7,10 +7,12 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/jobstate"
 	"transcoder/server/internal/testutil"
 
 	"github.com/google/uuid"
@@ -200,27 +202,59 @@ func (q *fakeQueue) Cancel(_ context.Context, id string) error {
 func TestCancelMarksJobsAndSignalsRunningAttempts(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	owner := uuid.New()
-	file := uploadedFile(t, db, owner)
+	running, waiting := uploadedFile(t, db, owner), uploadedFile(t, db, owner)
 	queue := &fakeQueue{}
 	s := &Service{db: db, queue: queue}
-	created, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}}, Options: avif(70)})
+	created, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: running.ID}, {FileID: waiting.ID}}, Options: avif(70)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	attempt := models.Attempt{JobID: created.Jobs[0].ID, Status: models.AttemptRunning, Queue: "q", Payload: models.JSON(`{}`), OutputKey: "k"}
+	var processing uuid.UUID
+	for _, j := range created.Jobs {
+		if j.SourceFileID == running.ID {
+			processing = j.ID
+		}
+	}
+	attempt := models.Attempt{JobID: processing, Status: models.AttemptRunning, Queue: "q", Payload: models.JSON(`{}`), OutputKey: "k"}
 	db.Create(&attempt)
-	db.Model(&models.Job{}).Where("id = ?", created.Jobs[0].ID).
+	unsent := models.OutboxMessage{AttemptID: &attempt.ID, Queue: "q", Payload: models.JSON(`{}`), AvailableAt: time.Now()}
+	if err := db.Create(&unsent).Error; err != nil {
+		t.Fatal(err)
+	}
+	db.Model(&models.Job{}).Where("id = ?", processing).
 		Updates(map[string]any{"status": models.JobProcessing, "current_attempt_id": attempt.ID, "attempts": 1,
 			"lease_expires_at": gorm.Expr("now() + interval '1 minute'"), "next_run_at": nil})
 	cancelled, err := s.CancelTask(t.Context(), owner, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cancelled.Status != models.TaskCancelled || cancelled.Jobs[0].Status != models.JobCancelled {
+	if cancelled.Status != models.TaskCancelled {
 		t.Fatalf("task not cancelled: %+v", cancelled)
+	}
+	for _, j := range cancelled.Jobs {
+		if j.Status != models.JobCancelled || j.ErrorCode != jobstate.CancelCode {
+			t.Fatalf("job not cancelled: %+v", j)
+		}
+		// A terminal job keeps its last attempt; one that never ran has none.
+		if j.ID == processing && (j.CurrentAttemptID == nil || *j.CurrentAttemptID != attempt.ID) {
+			t.Fatalf("cancelled PROCESSING job lost its attempt: %v", j.CurrentAttemptID)
+		}
+		if j.ID != processing && j.CurrentAttemptID != nil {
+			t.Fatalf("cancelled PENDING job has an attempt: %v", j.CurrentAttemptID)
+		}
 	}
 	if len(queue.cancelled) != 1 || queue.cancelled[0] != attempt.ID.String() {
 		t.Fatalf("running attempt not signalled: %v", queue.cancelled)
+	}
+	var stopped models.Attempt
+	db.First(&stopped, "id = ?", attempt.ID)
+	if stopped.Status != models.AttemptCancelled || stopped.FinishedAt == nil {
+		t.Fatalf("attempt not cancelled: %+v", stopped)
+	}
+	var left int64
+	db.Model(&models.OutboxMessage{}).Where("attempt_id = ?", attempt.ID).Count(&left)
+	if left != 0 {
+		t.Fatalf("unsent dispatch kept: %d", left)
 	}
 }
 
