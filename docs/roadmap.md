@@ -230,6 +230,13 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |
 | 12.9 | 取消与执行上限要真正停下计算：每个 job 的计算放在 worker 自身启动的子进程里，看到取消标记后杀掉整个进程组并等它回收完，再读下一条派发；原先被放弃的 libvips/libavif 编码会在后台跑完（2026-11 端到端验证中一个 effort 10 的大图 AVIF 被判超时后又在同一个 worker 上跑了 3 分 20 秒）。没有用 libvips kill 标志，因为它停不下 libavif/aom 等编码器本身。每个 job 多约 70 ms 的进程启动；如有需要可预先启动下一个子进程 | ✅ |
 | 12.10 | 500 响应不回显内部错误：所有 500 经 `response.RespondInternal` 返回，错误只写日志，响应只带 `details.request_id`（`requestid` 中间件，响应头 `X-Request-ID`） | ✅ |
+| 12.11 | 积压不等于丢失：outbox 记下每次发送的 stream ID；`StartTimeout` 到期时用 `XRANGE` 和 `XINFO GROUPS` 的 `last-delivered-id`（按 `(ms, seq)` 数值比较）判断派发是否仍在排队，仍在排队只续租不重发；被 `MAXLEN` 裁掉、已投递却没 `RUNNING`、查不到的照旧重发；Redis 出错时只续租。积压超过 10 万条时被裁掉的派发仍会在下一个 `StartTimeout` 才重发 | ✅ |
+| 12.12 | 同一 attempt 的副本不覆盖已发布的产物：`COMPLETED` 提交后写 `cancel:attempt:<id>`，未开始的副本跳过、运行中的最多约 3 秒被杀掉且不上传。剩余窗口：副本在标记写入前已传完，或在队列里等了超过标记的 24 小时。不做条件写。`FAILED` 后不写标记，失败 attempt 的迟到副本仍可能留下一个没人引用的产物对象 | ✅ |
+| 12.13 | 派发吞吐：一批取满（20）且有领取时立刻取下一批，否则等 500 毫秒 | ✅ |
+| 12.14 | 结果消费：`XREADGROUP` 每次取 20 条、单协程顺序处理，`XAUTOCLAIM` 每 15 秒最多一次；`RUNNING` 心跳只锁 job 行，不再锁 task | ✅ |
+| 12.15 | 优雅退出：API 收到 SIGINT/SIGTERM 后 `ShutdownWithContext`（10 秒），后台清理随之停止；worker 只设退出标志、不打断进行中的 `NOACK` 读取（读取阻塞 1.5 秒），正在跑的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 30 秒）宽限期，超时被杀并回报可重试的 `worker_shutdown`，照常计一次尝试。API 与 orchestrator 的后台协程没有等待退出，进行中的事务随 ctx 取消回滚 | ✅ |
+| 12.16 | `AUTO_MIGRATE` 默认关闭，迁移只经 `task migrate`（`cmd/migrate`）显式执行 | ✅ |
+| 12.17 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.11 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 
