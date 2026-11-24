@@ -31,7 +31,7 @@ attempt 记录一次执行，outbox 只负责把消息可靠地送进 Redis，�
 
 ## 结果只认当前 attempt
 
-orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `current_attempt_id` 等于结果中的 `attempt_id` 时生效，否则忽略。因此：
+orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `current_attempt_id` 等于结果中的 `attempt_id` 时生效，否则忽略。`COMPLETED` 与 `FAILED` 按 task → job 的顺序加锁，因为它们会重新聚合 task；`RUNNING` 心跳只锁 job 行：它只改进度、租约、attempt 和（抓取完成时）源文件，不改 job 状态、不聚合 task，也就不用和同一 task 的其他 job 争 task 行。没有哪条路径先锁文件再等 job 或 task，所以只持有 job 的心跳不会形成死锁环。因此：
 
 - 重试或取消之后才到达的旧结果不会覆盖新状态；
 - `COMPLETED` 必须带产物，且产物 key 与 attempt 记录的 key 完全一致，否则视为无效结果丢弃；
@@ -93,5 +93,5 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 ## Redis 侧
 
 - `q:image` 与 `q:results` 写入时近似裁剪为 10 万条。`q:image` 中还没投递就被裁掉的派发，在 `StartTimeout` 到期时按上文"积压与丢失的区分"查不到条目，随即重发。
-- `q:results` 由 orchestrator 在处理后 `XACK`；某个 orchestrator 崩溃后，其他实例会认领空闲超过 30 秒的未确认结果。
+- `q:results` 由 orchestrator 在单个协程里按顺序逐条处理，每次 `XREADGROUP` 最多取 20 条，处理后逐条 `XACK`。`XAUTOCLAIM` 每 15 秒最多扫一次，认领空闲超过 30 秒的未确认结果（某个 orchestrator 崩溃留下的，或本实例处理失败的）；一次扫不完时下一轮接着扫。
 - Redis 数据全部丢失时：未完成的 job 由恢复流程按上表重新派发，已完成的 job 不受影响。

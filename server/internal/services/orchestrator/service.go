@@ -372,8 +372,12 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 	}
 	now := time.Now()
 	completed := false
+	lock := jobstate.Lock
+	if r.Status == taskqueue.ResultRunning {
+		lock = lockJob
+	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		job, err := jobstate.Lock(tx, jobID)
+		job, err := lock(tx, jobID)
 		if err != nil {
 			return err
 		}
@@ -454,6 +458,23 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		}
 	}
 	return err
+}
+
+// lockJob locks only the job row, for RUNNING heartbeats, which arrive every
+// 20 seconds for every running job and would otherwise queue on the task row
+// behind their siblings. A heartbeat writes the job's progress and lease, its
+// attempt and, once, the fetched source file and its usage record; it never
+// changes a job's status or calls jobstate.Aggregate, so it needs no task lock.
+// Skipping the task adds no deadlock cycle: every other writer takes the task
+// before the job, and every path that locks the job and a file takes the job
+// first (nothing locks a file and then waits for a job or task), so a
+// heartbeat holding only the job waits for nothing that waits for it.
+func lockJob(tx *gorm.DB, id uuid.UUID) (*models.Job, error) {
+	var job models.Job
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&job, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
 }
 
 // recordFetched marks a FETCHING source UPLOADED once the worker reports it

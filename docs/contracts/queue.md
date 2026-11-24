@@ -9,7 +9,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | 流 | 生产者 | 消费组 | 读取方式 |
 | :--- | :--- | :--- | :--- |
 | `q:image` | orchestrator | `workers` | `XREADGROUP … NOACK`，收到即确认 |
-| `q:results` | worker | `orchestrators` | 处理后 `XACK`；空闲超过 30 秒的未确认消息由其他实例 `XAUTOCLAIM` |
+| `q:results` | worker | `orchestrators` | 每次最多读 20 条，单协程按顺序处理后 `XACK`；空闲超过 30 秒的未确认消息由 `XAUTOCLAIM` 认领（每 15 秒最多一次） |
 
 - 每条消息只有一个字段 `payload`，值为下面的 JSON 字符串。
 - 写入时近似裁剪：`MAXLEN ~ 100000`。orchestrator 把派发的条目 ID 记在 outbox 上，恢复时用 `XRANGE` 与 `XINFO GROUPS` 的 `last-delivered-id` 判断它是否仍在排队（见[可靠性设计](/architecture/reliability#积压与丢失的区分)）。

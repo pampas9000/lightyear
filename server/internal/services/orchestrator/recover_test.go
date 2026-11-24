@@ -1,6 +1,7 @@
 package orchestrator_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -173,5 +174,28 @@ func TestCompletionCancelsTheAttemptsOtherCopies(t *testing.T) {
 	}
 	if len(f.queue.cancelled) != 1 {
 		t.Fatalf("duplicate completion signalled again: %v", f.queue.cancelled)
+	}
+}
+
+// A heartbeat locks only its job, so it does not wait behind a transaction
+// that holds the task (a sibling's completion aggregating it, a cancel).
+func TestHeartbeatDoesNotWaitForTheTaskLock(t *testing.T) {
+	f := setup(t, 1)
+	f.dispatch(t)
+	job := f.job(t, 0)
+	tx := f.db.Begin()
+	defer tx.Rollback()
+	if err := tx.Exec(`SELECT id FROM tasks WHERE id = ? FOR UPDATE`, f.task.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	beat := result(job, "RUNNING")
+	beat.Progress = new(30)
+	if err := f.svc.ProcessResult(ctx, beat); err != nil {
+		t.Fatalf("heartbeat blocked on the task lock: %v", err)
+	}
+	if got := f.job(t, 0); got.Progress != 30 {
+		t.Fatalf("heartbeat not applied: %+v", got)
 	}
 }

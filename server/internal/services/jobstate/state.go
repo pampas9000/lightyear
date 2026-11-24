@@ -10,7 +10,9 @@ import (
 )
 
 // Lock always acquires the parent task before the job; every writer (dispatch,
-// results, recovery, retry, cancel) uses this order.
+// results, recovery, retry, cancel) uses this order. The one exception is the
+// orchestrator's RUNNING heartbeat, which locks only the job: it never changes
+// a job's status or aggregates the task (see orchestrator.lockJob).
 func Lock(tx *gorm.DB, id uuid.UUID) (*models.Job, error) {
 	var ref models.Job
 	if err := tx.Select("id", "task_id").First(&ref, "id = ?", id).Error; err != nil {
