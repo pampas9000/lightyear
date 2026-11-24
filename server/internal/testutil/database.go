@@ -59,5 +59,17 @@ func OpenDatabase(t *testing.T) *gorm.DB {
 	if err := schema.Migrate(db); err != nil {
 		t.Fatalf("migrate test schema: %v", err)
 	}
+	for _, check := range checks {
+		t.Cleanup(func() { check(t, db) })
+	}
 	return db
+}
+
+var checks []func(*testing.T, *gorm.DB)
+
+// CheckAtEnd makes every later OpenDatabase run check on the test's database
+// when the test ends, before its schema is dropped. Register from a test
+// file's init, e.g. to assert invariants after every test of a package.
+func CheckAtEnd(check func(*testing.T, *gorm.DB)) {
+	checks = append(checks, check)
 }

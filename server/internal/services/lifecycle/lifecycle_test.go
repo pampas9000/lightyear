@@ -96,7 +96,8 @@ func (e *env) complete(taskID uuid.UUID) models.File {
 		e.t.Fatal(err)
 	}
 	if err := e.db.Model(&models.Job{}).Where("task_id = ? AND status = ?", taskID, models.JobPending).
-		Updates(map[string]any{"status": models.JobCompleted, "progress": 100, "output_file_id": out.ID, "next_run_at": nil}).Error; err != nil {
+		Updates(map[string]any{"status": models.JobCompleted, "progress": 100, "output_file_id": out.ID, "next_run_at": nil,
+			"resolved_options": gorm.Expr("options")}).Error; err != nil {
 		e.t.Fatal(err)
 	}
 	if err := jobstate.Aggregate(e.db, taskID); err != nil {

@@ -59,7 +59,7 @@ func TestReusedOutputIsRecordedAndReservesNothing(t *testing.T) {
 		Size: 2048, Width: 10, Height: 20}
 	db.Create(&output)
 	db.Model(&models.Job{}).Where("id = ?", first.Jobs[0].ID).
-		Updates(map[string]any{"status": models.JobCompleted, "output_file_id": output.ID})
+		Updates(completedWith(output.ID))
 
 	// The user is now out of units, but a fully reused task costs none.
 	s.WithQuotas(usage.NewQuotas(db, usage.Limits{MonthlyUnits: 1}))
@@ -90,7 +90,7 @@ func TestRetryIsCheckedAgainstTheQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Model(&models.Job{}).Where("task_id = ?", created.ID).Update("status", models.JobFailed)
+	db.Model(&models.Job{}).Where("task_id = ?", created.ID).Updates(failed)
 	s.WithQuotas(usage.NewQuotas(db, usage.Limits{MonthlyUnits: 6}))
 	if _, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID}); !errors.Is(err, usage.ErrQuotaExceeded) {
 		t.Fatalf("retrying a 7-unit search under 6 units must be refused, got %v", err)

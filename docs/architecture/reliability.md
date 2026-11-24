@@ -31,7 +31,7 @@ attempt 记录一次执行，outbox 只负责把消息可靠地送进 Redis，�
 
 ## 结果只认当前 attempt
 
-orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `current_attempt_id` 等于结果中的 `attempt_id` 时生效，否则忽略。`COMPLETED` 与 `FAILED` 按 task → job 的顺序加锁，因为它们会重新聚合 task；`RUNNING` 心跳只锁 job 行：它只改进度、租约、attempt 和（抓取完成时）源文件，不改 job 状态、不聚合 task，也就不用和同一 task 的其他 job 争 task 行。没有哪条路径先锁文件再等 job 或 task，所以只持有 job 的心跳不会形成死锁环。因此：
+orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `current_attempt_id` 等于结果中的 `attempt_id` 时生效，否则忽略。job 的每种状态转换（领取、心跳、完成、复用、重试、失败、取消、重置）都由 `server/internal/services/jobstate` 的一个函数完成：它检查起始状态和所需的锁，按目标状态写全所有状态字段并校验不变式（`jobstate.Check`），改了状态的 task 在事务提交前统一重新聚合。`COMPLETED` 与 `FAILED` 按 task → job 的顺序加锁，因为它们会重新聚合 task；`RUNNING` 心跳只锁 job 行：它只改进度、租约、attempt 和（抓取完成时）源文件，不改 job 状态、不聚合 task，也就不用和同一 task 的其他 job 争 task 行。没有哪条路径先锁文件再等 job 或 task，所以只持有 job 的心跳不会形成死锁环。因此：
 
 - 重试或取消之后才到达的旧结果不会覆盖新状态；
 - `COMPLETED` 必须带产物，且产物 key 与 attempt 记录的 key 完全一致，否则视为无效结果丢弃；

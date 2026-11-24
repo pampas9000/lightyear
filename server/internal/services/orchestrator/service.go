@@ -193,11 +193,12 @@ func dispatchAgain(claimed, candidates int) bool {
 // else takes it, so it adds no deadlock cycle.
 func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*models.OutboxMessage, error) {
 	var msg *models.OutboxMessage
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
 		if err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtextextended('lightyear:dispatch:' || ?, 0))`, c.OwnerID.String()).Error; err != nil {
 			return err
 		}
-		job, err := jobstate.Lock(tx, c.ID)
+		job, err := st.Lock(c.ID)
 		if err != nil {
 			return err
 		}
@@ -215,14 +216,14 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 		if err := tx.First(&source, "id = ? AND owner_id = ? AND status IN ?", job.SourceFileID, job.OwnerID,
 			[]string{models.FileUploaded, models.FileFetching}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return s.fail(tx, job, "source_unavailable", "source file is missing")
+				return st.Fail(job, "source_unavailable", "source file is missing")
 			}
 			return err
 		}
 		sourceURL := ""
 		if source.Status == models.FileFetching {
 			if source.SourceURL == "" {
-				return s.fail(tx, job, "source_unavailable", "source file is missing")
+				return st.Fail(job, "source_unavailable", "source file is missing")
 			}
 			// A URL source is fetched by one job at a time; the other jobs
 			// of the item wait and then read the stored object. Jobs become
@@ -233,7 +234,7 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 				return err
 			}
 			if fetching > 0 {
-				return tx.Model(job).Update("next_run_at", now.Add(FetchWait)).Error
+				return st.Postpone(job, now.Add(FetchWait))
 			}
 			sourceURL = source.SourceURL
 		}
@@ -254,13 +255,7 @@ func (s *Service) claim(ctx context.Context, c candidate, now time.Time) (*model
 		if msg, err = enqueue(tx, attempt, now); err != nil {
 			return err
 		}
-		if err := tx.Model(job).Updates(map[string]any{
-			"status": models.JobProcessing, "current_attempt_id": attemptID, "attempts": job.Attempts + 1,
-			"lease_expires_at": now.Add(StartTimeout), "next_run_at": nil, "progress": 0,
-		}).Error; err != nil {
-			return err
-		}
-		return jobstate.Aggregate(tx, job.TaskID)
+		return st.Claim(job, attemptID, now.Add(StartTimeout))
 	})
 	return msg, err
 }
@@ -372,12 +367,15 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 	}
 	now := time.Now()
 	completed := false
-	lock := jobstate.Lock
-	if r.Status == taskqueue.ResultRunning {
-		lock = lockJob
-	}
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		job, err := lock(tx, jobID)
+	err = jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+		tx := st.DB()
+		// A heartbeat locks only the job (see jobstate.Tx.LockJob); outcomes
+		// change the job's status and lock its task first.
+		lock := st.Lock
+		if r.Status == taskqueue.ResultRunning {
+			lock = st.LockJob
+		}
+		job, err := lock(jobID)
 		if err != nil {
 			return err
 		}
@@ -405,19 +403,15 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			if err := tx.Model(&attempt).Updates(updates).Error; err != nil {
 				return err
 			}
-			progress := job.Progress
-			if r.Progress != nil {
-				progress = max(progress, *r.Progress)
-			}
 			// The lease never outlives the execution limit; once it lapses,
 			// Recover expires the attempt like any other lost lease.
 			lease := now.Add(LeaseDuration)
 			if deadline := started.Add(s.limits.execution(job)); lease.After(deadline) {
 				lease = deadline
 			}
-			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": lease}).Error
+			return st.Heartbeat(job, r.Progress, lease)
 		case taskqueue.ResultCompleted:
-			if err := s.complete(tx, job, &attempt, r, now); err != nil {
+			if err := s.complete(st, job, &attempt, r, now); err != nil {
 				return err
 			}
 			completed = true
@@ -442,7 +436,7 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			if err := usage.RecordAttempt(tx, models.UsageFailed, job, attemptID, r.EncodeRounds, r.ComputeMS, nil); err != nil {
 				return err
 			}
-			return s.retryOrFail(tx, job, code, message, retryable, now)
+			return s.retryOrFail(st, job, code, message, retryable, now)
 		default:
 			return ErrInvalidResult
 		}
@@ -458,23 +452,6 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		}
 	}
 	return err
-}
-
-// lockJob locks only the job row, for RUNNING heartbeats, which arrive every
-// 20 seconds for every running job and would otherwise queue on the task row
-// behind their siblings. A heartbeat writes the job's progress and lease, its
-// attempt and, once, the fetched source file and its usage record; it never
-// changes a job's status or calls jobstate.Aggregate, so it needs no task lock.
-// Skipping the task adds no deadlock cycle: every other writer takes the task
-// before the job, and every path that locks the job and a file takes the job
-// first (nothing locks a file and then waits for a job or task), so a
-// heartbeat holding only the job waits for nothing that waits for it.
-func lockJob(tx *gorm.DB, id uuid.UUID) (*models.Job, error) {
-	var job models.Job
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&job, "id = ?", id).Error; err != nil {
-		return nil, err
-	}
-	return &job, nil
 }
 
 // recordFetched marks a FETCHING source UPLOADED once the worker reports it
@@ -513,7 +490,8 @@ func (s *Service) recordFetched(tx *gorm.DB, job *models.Job, attemptID uuid.UUI
 	return err
 }
 
-func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt, r taskqueue.Result, now time.Time) error {
+func (s *Service) complete(st *jobstate.Tx, job *models.Job, attempt *models.Attempt, r taskqueue.Result, now time.Time) error {
+	tx := st.DB()
 	artifact := r.Artifact
 	if artifact == nil || artifact.Key != attempt.OutputKey || artifact.Size <= 0 ||
 		artifact.Mime == "" || artifact.Width <= 0 || artifact.Height <= 0 {
@@ -528,7 +506,7 @@ func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt
 		return err
 	}
 	name := compression.OutputFilename(source.Name, job.Options.Format, job.OutputName, job.OutputIndex, siblingMulti > 0)
-	output := models.File{OwnerID: job.OwnerID, Name: name, Path: artifact.Key, Status: "UPLOADED",
+	output := models.File{OwnerID: job.OwnerID, Name: name, Path: artifact.Key, Status: models.FileUploaded,
 		Size: artifact.Size, MimeType: artifact.Mime, Width: artifact.Width, Height: artifact.Height, UploadedAt: &now}
 	if err := tx.Create(&output).Error; err != nil {
 		return err
@@ -558,54 +536,25 @@ func (s *Service) complete(tx *gorm.DB, job *models.Job, attempt *models.Attempt
 	if targetMet == nil && job.Target != nil {
 		targetMet = compression.IsTargetMet(artifact.Size, job.Target)
 	}
-	jobUpdates := map[string]any{
-		"status":           models.JobCompleted,
-		"progress":         100,
-		"output_file_id":   output.ID,
-		"resolved_options": resolved,
-		"target_met":       targetMet,
-		"lease_expires_at": nil,
-		"error_code":       "",
-		"error_message":    "",
+	achieved := r.Achieved
+	if achieved == nil && job.Target != nil {
+		achieved = &compression.Achieved{Bytes: new(artifact.Size)}
 	}
-	if r.Achieved != nil {
-		jobUpdates["achieved"] = *r.Achieved
-	} else if job.Target != nil {
-		jobUpdates["achieved"] = compression.Achieved{Bytes: new(artifact.Size)}
-	} else {
-		jobUpdates["achieved"] = nil
-	}
-	if err := tx.Model(job).Updates(jobUpdates).Error; err != nil {
+	if err := st.Complete(job, jobstate.Output{FileID: output.ID, Resolved: resolved, TargetMet: targetMet, Achieved: achieved}); err != nil {
 		return err
 	}
 	// After output_file_id is set, so the file counts as an output.
-	if _, err := lifecycle.Schedule(tx, s.retention, output.ID); err != nil {
-		return err
-	}
-	return jobstate.Aggregate(tx, job.TaskID)
+	_, err := lifecycle.Schedule(tx, s.retention, output.ID)
+	return err
 }
 
-func (s *Service) fail(tx *gorm.DB, job *models.Job, code, message string) error {
-	if err := tx.Model(job).Updates(map[string]any{
-		"status": models.JobFailed, "error_code": code, "error_message": message,
-		"lease_expires_at": nil, "next_run_at": nil,
-	}).Error; err != nil {
-		return err
-	}
-	return jobstate.Aggregate(tx, job.TaskID)
-}
-
-func (s *Service) retryOrFail(tx *gorm.DB, job *models.Job, code, message string, retryable bool, now time.Time) error {
+// retryOrFail decides what a failed attempt does to its job: another attempt
+// after RetryDelay while retryable and attempts remain, FAILED otherwise.
+func (s *Service) retryOrFail(st *jobstate.Tx, job *models.Job, code, message string, retryable bool, now time.Time) error {
 	if !retryable || job.Attempts >= job.MaxAttempts {
-		return s.fail(tx, job, code, message)
+		return st.Fail(job, code, message)
 	}
-	if err := tx.Model(job).Updates(map[string]any{
-		"status": models.JobPending, "progress": 0, "current_attempt_id": nil, "lease_expires_at": nil,
-		"next_run_at": now.Add(RetryDelay(job.Attempts)), "error_code": code, "error_message": message,
-	}).Error; err != nil {
-		return err
-	}
-	return jobstate.Aggregate(tx, job.TaskID)
+	return st.Requeue(job, code, message, now.Add(RetryDelay(job.Attempts)))
 }
 
 // Recover handles lost messages and dead workers (sends that never reached
@@ -631,8 +580,9 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		}
 		var resend *models.OutboxMessage
 		var abandoned *uuid.UUID
-		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			job, err := jobstate.Lock(tx, id)
+		if err := jobstate.Run(s.db.WithContext(ctx), func(st *jobstate.Tx) error {
+			tx := st.DB()
+			job, err := st.Lock(id)
 			if err != nil {
 				return err
 			}
@@ -656,7 +606,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 						return err
 					}
 				}
-				return tx.Model(job).Update("lease_expires_at", now.Add(StartTimeout)).Error
+				return st.Heartbeat(job, nil, now.Add(StartTimeout))
 			}
 			if err := tx.Model(&attempt).Updates(map[string]any{"status": models.AttemptExpired, "finished_at": now}).Error; err != nil {
 				return err
@@ -666,7 +616,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 			if attempt.StartedAt != nil && !now.Before(attempt.StartedAt.Add(s.limits.execution(job))) {
 				message = "attempt exceeded the execution time limit"
 			}
-			return s.retryOrFail(tx, job, "execution_timeout", message, true, now)
+			return s.retryOrFail(st, job, "execution_timeout", message, true, now)
 		}); err != nil {
 			return err
 		}

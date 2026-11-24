@@ -92,7 +92,7 @@ func TestCompletedArtifactIsReusedForSameOwnerOnly(t *testing.T) {
 	output := models.File{OwnerID: owner, Name: "source.avif", Path: "outputs/x.avif", Status: "UPLOADED"}
 	db.Create(&output)
 	db.Model(&models.Job{}).Where("id = ?", first.Jobs[0].ID).
-		Updates(map[string]any{"status": models.JobCompleted, "output_file_id": output.ID})
+		Updates(completedWith(output.ID))
 
 	again, err := s.CreateTask(t.Context(), CreateTaskInput{OwnerID: owner, Items: []TaskItemInput{{FileID: file.ID}},
 		Options: json.RawMessage(`{"quality":70,"format":"avif","metadata":"strip"}`)})
@@ -171,7 +171,7 @@ func TestRetryResetsTerminalJobsAndCanReplaceOptions(t *testing.T) {
 		t.Fatalf("foreign owner must not retry: %v", err)
 	}
 	db.Model(&models.Job{}).Where("id = ?", job.ID).
-		Updates(map[string]any{"status": models.JobFailed, "attempts": 3, "error_code": "processing_failed"})
+		Updates(map[string]any{"status": models.JobFailed, "attempts": 3, "error_code": "processing_failed", "next_run_at": nil})
 	if _, err := s.RetryTask(t.Context(), RetryTaskInput{OwnerID: owner, TaskID: created.ID,
 		Options: json.RawMessage(`{"format":"jxl"}`)}); !errors.Is(err, ErrRetrySingleJob) {
 		t.Fatalf("modifying options without single job_id must fail with ErrRetrySingleJob, got %v", err)
@@ -210,7 +210,8 @@ func TestCancelMarksJobsAndSignalsRunningAttempts(t *testing.T) {
 	attempt := models.Attempt{JobID: created.Jobs[0].ID, Status: models.AttemptRunning, Queue: "q", Payload: models.JSON(`{}`), OutputKey: "k"}
 	db.Create(&attempt)
 	db.Model(&models.Job{}).Where("id = ?", created.Jobs[0].ID).
-		Updates(map[string]any{"status": models.JobProcessing, "current_attempt_id": attempt.ID})
+		Updates(map[string]any{"status": models.JobProcessing, "current_attempt_id": attempt.ID, "attempts": 1,
+			"lease_expires_at": gorm.Expr("now() + interval '1 minute'"), "next_run_at": nil})
 	cancelled, err := s.CancelTask(t.Context(), owner, created.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +288,7 @@ func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
 		"resolved_options": resolved,
 		"target_met":       false,
 		"achieved":         compression.Achieved{Bytes: new(int64(250000))},
+		"next_run_at":      nil,
 	})
 
 	// ListTasks must preload OutputFile and populate compression + resolved_options.
@@ -322,9 +324,7 @@ func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
 	}
 	webpOut := models.File{OwnerID: owner, Name: "hero.webp", Path: "outputs/w.webp", Size: 80000, Status: "UPLOADED"}
 	db.Create(&webpOut)
-	db.Model(&models.Job{}).Where("id = ?", fixedTask.Jobs[0].ID).Updates(map[string]any{
-		"status": models.JobCompleted, "progress": 100, "output_file_id": webpOut.ID,
-	})
+	db.Model(&models.Job{}).Where("id = ?", fixedTask.Jobs[0].ID).Updates(completedWith(webpOut.ID))
 	checkOnly, err := s.CreateTask(t.Context(), CreateTaskInput{
 		OwnerID: owner,
 		Items:   []TaskItemInput{{FileID: src.ID}},
@@ -348,7 +348,7 @@ func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
 	if err != nil || retriedTarget.Jobs[0].Status != models.JobPending || retriedTarget.Jobs[0].Target == nil || *retriedTarget.Jobs[0].Target.MaxBytes != 300000 {
 		t.Fatalf("retry updating target failed: err=%v job=%+v", err, retriedTarget)
 	}
-	db.Model(&models.Job{}).Where("id = ?", rj.ID).Update("status", models.JobFailed)
+	db.Model(&models.Job{}).Where("id = ?", rj.ID).Updates(failed)
 	clearedTarget, err := s.RetryTask(t.Context(), RetryTaskInput{
 		OwnerID: owner,
 		TaskID:  reused.ID,
@@ -370,7 +370,7 @@ func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
 		t.Fatalf("expected non-target job with default quality: err=%v", err)
 	}
 	ntJob := nonTarget.Jobs[0]
-	db.Model(&models.Job{}).Where("id = ?", ntJob.ID).Update("status", models.JobFailed)
+	db.Model(&models.Job{}).Where("id = ?", ntJob.ID).Updates(failed)
 	addedTarget, err := s.RetryTask(t.Context(), RetryTaskInput{
 		OwnerID: owner,
 		TaskID:  nonTarget.ID,
