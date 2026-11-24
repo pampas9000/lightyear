@@ -35,6 +35,9 @@ const (
 	CodeUnauthorized   ResponseCode = "error.auth.unauthorized"
 	CodeForbidden      ResponseCode = "error.auth.forbidden"
 	CodeInvalidCreds   ResponseCode = "error.auth.invalid_credentials"
+	// CodeOriginRejected: a state-changing /api request without the
+	// frontend's Origin header (cross-site request protection).
+	CodeOriginRejected ResponseCode = "error.auth.origin_rejected"
 	// CodeInsufficientScope: the API key is valid but lacks the route's scope.
 	CodeInsufficientScope ResponseCode = "error.auth.insufficient_scope"
 

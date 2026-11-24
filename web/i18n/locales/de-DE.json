@@ -47,7 +47,11 @@
         "new_user": "Neu bei lightyear?",
         "existing_user": "Haben Sie bereits ein Konto?",
         "create_one": "Konto erstellen",
-        "auth_failed": "Authentifizierung fehlgeschlagen"
+        "auth_failed": "Authentifizierung fehlgeschlagen",
+        "oauth_email_taken": "Diese E-Mail-Adresse ist bereits registriert. Bitte melden Sie sich wie bisher an.",
+        "oauth_email_unverified": "Ihr Konto bei diesem Anbieter hat keine bestätigte E-Mail-Adresse. Bitte bestätigen Sie sie dort und versuchen Sie es erneut.",
+        "oauth_invalid_state": "Die Anmeldeanfrage ist abgelaufen oder wurde bereits verwendet. Bitte versuchen Sie es erneut.",
+        "oauth_failed": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut."
     },
     "dashboard": {
         "title": "Transkodierungsaufgaben",

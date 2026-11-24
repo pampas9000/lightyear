@@ -42,6 +42,9 @@ type Router struct {
 	keys     *apikey.Service
 	v1       *v1.Handler
 	mcp      *mcpserver.Server
+	// origin is FRONTEND_URL as scheme://host[:port], the only Origin
+	// accepted for state-changing /api requests.
+	origin string
 }
 
 // NewRouter wires feature handlers with the dependencies they need.
@@ -74,7 +77,13 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		panic(fmt.Sprintf("build MCP server: %v", err))
 	}
 
+	origin, err := middleware.NormalizeOrigin(cfg.FrontendURL)
+	if err != nil {
+		panic(fmt.Sprintf("FRONTEND_URL: %v", err))
+	}
+
 	return &Router{
+		origin:   origin,
 		job:      handlers.NewHandler(db),
 		workflow: handlers.NewWorkflowHandler(db),
 		task:     handlers.NewTaskHandler(tasks, files),
@@ -102,7 +111,9 @@ func RetentionPolicy(cfg config.Config) lifecycle.Policy {
 // Feature-specific routing should live in subpackages such as
 // `internal/api/handlers`.
 func (r *Router) Install(app fiber.Router) {
-	api := app.Group("/api")
+	// Every state-changing /api request, login and logout included, must
+	// come from the frontend's origin. /v1 and /mcp use API keys instead.
+	api := app.Group("/api", middleware.RequireOrigin(r.origin))
 
 	// Public routes
 	r.auth.Install(api)

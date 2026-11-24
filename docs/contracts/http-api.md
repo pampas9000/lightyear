@@ -7,12 +7,11 @@
 
 ## 认证
 
-Fiber session，存储在 Redis。两种等价凭据：
-
-- Cookie `session_id`（HttpOnly、SameSite=Lax、生产环境 Secure、空闲 7 天过期）
-- `Authorization: Bearer <session_id>`（登录/注册返回的 `token` 即 session ID）
+Fiber session，存储在 Redis。唯一的凭据是 Cookie `session_id`（HttpOnly、SameSite=Lax、生产环境 Secure、空闲 7 天过期）。登录/注册响应只返回 `{user}`，不含 session ID；`/api` 不读 `Authorization` 头。
 
 未认证返回 `401 error.auth.unauthorized`。
+
+`/api` 上的 `POST`、`PUT`、`PATCH`、`DELETE`（包括下表的登录、注册、登出）要求 `Origin` 头与 `FRONTEND_URL` 规范化后的 `scheme://host[:port]`（小写，去掉路径与默认端口）严格相等；不等或缺少时返回 `403 error.auth.origin_rejected`。`GET` 不检查。`/v1` 与 `/mcp` 不做此检查。控制台经 Nitro 代理访问 `/api`，代理原样转发浏览器的 `Origin`，因此本地开发时 `FRONTEND_URL` 要等于控制台地址（`http://localhost:3000`）。
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
@@ -20,10 +19,20 @@ Fiber session，存储在 Redis。两种等价凭据：
 | `POST` | `/api/login` | `{username, password}` |
 | `POST` | `/api/logout` | 销毁会话 |
 | `GET` | `/api/auth/:provider` | OAuth 跳转（`github` / `google`，配置后启用） |
-| `GET` | `/api/auth/:provider/callback` | OAuth 回调（也接受 `/api/auth/callback/:provider`），成功后重定向到 `FRONTEND_URL` |
+| `GET` | `/api/auth/:provider/callback` | OAuth 回调（也接受 `/api/auth/callback/:provider`），成功后重定向到 `FRONTEND_URL`，失败重定向到 `FRONTEND_URL?auth_error=<code>` |
 | `GET` | `/api/me` | 当前用户 |
 
-`/api` 只认会话：API Key 放进 `Authorization` 会按 session ID 查找而失败（`401`），因此 API Key 不能管理 API Key。
+OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按邮箱关联已有账号。首次登录时，提供方必须给出已验证的邮箱（GitHub 取 `/user/emails` 中已验证的，优先 primary；Google 要求 `email_verified`），且该邮箱没有被任何用户使用，才会新建用户并绑定。
+
+| `auth_error` | 含义 |
+| :--- | :--- |
+| `invalid_state` | `state` 与会话中保存的不符或已用过 |
+| `email_taken` | 邮箱已属于另一个账号（例如密码注册的）；不合并、不建绑定，请用原来的方式登录 |
+| `email_unverified` | 提供方没有给出已验证的邮箱 |
+| `oauth_failed` | 不支持的提供方、换取 token 失败等其他错误 |
+| `session_failed` | 会话读取或保存失败 |
+
+`/api` 只认会话 cookie：带 API Key 的 `Authorization` 头会被忽略（`401`），因此 API Key 不能管理 API Key。
 
 ### API Key 管理
 
@@ -56,7 +65,7 @@ Fiber session，存储在 Redis。两种等价凭据：
 | :--- | :--- |
 | 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
 | 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
-| 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.insufficient_scope`（仅 `/v1`） |
+| 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.origin_rejected`（仅 `/api`）、`error.auth.insufficient_scope`（仅 `/v1`） |
 | 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
 | 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`、`error.file.conflict` |
 | 限额 | `error.quota.exceeded`（见[用量与配额](#用量与配额)）、`error.rate_limit.exceeded`（仅 `/v1`，见[限流](#限流)） |

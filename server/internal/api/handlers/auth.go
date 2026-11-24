@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/config"
@@ -101,22 +102,37 @@ func (h *AuthHandler) Login(c fiber.Ctx) error {
 
 func (h *AuthHandler) OAuthLogin(c fiber.Ctx) error {
 	provider := c.Params("provider")
-	// Generate a random state. For production, store it in session and verify it later
+	// The callback accepts only the state stored in this session.
 	state := uuid.New().String()
 
-	sess, err := h.store.Get(c)
-	if err == nil {
-		sess.Set("oauth_state", state)
-		sess.Save()
-	}
-
-	url, err := h.service.OAuthLoginURL(provider, state)
+	loginURL, err := h.service.OAuthLoginURL(provider, state)
 	if err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Unsupported OAuth provider.")
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Success.", fiber.Map{"url": url})
+
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return response.RespondInternal(c, "Failed to start OAuth login.", err)
+	}
+	sess.Set("oauth_state", state)
+	if err := sess.Save(); err != nil {
+		return response.RespondInternal(c, "Failed to start OAuth login.", err)
+	}
+
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Success.", fiber.Map{"url": loginURL})
 }
 
+// OAuth callback error codes, sent to the frontend as ?auth_error=<code>.
+const (
+	OAuthErrorInvalidState    = "invalid_state"
+	OAuthErrorEmailTaken      = "email_taken"
+	OAuthErrorEmailUnverified = "email_unverified"
+	OAuthErrorFailed          = "oauth_failed"
+	OAuthErrorSession         = "session_failed"
+)
+
+// OAuthCallback finishes a browser OAuth flow. Every outcome is a redirect to
+// the frontend; failures carry an auth_error code for the UI to show.
 func (h *AuthHandler) OAuthCallback(c fiber.Ctx) error {
 	provider := c.Params("provider")
 	state := c.Query("state")
@@ -124,28 +140,52 @@ func (h *AuthHandler) OAuthCallback(c fiber.Ctx) error {
 
 	sess, err := h.store.Get(c)
 	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Session error.")
+		slog.Error("OAuth callback: load session", "provider", provider, "error", err)
+		return h.redirectOAuthError(c, OAuthErrorSession)
 	}
 
-	savedState := sess.Get("oauth_state")
-	if savedState == nil || savedState.(string) != state {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid state.")
+	savedState, _ := sess.Get("oauth_state").(string)
+	if savedState == "" || savedState != state {
+		return h.redirectOAuthError(c, OAuthErrorInvalidState)
 	}
-	sess.Delete("oauth_state") // Consume state
+	// Consume the state so it cannot be replayed, whatever happens next.
+	sess.Delete("oauth_state")
+	if err := sess.Save(); err != nil {
+		slog.Error("OAuth callback: save session", "provider", provider, "error", err)
+		return h.redirectOAuthError(c, OAuthErrorSession)
+	}
 
 	u, err := h.service.OAuthLogin(c.Context(), provider, code)
 	if err != nil {
-		slog.Error("OAuth login failed", "provider", provider, "error", err)
-		return c.Status(fiber.StatusUnauthorized).SendString("OAuth login failed.")
+		switch {
+		case errors.Is(err, auth.ErrOAuthEmailTaken):
+			return h.redirectOAuthError(c, OAuthErrorEmailTaken)
+		case errors.Is(err, auth.ErrOAuthEmailUnverified):
+			return h.redirectOAuthError(c, OAuthErrorEmailUnverified)
+		default:
+			slog.Error("OAuth login failed", "provider", provider, "error", err)
+			return h.redirectOAuthError(c, OAuthErrorFailed)
+		}
 	}
 
 	sess.Set("user_id", u.ID.String())
 	if err := sess.Save(); err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Failed to save session.")
+		slog.Error("OAuth callback: save session", "provider", provider, "error", err)
+		return h.redirectOAuthError(c, OAuthErrorSession)
 	}
 
-	// For browser OAuth flow, redirect to the frontend index explicitly
 	return c.Redirect().To(h.frontendURL)
+}
+
+func (h *AuthHandler) redirectOAuthError(c fiber.Ctx, code string) error {
+	target, err := url.Parse(h.frontendURL)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString("Invalid FRONTEND_URL.")
+	}
+	q := target.Query()
+	q.Set("auth_error", code)
+	target.RawQuery = q.Encode()
+	return c.Redirect().To(target.String())
 }
 
 func (h *AuthHandler) Logout(c fiber.Ctx) error {
@@ -175,7 +215,8 @@ func (h *AuthHandler) Me(c fiber.Ctx) error {
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Success.", user)
 }
 
-// Set session and
+// setSessionAndRespond logs the user in. The session ID travels only in the
+// HttpOnly cookie, never in the body, so page scripts cannot read it.
 func (h *AuthHandler) setSessionAndRespond(c fiber.Ctx, user *models.User) error {
 	sess, err := h.store.Get(c)
 	if err != nil {
@@ -188,7 +229,6 @@ func (h *AuthHandler) setSessionAndRespond(c fiber.Ctx, user *models.User) error
 	}
 
 	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Success.", fiber.Map{
-		"token": sess.ID(),
-		"user":  user,
+		"user": user,
 	})
 }

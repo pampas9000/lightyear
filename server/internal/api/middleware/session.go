@@ -1,37 +1,25 @@
 package middleware
 
 import (
-	"strings"
-
 	"transcoder/server/internal/api/response"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/session"
 )
 
-// AuthMiddleware creates a middleware that checks for a valid session (either via Cookie or Bearer token).
+// AuthMiddleware requires a logged-in session. The session ID is read only
+// from the HttpOnly session cookie: /api accepts no Authorization header, so
+// a session ID never reaches page scripts and cannot be sent as a bearer token.
 func AuthMiddleware(store *session.Store) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var sess *session.Session
-		var err error
-
-		// 1. Try Bearer Token (Session ID)
-		authHeader := c.Get("Authorization")
-		if token, found := strings.CutPrefix(authHeader, "Bearer "); found {
-			sess, err = store.GetByID(c.Context(), token)
-		} else {
-			// 2. Try Cookie
-			sess, err = store.Get(c)
-		}
-
+		sess, err := store.Get(c)
 		if err == nil && sess != nil {
-			userID := sess.Get("user_id")
-			if userID != nil {
+			if userID := sess.Get("user_id"); userID != nil {
 				c.Locals("user_id", userID)
 				return c.Next()
 			}
 		}
 
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Unauthorized access. Missing session or valid token.")
+		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Unauthorized access. Missing or invalid session.")
 	}
 }

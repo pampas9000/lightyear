@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,64 +64,21 @@ func (p *GithubProvider) Exchange(ctx context.Context, code string) (*OAuthUser,
 		ID        int64  `json:"id"`
 		Login     string `json:"login"`
 		Name      string `json:"name"`
-		Email     string `json:"email"`
 		AvatarURL string `json:"avatar_url"`
 	}
 	if err := json.Unmarshal(body, &ghUser); err != nil {
 		return nil, fmt.Errorf("failed to decode user info: %w", err)
 	}
 
-	// GitHub email might be empty if private. Let's fetch the emails endpoint
-	if ghUser.Email == "" {
-		emailResp, err := client.Get("https://api.github.com/user/emails")
-		if err == nil {
-			defer emailResp.Body.Close()
-			if emailResp.StatusCode == http.StatusOK {
-				emailBody, err := io.ReadAll(emailResp.Body)
-				if err == nil {
-					var emails []struct {
-						Email    string `json:"email"`
-						Primary  bool   `json:"primary"`
-						Verified bool   `json:"verified"`
-					}
-					if err := json.Unmarshal(emailBody, &emails); err == nil {
-						// 1. Try to find primary verified email
-						for _, e := range emails {
-							if e.Primary && e.Verified {
-								ghUser.Email = e.Email
-								break
-							}
-						}
-						// 2. Fall back to any verified email
-						if ghUser.Email == "" {
-							for _, e := range emails {
-								if e.Verified {
-									ghUser.Email = e.Email
-									break
-								}
-							}
-						}
-						// 3. Fall back to any primary email
-						if ghUser.Email == "" {
-							for _, e := range emails {
-								if e.Primary {
-									ghUser.Email = e.Email
-									break
-								}
-							}
-						}
-						// 4. Fall back to the first email in the list
-						if ghUser.Email == "" && len(emails) > 0 {
-							ghUser.Email = emails[0].Email
-						}
-					}
-				}
-			}
-		}
+	// The profile email carries no verification flag, so the address always
+	// comes from /user/emails, which does.
+	emails, err := fetchGithubEmails(client)
+	if err != nil {
+		return nil, err
 	}
-
-	if ghUser.Email == "" {
-		return nil, errors.New("no verified email found in github account")
+	email, ok := pickGithubEmail(emails)
+	if !ok {
+		return nil, ErrOAuthEmailUnverified
 	}
 
 	displayName := ghUser.Name
@@ -132,9 +88,47 @@ func (p *GithubProvider) Exchange(ctx context.Context, code string) (*OAuthUser,
 
 	return &OAuthUser{
 		ID:       strconv.FormatInt(ghUser.ID, 10),
-		Email:    ghUser.Email,
+		Email:    email.Email,
 		Name:     displayName,
 		Picture:  ghUser.AvatarURL,
-		Verified: true, // If we got here, it's verified.
+		Verified: email.Verified,
 	}, nil
+}
+
+type githubEmail struct {
+	Email    string `json:"email"`
+	Primary  bool   `json:"primary"`
+	Verified bool   `json:"verified"`
+}
+
+func fetchGithubEmails(client *http.Client) ([]githubEmail, error) {
+	resp, err := client.Get("https://api.github.com/user/emails")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user emails: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("github emails api returned status %d", resp.StatusCode)
+	}
+	var emails []githubEmail
+	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
+		return nil, fmt.Errorf("failed to decode user emails: %w", err)
+	}
+	return emails, nil
+}
+
+// pickGithubEmail returns the primary verified email, else any verified one.
+// Unverified addresses are never returned.
+func pickGithubEmail(emails []githubEmail) (githubEmail, bool) {
+	for _, e := range emails {
+		if e.Primary && e.Verified && e.Email != "" {
+			return e, true
+		}
+	}
+	for _, e := range emails {
+		if e.Verified && e.Email != "" {
+			return e, true
+		}
+	}
+	return githubEmail{}, false
 }

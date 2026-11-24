@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAuth } from '~/composables/useAuth'
 import {
     Dialog,
@@ -15,6 +15,9 @@ import { Separator } from '@/components/ui/separator'
 import { LockKeyhole, AlertCircle, Loader2 } from '@lucide/vue'
 
 const { login, register, showAuthModal, loading } = useAuth()
+const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -42,7 +45,7 @@ const handleSubmit = async () => {
         password.value = ''
         email.value = ''
     } else {
-        errorMsg.value = result.message || $t('auth.auth_failed')
+        errorMsg.value = result.message || t('auth.auth_failed')
     }
 }
 
@@ -58,6 +61,24 @@ const close = () => {
     email.value = ''
     errorMsg.value = ''
 }
+
+// A failed OAuth callback redirects back with ?auth_error=<code>
+// (server/internal/api/handlers/auth.go).
+const oauthErrorKeys: Record<string, string> = {
+    email_taken: 'auth.oauth_email_taken',
+    email_unverified: 'auth.oauth_email_unverified',
+    invalid_state: 'auth.oauth_invalid_state',
+}
+
+onMounted(() => {
+    const code = route.query.auth_error
+    if (typeof code !== 'string') return
+    const { auth_error: _, ...query } = route.query
+    router.replace({ query })
+    mode.value = 'login'
+    errorMsg.value = t(oauthErrorKeys[code] ?? 'auth.oauth_failed')
+    showAuthModal.value = true
+})
 
 const handleOAuth = async (provider: 'google' | 'github') => {
     try {

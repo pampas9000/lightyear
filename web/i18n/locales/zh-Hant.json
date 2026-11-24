@@ -47,7 +47,11 @@
         "new_user": "還沒有帳號？",
         "existing_user": "已有帳號？",
         "create_one": "立即註冊",
-        "auth_failed": "認證失敗"
+        "auth_failed": "認證失敗",
+        "oauth_email_taken": "此電子郵件已註冊，請使用原本的方式登入。",
+        "oauth_email_unverified": "此第三方帳號沒有已驗證的電子郵件，請先在該平台驗證後再試。",
+        "oauth_invalid_state": "登入請求已失效，請重新登入。",
+        "oauth_failed": "登入失敗，請再試一次。"
     },
     "dashboard": {
         "title": "轉碼任務",

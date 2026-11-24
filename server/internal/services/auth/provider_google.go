@@ -71,6 +71,10 @@ func (p *GoogleProvider) Exchange(ctx context.Context, code string) (*OAuthUser,
 		return nil, fmt.Errorf("failed to parse claims: %w", err)
 	}
 
+	if !claims.Verified || claims.Email == "" {
+		return nil, ErrOAuthEmailUnverified
+	}
+
 	return &OAuthUser{
 		ID:       idToken.Subject,
 		Email:    claims.Email,

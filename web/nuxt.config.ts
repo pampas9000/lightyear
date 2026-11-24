@@ -54,7 +54,17 @@ export default defineNuxtConfig({
     nitro: {
         routeRules: {
             "/**": { headers: crossOriginIsolation },
-            "/api/**": { proxy: "http://localhost:8080/api/**" },
+            // `redirect: "manual"` passes API redirects (the OAuth callback's
+            // 303 to FRONTEND_URL) and their Set-Cookie through to the
+            // browser instead of following them server-side. The proxy
+            // forwards the browser's Origin header unchanged, which the API
+            // checks on state-changing requests.
+            "/api/**": {
+                proxy: {
+                    to: "http://localhost:8080/api/**",
+                    fetchOptions: { redirect: "manual" },
+                },
+            },
         },
     },
 });

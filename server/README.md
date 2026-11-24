@@ -51,7 +51,7 @@ Loaded with koanf from defaults, `server/.env` (falls back to `.env`) and enviro
 | `DATABASE_URL` | local postgres `transcoder` | PostgreSQL |
 | `REDIS_URL` | `redis://localhost:6379/0` | Sessions, streams, cancellation flags |
 | `AUTO_MIGRATE` | `true` | GORM AutoMigrate on API boot |
-| `FRONTEND_URL` | `http://localhost:3000` | OAuth success redirect |
+| `FRONTEND_URL` | `http://localhost:3000` | OAuth redirect target, and the only `Origin` accepted on state-changing `/api` requests |
 | `S3_ENDPOINT` / `S3_ACCESS_ID` / `S3_ACCESS_KEY` / `S3_BUCKET` | — | S3/R2 storage |
 | `S3_REGION` | `auto` | |
 | `GOOGLE_CLIENT_ID` / `_SECRET` / `_CALLBACK_URL` | — | Google OIDC (enabled when set) |

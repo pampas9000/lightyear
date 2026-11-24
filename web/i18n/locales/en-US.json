@@ -47,7 +47,11 @@
         "new_user": "New to lightyear?",
         "existing_user": "Already have an account?",
         "create_one": "Create one",
-        "auth_failed": "Authentication failed"
+        "auth_failed": "Authentication failed",
+        "oauth_email_taken": "This email is already registered. Sign in the way you did before.",
+        "oauth_email_unverified": "Your account with this provider has no verified email. Verify your email with the provider, then try again.",
+        "oauth_invalid_state": "The sign-in request expired or was already used. Please try again.",
+        "oauth_failed": "Sign-in failed. Please try again."
     },
     "dashboard": {
         "title": "Transcoding Tasks",

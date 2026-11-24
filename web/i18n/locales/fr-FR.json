@@ -47,7 +47,11 @@
         "new_user": "Nouveau sur lightyear ?",
         "existing_user": "Vous avez déjà un compte ?",
         "create_one": "En créer un",
-        "auth_failed": "Échec de l'authentification"
+        "auth_failed": "Échec de l'authentification",
+        "oauth_email_taken": "Cette adresse e-mail est déjà enregistrée. Connectez-vous comme vous le faisiez auparavant.",
+        "oauth_email_unverified": "Votre compte chez ce fournisseur n'a pas d'adresse e-mail vérifiée. Vérifiez-la auprès du fournisseur, puis réessayez.",
+        "oauth_invalid_state": "La demande de connexion a expiré ou a déjà été utilisée. Veuillez réessayer.",
+        "oauth_failed": "Échec de la connexion. Veuillez réessayer."
     },
     "dashboard": {
         "title": "Tâches de transcodage",

@@ -131,18 +131,11 @@ export const parseApiError = (err: unknown): ApiError => {
 
 export const useApi = () => {
     const { logout, showAuthModal } = useAuth();
-    const authToken = useCookie<string | null>('auth_token');
 
+    // Authenticated by the HttpOnly session cookie, which the browser sends
+    // on these same-origin requests.
     const apiFetch = $fetch.create({
         baseURL: "/api",
-        async onRequest({ options }) {
-            if (authToken.value) {
-                options.headers = new Headers(options.headers || {});
-                if (!options.headers.has('Authorization')) {
-                    options.headers.set('Authorization', `Bearer ${authToken.value}`);
-                }
-            }
-        },
         async onResponseError({ response }) {
             if (response.status === 401) {
                 logout();

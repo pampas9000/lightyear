@@ -230,6 +230,8 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.8 | 清理：`JWT_SECRET` 配置与 JWT 中间件仍在代码中但未使用，对外前删除或接入 | ⬜ |
 | 12.9 | 取消与执行上限要真正停下计算：每个 job 的计算放在 worker 自身启动的子进程里，看到取消标记后杀掉整个进程组并等它回收完，再读下一条派发；原先被放弃的 libvips/libavif 编码会在后台跑完（2026-11 端到端验证中一个 effort 10 的大图 AVIF 被判超时后又在同一个 worker 上跑了 3 分 20 秒）。没有用 libvips kill 标志，因为它停不下 libavif/aom 等编码器本身。每个 job 多约 70 ms 的进程启动；如有需要可预先启动下一个子进程 | ✅ |
 | 12.10 | 500 响应不回显内部错误：所有 500 经 `response.RespondInternal` 返回，错误只写日志，响应只带 `details.request_id`（`requestid` 中间件，响应头 `X-Request-ID`） | ✅ |
+| 12.11 | OAuth 不再按邮箱合并账号：只按 `(provider, provider_account_id)` 查绑定；没有绑定且邮箱已被任何用户占用时拒绝（不合并、不建绑定），前端提示用原来的方式登录。GitHub 只取 `/user/emails` 里已验证的邮箱，Google 要求 `email_verified`，service 再统一检查。回调的所有失败都重定向到 `FRONTEND_URL?auth_error=<code>`。已知遗留：没有手动绑定第三方账号的入口；密码注册不验证邮箱（因此邮箱被占用时只能拒绝，不能合并）；`user_oauth_accounts` 的唯一索引含 `user_id`，`(provider, provider_account_id)` 本身在库里不唯一，靠"只为新用户建绑定"保证 | ✅ |
+| 12.12 | 会话 ID 不再交给页面脚本：登录/注册响应去掉 `token`，`/api` 只认 HttpOnly 的 `session_id` cookie（不再接受 `Authorization: Bearer <session_id>`），前端删掉 `auth_token` cookie。`/api` 上所有 POST/PUT/PATCH/DELETE（含 `/api/login`、`/api/register`、`/api/logout`）要求 `Origin` 与规范化后的 `FRONTEND_URL` 严格相等，缺少即拒绝（`403 error.auth.origin_rejected`）；`/v1`、`/mcp` 不受影响。Nitro 代理原样转发 `Origin`，并以 `redirect: "manual"` 把 API 的重定向交给浏览器 | ✅ |
 
 ### 以后（结构已预留，暂不排期）
 
