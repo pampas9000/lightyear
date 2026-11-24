@@ -41,14 +41,7 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, rete
 		})
 	})
 	wg.Go(func() {
-		for {
-			if _, err := service.DispatchDue(ctx, time.Now()); err != nil && ctx.Err() == nil {
-				slog.Error("dispatch failed", "error", err)
-			}
-			if !wait(ctx, 500*time.Millisecond) {
-				return
-			}
-		}
+		dispatchLoop(ctx, service.DispatchDue, func(ctx context.Context) bool { return wait(ctx, DispatchInterval) })
 	})
 	wg.Go(func() {
 		for {
@@ -87,16 +80,81 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, rete
 	return nil
 }
 
+// DispatchInterval is the pause between dispatch rounds that do not fetch the
+// next batch at once (see dispatchAgain).
+const DispatchInterval = 500 * time.Millisecond
+
+// dispatchLoop runs dispatch rounds until ctx ends or pause returns false.
+func dispatchLoop(ctx context.Context, dispatch func(context.Context, time.Time) (int, int, error), pause func(context.Context) bool) {
+	for ctx.Err() == nil {
+		claimed, candidates, err := dispatch(ctx, time.Now())
+		if err != nil && ctx.Err() == nil {
+			slog.Error("dispatch failed", "error", err)
+		}
+		if err == nil && dispatchAgain(claimed, candidates) {
+			continue
+		}
+		if !pause(ctx) {
+			return
+		}
+	}
+}
+
+// readBatch is how many results one read takes.
+const readBatch = 20
+
+// Variables so tests can shorten them.
+var (
+	// autoClaimInterval bounds how often consume scans for results another
+	// consumer left unacknowledged.
+	autoClaimInterval = 15 * time.Second
+	// autoClaimIdle is how long a result stays unacknowledged before any
+	// consumer may take it over.
+	autoClaimIdle = 30 * time.Second
+)
+
+// consume handles stream entries one at a time, in order, in this goroutine.
+// New entries are read readBatch at a time. Every autoClaimInterval it also
+// takes over entries left unacknowledged for autoClaimIdle (by a consumer
+// that died, or by this one when handling failed); a scan that stops short
+// of the end resumes on the next pass instead of waiting for the interval.
 func consume(ctx context.Context, kv *redis.Client, stream, group, consumer string, handle func(redis.XMessage) error) {
 	cursor := "0-0"
+	var lastClaim time.Time
 	for ctx.Err() == nil {
-		entries, next, err := kv.XAutoClaim(ctx, &redis.XAutoClaimArgs{
-			Stream: stream, Group: group, Consumer: consumer, MinIdle: 30 * time.Second, Start: cursor, Count: 1,
-		}).Result()
+		var entries []redis.XMessage
+		var err error
+		if cursor != "0-0" || time.Since(lastClaim) >= autoClaimInterval {
+			var next string
+			entries, next, err = kv.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+				Stream: stream, Group: group, Consumer: consumer, MinIdle: autoClaimIdle, Start: cursor, Count: readBatch,
+			}).Result()
+			if err == nil || errors.Is(err, redis.Nil) {
+				lastClaim = time.Now()
+				cursor = next
+				if cursor == "" {
+					cursor = "0-0"
+				}
+				err = nil
+			}
+		}
+		if err == nil && len(entries) == 0 {
+			var streams []redis.XStream
+			streams, err = kv.XReadGroup(ctx, &redis.XReadGroupArgs{
+				Group: group, Consumer: consumer, Streams: []string{stream, ">"}, Count: readBatch, Block: time.Second,
+			}).Result()
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			for _, value := range streams {
+				entries = append(entries, value.Messages...)
+			}
+		}
 		if err != nil && strings.HasPrefix(err.Error(), "NOGROUP") {
 			// Redis lost the stream (restart without persistence). Results
 			// in it are gone; leases recover the affected jobs.
 			slog.Warn("consumer group missing; recreating", "stream", stream)
+			cursor = "0-0"
 			if err := ensureGroup(ctx, kv, stream, group); err != nil && ctx.Err() == nil {
 				slog.Error("recreate consumer group failed", "stream", stream, "error", err)
 				if !wait(ctx, time.Second) {
@@ -105,37 +163,19 @@ func consume(ctx context.Context, kv *redis.Client, stream, group, consumer stri
 			}
 			continue
 		}
-		if err != nil && !errors.Is(err, redis.Nil) {
+		if err != nil {
 			if ctx.Err() == nil {
-				slog.Error("claim stream entries failed", "stream", stream, "error", err)
+				slog.Error("read stream failed", "stream", stream, "error", err)
 			}
 			if !wait(ctx, time.Second) {
 				return
 			}
 			continue
 		}
-		cursor = next
-		if cursor == "" {
-			cursor = "0-0"
-		}
-		if len(entries) == 0 {
-			streams, err := kv.XReadGroup(ctx, &redis.XReadGroupArgs{
-				Group: group, Consumer: consumer, Streams: []string{stream, ">"}, Count: 1, Block: time.Second,
-			}).Result()
-			if err != nil {
-				if !errors.Is(err, redis.Nil) && ctx.Err() == nil {
-					slog.Error("read stream failed", "stream", stream, "error", err)
-					if !wait(ctx, time.Second) {
-						return
-					}
-				}
-				continue
-			}
-			for _, value := range streams {
-				entries = append(entries, value.Messages...)
-			}
-		}
 		for _, msg := range entries {
+			if ctx.Err() != nil {
+				return
+			}
 			err := handle(msg)
 			if err != nil && !errors.Is(err, ErrInvalidResult) && !errors.Is(err, gorm.ErrRecordNotFound) {
 				slog.Error("stream entry failed", "stream", stream, "message_id", msg.ID, "error", err)

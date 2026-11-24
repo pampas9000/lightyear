@@ -232,6 +232,13 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.10 | 500 响应不回显内部错误：所有 500 经 `response.RespondInternal` 返回，错误只写日志，响应只带 `details.request_id`（`requestid` 中间件，响应头 `X-Request-ID`） | ✅ |
 | 12.11 | OAuth 不再按邮箱合并账号：只按 `(provider, provider_account_id)` 查绑定；没有绑定且邮箱已被任何用户占用时拒绝（不合并、不建绑定），前端提示用原来的方式登录。GitHub 只取 `/user/emails` 里已验证的邮箱，Google 要求 `email_verified`，service 再统一检查。回调的所有失败都重定向到 `FRONTEND_URL?auth_error=<code>`。已知遗留：没有手动绑定第三方账号的入口；密码注册不验证邮箱（因此邮箱被占用时只能拒绝，不能合并）；`user_oauth_accounts` 的唯一索引含 `user_id`，`(provider, provider_account_id)` 本身在库里不唯一，靠"只为新用户建绑定"保证 | ✅ |
 | 12.12 | 会话 ID 不再交给页面脚本：登录/注册响应去掉 `token`，`/api` 只认 HttpOnly 的 `session_id` cookie（不再接受 `Authorization: Bearer <session_id>`），前端删掉 `auth_token` cookie。`/api` 上所有 POST/PUT/PATCH/DELETE（含 `/api/login`、`/api/register`、`/api/logout`）要求 `Origin` 与规范化后的 `FRONTEND_URL` 严格相等，缺少即拒绝（`403 error.auth.origin_rejected`）；`/v1`、`/mcp` 不受影响。Nitro 代理原样转发 `Origin`，并以 `redirect: "manual"` 把 API 的重定向交给浏览器 | ✅ |
+| 12.13 | 积压不等于丢失：outbox 记下每次发送的 stream ID；`StartTimeout` 到期时用 `XRANGE` 和 `XINFO GROUPS` 的 `last-delivered-id`（按 `(ms, seq)` 数值比较）判断派发是否仍在排队，仍在排队只续租不重发；被 `MAXLEN` 裁掉、已投递却没 `RUNNING`、查不到的照旧重发；Redis 出错时只续租。积压超过 10 万条时被裁掉的派发仍会在下一个 `StartTimeout` 才重发 | ✅ |
+| 12.14 | 同一 attempt 的副本不覆盖已发布的产物：`COMPLETED` 提交后写 `cancel:attempt:<id>`，未开始的副本跳过、运行中的最多约 3 秒被杀掉且不上传。剩余窗口：副本在标记写入前已传完，或在队列里等了超过标记的 24 小时。不做条件写。`FAILED` 后不写标记，失败 attempt 的迟到副本仍可能留下一个没人引用的产物对象 | ✅ |
+| 12.15 | 派发吞吐：一批取满（20）且有领取时立刻取下一批，否则等 500 毫秒 | ✅ |
+| 12.16 | 结果消费：`XREADGROUP` 每次取 20 条、单协程顺序处理，`XAUTOCLAIM` 每 15 秒最多一次；`RUNNING` 心跳只锁 job 行，不再锁 task | ✅ |
+| 12.17 | 优雅退出：API 收到 SIGINT/SIGTERM 后 `ShutdownWithContext`（10 秒），后台清理随之停止；worker 只设退出标志、不打断进行中的 `NOACK` 读取（读取阻塞 1.5 秒），正在跑的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 30 秒）宽限期，超时被杀并回报可重试的 `worker_shutdown`，照常计一次尝试。API 与 orchestrator 的后台协程没有等待退出，进行中的事务随 ctx 取消回滚 | ✅ |
+| 12.18 | `AUTO_MIGRATE` 默认关闭，迁移只经 `task migrate`（`cmd/migrate`）显式执行 | ✅ |
+| 12.19 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.13 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 

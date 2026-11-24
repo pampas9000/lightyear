@@ -26,3 +26,6 @@ url = "2"
 # Fetches URL sources. Without default features there are no cookies and no
 # transparent decompression; `fetch.rs` also turns off proxies.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

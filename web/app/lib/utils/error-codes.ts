@@ -82,6 +82,15 @@ export const ERROR_CODE_REGISTRY: Record<string, Omit<ErrorDiagnostic, 'code'>> 
         retryable: true,
         actionType: 'retry',
     },
+    worker_shutdown: {
+        title: '执行节点停机',
+        category: 'system',
+        badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
+        description: '执行节点在处理过程中停机（部署或缩容），作业没能在停机宽限期内完成，已被中止并自动重试，但自动重试次数已用完。',
+        suggestion: '稍后直接重试即可。',
+        retryable: true,
+        actionType: 'retry',
+    },
     cancelled: {
         title: '任务已被用户取消',
         category: 'cancelled',

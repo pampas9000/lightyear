@@ -5,6 +5,10 @@ package task
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"transcoder/server/internal/compression"
@@ -91,19 +95,88 @@ type Result struct {
 
 // Queue is what the orchestrator needs from Redis.
 type Queue interface {
-	Send(ctx context.Context, queue string, payload []byte) error
+	// Send appends payload to queue and returns the entry's stream ID.
+	Send(ctx context.Context, queue string, payload []byte) (string, error)
 	Cancel(ctx context.Context, attemptID string) error
+	// Waiting reports whether the entry id is still in queue and has not been
+	// delivered to WorkerGroup yet, i.e. a worker will still read it. It is
+	// false when the entry was delivered, trimmed or lost with the stream or
+	// group. An error means Redis could not answer.
+	Waiting(ctx context.Context, queue, id string) (bool, error)
 }
 
 type RedisQueue struct{ Client *redis.Client }
 
-func (q RedisQueue) Send(ctx context.Context, queue string, payload []byte) error {
+func (q RedisQueue) Send(ctx context.Context, queue string, payload []byte) (string, error) {
 	return q.Client.XAdd(ctx, &redis.XAddArgs{
 		Stream: queue, MaxLen: StreamMaxLen, Approx: true,
 		Values: map[string]any{"payload": string(payload)},
-	}).Err()
+	}).Result()
 }
 
 func (q RedisQueue) Cancel(ctx context.Context, attemptID string) error {
 	return q.Client.Set(ctx, CancelKeyPrefix+attemptID, "1", cancelTTL).Err()
+}
+
+// Waiting uses XRANGE for the exact entry and the group's last-delivered-id
+// from XINFO GROUPS (both Redis 5+). Workers read with NOACK, so an entry at
+// or before last-delivered-id has been handed to a worker.
+func (q RedisQueue) Waiting(ctx context.Context, queue, id string) (bool, error) {
+	entries, err := q.Client.XRange(ctx, queue, id, id).Result()
+	if err != nil {
+		return false, err
+	}
+	if len(entries) == 0 {
+		return false, nil
+	}
+	groups, err := q.Client.XInfoGroups(ctx, queue).Result()
+	if err != nil {
+		// The stream went away between the two calls.
+		if isMissing(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, g := range groups {
+		if g.Name == WorkerGroup {
+			return StreamIDAfter(id, g.LastDeliveredID)
+		}
+	}
+	return false, nil
+}
+
+func isMissing(err error) bool {
+	msg := err.Error()
+	return strings.HasPrefix(msg, "NOGROUP") || strings.Contains(msg, "no such key")
+}
+
+// ParseStreamID splits a stream ID "<ms>-<seq>" into its two numbers.
+func ParseStreamID(id string) (ms, seq uint64, err error) {
+	left, right, ok := strings.Cut(id, "-")
+	if !ok {
+		return 0, 0, fmt.Errorf("%w: %q", errBadStreamID, id)
+	}
+	if ms, err = strconv.ParseUint(left, 10, 64); err != nil {
+		return 0, 0, fmt.Errorf("%w: %q", errBadStreamID, id)
+	}
+	if seq, err = strconv.ParseUint(right, 10, 64); err != nil {
+		return 0, 0, fmt.Errorf("%w: %q", errBadStreamID, id)
+	}
+	return ms, seq, nil
+}
+
+var errBadStreamID = errors.New("invalid stream id")
+
+// StreamIDAfter reports whether stream ID a sorts after b. IDs compare as
+// (ms, seq) number pairs; as strings "1-10" would sort before "1-2".
+func StreamIDAfter(a, b string) (bool, error) {
+	ams, aseq, err := ParseStreamID(a)
+	if err != nil {
+		return false, err
+	}
+	bms, bseq, err := ParseStreamID(b)
+	if err != nil {
+		return false, err
+	}
+	return ams > bms || (ams == bms && aseq > bseq), nil
 }

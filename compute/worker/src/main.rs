@@ -1,5 +1,7 @@
 use anyhow::Result;
-use compute_worker::{config, fetch, job, process, queue, redis_connection, storage, worker};
+use compute_worker::{
+    config, fetch, job, process, queue, redis_connection, shutdown, storage, worker,
+};
 
 fn main() -> Result<()> {
     // A compute child (see `process.rs`) needs neither the runtime nor the
@@ -88,7 +90,11 @@ async fn run() -> Result<()> {
             avif_encoder,
         },
     };
-    worker::Worker::new(redis_client, queue::Queue::new(conn), ctx)
+    let shutdown = shutdown::listen()
+        .map_err(|e| anyhow::anyhow!("Cannot listen for shutdown signals: {e}"))?;
+    let grace = std::time::Duration::from_secs(config.shutdown_grace_secs);
+    println!("Shutdown grace period: {grace:?}");
+    worker::Worker::new(redis_client, queue::Queue::new(conn), ctx, shutdown, grace)
         .run()
         .await?;
 

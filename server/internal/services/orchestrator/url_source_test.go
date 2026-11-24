@@ -85,7 +85,7 @@ func TestURLSourceIsFetchedOnceAndNotAgainOnRetry(t *testing.T) {
 	if got := f.job(t, 0); got.Status != models.JobPending {
 		t.Fatalf("retryable failure must requeue, got %s", got.Status)
 	}
-	if _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 2 || f.queue.sent[1].SourceURL != "" || f.queue.sent[1].SourceKey != file.Path {
@@ -120,7 +120,7 @@ func TestFailedFetchIsTriedAgainOnRetry(t *testing.T) {
 	if got := f.source(t); got.Status != models.FileFetching {
 		t.Fatalf("an unfetched source stays FETCHING, got %s", got.Status)
 	}
-	if _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 2 || f.queue.sent[1].SourceURL != sourceURL {
@@ -135,7 +135,7 @@ func TestFailedFetchIsTriedAgainOnRetry(t *testing.T) {
 		OwnerID: f.task.OwnerID, TaskID: f.task.ID, RetryAll: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(2*time.Hour)); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 3 || f.queue.sent[2].SourceURL != sourceURL {
@@ -147,7 +147,7 @@ func TestOutputsOfOneURLFetchItOnce(t *testing.T) {
 	f := newFixture(t, orchestrator.Limits{})
 	f.submitURL(t, uuid.New(), `[{"options":{"format":"avif"}},{"options":{"format":"webp"}}]`)
 	now := time.Now()
-	if _, err := f.svc.DispatchDue(t.Context(), now); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), now); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 1 {
@@ -162,14 +162,14 @@ func TestOutputsOfOneURLFetchItOnce(t *testing.T) {
 		t.Fatalf("the other job must wait: %+v", waiting)
 	}
 	// Still fetching: the waiting job is put off again.
-	if _, err := f.svc.DispatchDue(t.Context(), now.Add(orchestrator.FetchWait)); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), now.Add(orchestrator.FetchWait)); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 1 {
 		t.Fatalf("still only one dispatch, got %d", len(f.queue.sent))
 	}
 	f.process(t, fetchedReport(fetching, f.source(t)))
-	if _, err := f.svc.DispatchDue(t.Context(), now.Add(time.Minute)); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.queue.sent) != 2 || f.queue.sent[1].SourceURL != "" || f.queue.sent[1].JobID != waiting.ID.String() {

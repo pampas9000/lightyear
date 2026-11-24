@@ -280,6 +280,9 @@ type OutboxMessage struct {
 	Tries       int        `gorm:"not null;default:0"`
 	LastError   string     `gorm:"type:varchar(255);not null;default:''"`
 	SentAt      *time.Time
+	// StreamID is the entry ID XADD returned for the send; Recover uses it
+	// to tell a dispatch still waiting in the stream from a lost one.
+	StreamID string `gorm:"type:varchar(64);not null;default:''"`
 }
 
 func (m *OutboxMessage) BeforeCreate(tx *gorm.DB) error {

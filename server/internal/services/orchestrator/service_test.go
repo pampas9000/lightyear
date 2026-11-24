@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -20,26 +21,44 @@ import (
 	"gorm.io/gorm"
 )
 
+// fakeQueue models q:image as a set of entries and the workers group's
+// last-delivered-id, so Waiting answers as RedisQueue would.
 type fakeQueue struct {
 	mu        sync.Mutex
 	failSends int
 	sent      []taskqueue.Dispatch
 	cancelled []string
+	// seq numbers the stream IDs Send returns: fakeStreamMS-<seq>.
+	seq int
+	// entries holds the stream IDs still in the stream.
+	entries map[string]bool
+	// lastDelivered is the workers group's last-delivered-id.
+	lastDelivered string
+	waitErr       error
+	checks        int
 }
 
-func (q *fakeQueue) Send(_ context.Context, _ string, payload []byte) error {
+const fakeStreamMS = 1700000000000
+
+func (q *fakeQueue) Send(_ context.Context, _ string, payload []byte) (string, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.failSends > 0 {
 		q.failSends--
-		return errors.New("redis down")
+		return "", errors.New("redis down")
 	}
 	var d taskqueue.Dispatch
 	if err := json.Unmarshal(payload, &d); err != nil {
-		return err
+		return "", err
 	}
 	q.sent = append(q.sent, d)
-	return nil
+	q.seq++
+	id := fmt.Sprintf("%d-%d", fakeStreamMS, q.seq)
+	if q.entries == nil {
+		q.entries = map[string]bool{}
+	}
+	q.entries[id] = true
+	return id, nil
 }
 
 func (q *fakeQueue) Cancel(_ context.Context, id string) error {
@@ -47,6 +66,29 @@ func (q *fakeQueue) Cancel(_ context.Context, id string) error {
 	defer q.mu.Unlock()
 	q.cancelled = append(q.cancelled, id)
 	return nil
+}
+
+func (q *fakeQueue) Waiting(_ context.Context, _ string, id string) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.checks++
+	if q.waitErr != nil {
+		return false, q.waitErr
+	}
+	if !q.entries[id] {
+		return false, nil
+	}
+	if q.lastDelivered == "" {
+		return true, nil
+	}
+	return taskqueue.StreamIDAfter(id, q.lastDelivered)
+}
+
+// deliverAll marks every entry sent so far as read by a worker.
+func (q *fakeQueue) deliverAll() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.lastDelivered = fmt.Sprintf("%d-%d", fakeStreamMS, q.seq)
 }
 
 type fixture struct {
@@ -110,7 +152,7 @@ func (f fixture) attempt(t *testing.T, job models.Job) models.Attempt {
 
 func (f fixture) dispatch(t *testing.T) {
 	t.Helper()
-	if _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -135,7 +177,7 @@ func TestConcurrentDispatchClaimsEachJobOnce(t *testing.T) {
 	f := setup(t, 5)
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Go(func() { _, _ = f.svc.DispatchDue(t.Context(), time.Now()) })
+		wg.Go(func() { _, _, _ = f.svc.DispatchDue(t.Context(), time.Now()) })
 	}
 	wg.Wait()
 	var attempts int64
@@ -232,7 +274,7 @@ func TestHeartbeatRenewsLeaseAndNeverLowersProgress(t *testing.T) {
 func TestRetryableFailureBacksOffUntilAttemptsRunOut(t *testing.T) {
 	f := setup(t, 1)
 	for attempt := 1; ; attempt++ {
-		if _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
+		if _, _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 		job := f.job(t, 0)
@@ -327,6 +369,7 @@ func TestFailedResendIsRetriedByRelay(t *testing.T) {
 	f.dispatch(t)
 	job := f.job(t, 0)
 	start := time.Now()
+	f.queue.deliverAll()
 	f.queue.failSends = 1
 	if err := f.svc.Recover(t.Context(), start.Add(orchestrator.StartTimeout+time.Second)); err != nil {
 		t.Fatal(err)
@@ -393,6 +436,8 @@ func TestUnstartedAttemptIsResentWithoutConsumingARetry(t *testing.T) {
 	f := setup(t, 1)
 	f.dispatch(t)
 	job := f.job(t, 0)
+	// A worker read the dispatch and never reported RUNNING.
+	f.queue.deliverAll()
 	if err := f.svc.Recover(t.Context(), time.Now().Add(orchestrator.StartTimeout+time.Second)); err != nil {
 		t.Fatal(err)
 	}

@@ -153,27 +153,37 @@ type candidate struct {
 	OwnerID uuid.UUID
 }
 
-// DispatchDue claims due PENDING jobs and sends their attempts. A failed send
-// leaves the outbox message unsent, and Relay sends it later.
-func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
+// DispatchDue claims due PENDING jobs and sends their attempts. It returns
+// how many it claimed and how many candidates the batch had (at most
+// dispatchBatch); a candidate is skipped when it changed meanwhile, its owner
+// filled up, or its URL source is being fetched. A failed send leaves the
+// outbox message unsent, and Relay sends it later.
+func (s *Service) DispatchDue(ctx context.Context, now time.Time) (claimed, candidates int, err error) {
 	var due []candidate
 	if err := s.db.WithContext(ctx).Raw(dueQuery, map[string]any{
 		"cap": s.limits.MaxProcessingPerOwner, "now": now, "batch": dispatchBatch,
 	}).Scan(&due).Error; err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	claimed := 0
 	for _, c := range due {
 		msg, err := s.claim(ctx, c, now)
 		if err != nil {
-			return claimed, err
+			return claimed, len(due), err
 		}
 		if msg != nil {
 			s.deliver(ctx, msg)
 			claimed++
 		}
 	}
-	return claimed, nil
+	return claimed, len(due), nil
+}
+
+// dispatchAgain reports whether the next batch should be fetched at once: a
+// full batch that claimed something means more jobs are likely due. A short
+// batch, or a full one whose candidates were all skipped, waits for the next
+// round, so the loop never spins on candidates it cannot claim.
+func dispatchAgain(claimed, candidates int) bool {
+	return claimed > 0 && candidates == dispatchBatch
 }
 
 // claim turns one PENDING job into a QUEUED attempt and the outbox message
@@ -267,7 +277,8 @@ func enqueue(tx *gorm.DB, attempt *models.Attempt, now time.Time) (*models.Outbo
 // stays unsent and becomes available to the relay again after a backoff.
 func (s *Service) deliver(ctx context.Context, msg *models.OutboxMessage) {
 	db := s.db.WithContext(ctx).Model(&models.OutboxMessage{}).Where("id = ? AND sent_at IS NULL", msg.ID)
-	if err := s.queue.Send(ctx, msg.Queue, msg.Payload); err != nil {
+	streamID, err := s.queue.Send(ctx, msg.Queue, msg.Payload)
+	if err != nil {
 		slog.Warn("send outbox message; relay will retry", "message_id", msg.ID, "attempt_id", msg.AttemptID, "error", err)
 		tries := msg.Tries + 1
 		if err := db.Updates(map[string]any{
@@ -277,7 +288,7 @@ func (s *Service) deliver(ctx context.Context, msg *models.OutboxMessage) {
 		}
 		return
 	}
-	if err := db.Updates(map[string]any{"sent_at": time.Now(), "tries": msg.Tries + 1}).Error; err != nil {
+	if err := db.Updates(map[string]any{"sent_at": time.Now(), "tries": msg.Tries + 1, "stream_id": streamID}).Error; err != nil {
 		slog.Warn("record outbox send", "message_id", msg.ID, "error", err)
 	}
 }
@@ -360,8 +371,13 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		return ErrInvalidResult
 	}
 	now := time.Now()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		job, err := jobstate.Lock(tx, jobID)
+	completed := false
+	lock := jobstate.Lock
+	if r.Status == taskqueue.ResultRunning {
+		lock = lockJob
+	}
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		job, err := lock(tx, jobID)
 		if err != nil {
 			return err
 		}
@@ -401,7 +417,11 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			}
 			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": lease}).Error
 		case taskqueue.ResultCompleted:
-			return s.complete(tx, job, &attempt, r, now)
+			if err := s.complete(tx, job, &attempt, r, now); err != nil {
+				return err
+			}
+			completed = true
+			return nil
 		case taskqueue.ResultFailed:
 			code, message, retryable := "internal_error", "worker reported failure", false
 			if r.Error != nil {
@@ -427,6 +447,34 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			return ErrInvalidResult
 		}
 	})
+	if err == nil && completed {
+		// Another copy of this attempt may still be queued or running (a
+		// re-send, or the relay and the writer both sending). Its output key
+		// is the published object's, so it must not upload: a copy not yet
+		// started skips the attempt, a running one is killed within a cancel
+		// poll. Best effort, like every cancel signal.
+		if err := s.queue.Cancel(ctx, attemptID.String()); err != nil {
+			slog.Warn("signal completed attempt", "attempt_id", attemptID, "error", err)
+		}
+	}
+	return err
+}
+
+// lockJob locks only the job row, for RUNNING heartbeats, which arrive every
+// 20 seconds for every running job and would otherwise queue on the task row
+// behind their siblings. A heartbeat writes the job's progress and lease, its
+// attempt and, once, the fetched source file and its usage record; it never
+// changes a job's status or calls jobstate.Aggregate, so it needs no task lock.
+// Skipping the task adds no deadlock cycle: every other writer takes the task
+// before the job, and every path that locks the job and a file takes the job
+// first (nothing locks a file and then waits for a job or task), so a
+// heartbeat holding only the job waits for nothing that waits for it.
+func lockJob(tx *gorm.DB, id uuid.UUID) (*models.Job, error) {
+	var job models.Job
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&job, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
 }
 
 // recordFetched marks a FETCHING source UPLOADED once the worker reports it
@@ -563,7 +611,9 @@ func (s *Service) retryOrFail(tx *gorm.DB, job *models.Job, code, message string
 // Recover handles lost messages and dead workers (sends that never reached
 // the queue are Relay's):
 //   - an attempt with no RUNNING heartbeat before StartTimeout is re-sent as
-//     the same attempt through the outbox, without consuming a retry;
+//     the same attempt through the outbox, without consuming a retry, unless
+//     its last send is still waiting in the stream (a backlog, not a loss):
+//     then only the lease is renewed;
 //   - a RUNNING attempt whose lease expired is abandoned and the job retried.
 //     Heartbeats cap the lease at the attempt's execution limit, so this is
 //     also where an attempt that runs too long is stopped.
@@ -575,6 +625,10 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		return err
 	}
 	for _, id := range expired {
+		waiting, err := s.stillWaiting(ctx, id)
+		if err != nil {
+			return err
+		}
 		var resend *models.OutboxMessage
 		var abandoned *uuid.UUID
 		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -597,7 +651,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 					Where("attempt_id = ? AND sent_at IS NULL", attempt.ID).Count(&pending).Error; err != nil {
 					return err
 				}
-				if pending == 0 {
+				if pending == 0 && !waiting {
 					if resend, err = enqueue(tx, &attempt, now); err != nil {
 						return err
 					}
@@ -626,4 +680,46 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// lastSendQuery finds the latest recorded send of a job's current attempt
+// while that attempt is still QUEUED.
+const lastSendQuery = `
+SELECT o.* FROM outbox_messages o
+JOIN jobs j ON j.current_attempt_id = o.attempt_id
+JOIN attempts a ON a.id = o.attempt_id
+WHERE j.id = ? AND a.status = ? AND o.sent_at IS NOT NULL AND o.stream_id <> ''
+ORDER BY o.sent_at DESC, o.id DESC
+LIMIT 1`
+
+// stillWaiting reports whether the latest send of job's QUEUED attempt is
+// still in the stream and not yet delivered to a worker: the queue is backed
+// up, the message is not lost, and re-sending would only queue a duplicate.
+// Anything else (no recorded stream ID, the entry trimmed or lost with the
+// stream or group, or delivered to a worker that never reported RUNNING)
+// is false, and Recover re-sends.
+//
+// When Redis cannot answer it reports true, so Recover only renews the
+// lease: a re-send could not reach Redis either, and the next check after
+// StartTimeout decides once Redis answers.
+//
+// It runs before Recover locks the job, so no row lock is held across Redis
+// calls; Recover re-checks the job and lease under the lock, and a concurrent
+// re-send or heartbeat moves the lease and so skips this round.
+func (s *Service) stillWaiting(ctx context.Context, jobID uuid.UUID) (bool, error) {
+	var msgs []models.OutboxMessage
+	if err := s.db.WithContext(ctx).Raw(lastSendQuery, jobID, models.AttemptQueued).Scan(&msgs).Error; err != nil {
+		return false, err
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+	msg := msgs[0]
+	waiting, err := s.queue.Waiting(ctx, msg.Queue, msg.StreamID)
+	if err != nil {
+		slog.Warn("check queued dispatch; renewing the lease without re-sending",
+			"attempt_id", msg.AttemptID, "stream_id", msg.StreamID, "error", err)
+		return true, nil
+	}
+	return waiting, nil
 }

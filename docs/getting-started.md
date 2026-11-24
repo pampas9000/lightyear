@@ -29,14 +29,16 @@ Linux 发行版自带的 libvips 往往低于 8.17，需要从源码构建或使
 ```bash
 task bootstrap                         # bun install + go work sync + cargo fetch
 cp .env.example .env                   # 填写 DATABASE_URL、REDIS_URL、S3_*
-go run ./server/cmd/migrate            # 建表（API 启动时 AUTO_MIGRATE=true 也会执行）
+task migrate                           # 建表（go run ./server/cmd/migrate）
 task dev                               # API + orchestrator + worker + Web
 ```
 
 打开 `http://localhost:3000`。
 
+API 启动时默认不迁移（`AUTO_MIGRATE` 默认 `false`），`task dev` 也不会替你迁移：拉取到改了数据模型的代码后，先运行一次 `task migrate`。`.env` 指向的是哪个数据库，迁移的就是哪个，运行前确认。只在一次性的本地库上图省事时，才设 `AUTO_MIGRATE=true` 让 API 启动时迁移。
+
 ::: warning 表结构不兼容时
-数据模型改动后自动迁移无法处理已有数据（例如新增的非空列）。开发库可以直接重建：
+数据模型改动后迁移无法处理已有数据（例如新增的非空列）。开发库可以直接重建：
 
 ```bash
 go run ./server/cmd/migrate -reset     # 删除全部应用表后重建，数据全部丢失
@@ -116,6 +118,8 @@ URL 源由 worker 抓取，相关配置：
 | `WORKER_FETCH_READ_TIMEOUT_SECS` | `30` | 抓取时两次读到数据之间的最长间隔 |
 
 抓取的大小上限沿用 `WORKER_MAX_SOURCE_BYTES`。
+
+worker 收到 SIGTERM 或 SIGINT 后不再领取新 job，正在执行的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 `30`）秒完成，超时则中止并以可重试的 `worker_shutdown` 回报，见[可靠性设计](/architecture/reliability#worker-侧)。API 与 orchestrator 也在这两个信号下退出：API 停止接受新连接，最多等 10 秒让进行中的请求完成。
 
 ## 下一步
 

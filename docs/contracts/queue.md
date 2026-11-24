@@ -9,10 +9,10 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | 流 | 生产者 | 消费组 | 读取方式 |
 | :--- | :--- | :--- | :--- |
 | `q:image` | orchestrator | `workers` | `XREADGROUP … NOACK`，收到即确认 |
-| `q:results` | worker | `orchestrators` | 处理后 `XACK`；空闲超过 30 秒的未确认消息由其他实例 `XAUTOCLAIM` |
+| `q:results` | worker | `orchestrators` | 每次最多读 20 条，单协程按顺序处理后 `XACK`；空闲超过 30 秒的未确认消息由 `XAUTOCLAIM` 认领（每 15 秒最多一次） |
 
 - 每条消息只有一个字段 `payload`，值为下面的 JSON 字符串。
-- 写入时近似裁剪：`MAXLEN ~ 100000`。
+- 写入时近似裁剪：`MAXLEN ~ 100000`。orchestrator 把派发的条目 ID 记在 outbox 上，恢复时用 `XRANGE` 与 `XINFO GROUPS` 的 `last-delivered-id` 判断它是否仍在排队（见[可靠性设计](/architecture/reliability#积压与丢失的区分)）。
 - 消费组从 `0` 创建，worker 启动前已发出的派发也会被读到；组或流丢失（`NOGROUP`）时双方都会重建。
 - 以后的执行类型（如 GPU、外部 provider）各用一个 `q:<class>` 流和自己的 worker 池，结果统一回到 `q:results`。
 
@@ -45,7 +45,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `source_url` | 可选，源文件尚未抓取（`FETCHING`）时附带；worker 先下载这个 URL 并写到 `source_key`，再照常处理。见 `dispatch-url-v2.json` 与下文 [URL 源](#url-源) |
 | `output_key` | 产物必须写入的 key，按 attempt 唯一 |
 
-同一个 attempt 可能被投递多次（见可靠性设计的"重发同一 attempt"），worker 不需要去重：产物 key 相同，重复执行只是覆盖同一个对象。
+同一个 attempt 可能被投递多次（见[可靠性设计](/architecture/reliability#恢复)），worker 不需要去重：attempt 完成后 orchestrator 写入它的取消标记，还没开始的副本开始前就跳过，正在跑的副本被杀掉、不上传。
 
 ## Result（worker → orchestrator）
 
@@ -114,13 +114,14 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `storage_failed` | 是 | 对象存储读写失败 |
 | `url_rejected` | 否 | 源 URL 被拒绝：协议不是 http/https、地址不是公网地址（含重定向目标）、重定向超过 3 次、文件超过源文件大小上限 |
 | `fetch_failed` | 视情况 | 下载源 URL 失败：超时、连接失败、5xx、408、429 可重试；其他 4xx 与空响应不可重试 |
+| `worker_shutdown` | 是 | worker 收到 SIGTERM/SIGINT 后，job 没能在宽限期（`WORKER_SHUTDOWN_GRACE_SECS`，默认 30 秒）内完成，计算被中止 |
 | `internal_error` | 否 | 其他错误 |
 
 orchestrator 自己还会写入两种错误码：`execution_timeout`（租约到期或超过执行上限，可重试）与 `cancelled`。
 
 ## 取消
 
-`cancel:attempt:<attempt_id>` 存在（24 小时过期）表示该 attempt 应放弃。worker 在开始前与执行中每 3 秒检查一次；发现后不上传、不回报。
+`cancel:attempt:<attempt_id>` 存在（24 小时过期）表示该 attempt 应放弃：attempt 被取消、租约过期被放弃，或已经完成（防止它的其他副本覆盖已发布的产物）。worker 在开始前与执行中每 3 秒检查一次；发现后不上传、不回报。
 
 ## 兼容规则
 

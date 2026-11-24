@@ -190,7 +190,8 @@ func TestRetryResetsTerminalJobsAndCanReplaceOptions(t *testing.T) {
 
 type fakeQueue struct{ cancelled []string }
 
-func (q *fakeQueue) Send(_ context.Context, _ string, _ []byte) error { return nil }
+func (q *fakeQueue) Send(_ context.Context, _ string, _ []byte) (string, error) { return "0-1", nil }
+func (q *fakeQueue) Waiting(_ context.Context, _, _ string) (bool, error)       { return false, nil }
 func (q *fakeQueue) Cancel(_ context.Context, id string) error {
 	q.cancelled = append(q.cancelled, id)
 	return nil

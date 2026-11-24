@@ -100,7 +100,10 @@ func Load() Config {
 		"DATABASE_URL": "host=localhost port=5432 user=postgres password=postgres dbname=transcoder sslmode=disable",
 		"REDIS_URL":    "redis://localhost:6379/0",
 		"JWT_SECRET":   "dev-secret-change-me-in-production",
-		"AUTO_MIGRATE": true,
+		// Off by default: the schema changes only when someone runs
+		// cmd/migrate (task migrate), never as a side effect of starting
+		// an API instance.
+		"AUTO_MIGRATE": false,
 		"FRONTEND_URL": "http://localhost:3000",
 	}, "."), nil)
 
