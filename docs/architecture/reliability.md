@@ -43,11 +43,22 @@ orchestrator 处理每条结果时锁定 job，只在 job 为 `PROCESSING` 且 `
 
 | 情况 | 判定 | 处理 |
 | :--- | :--- | :--- |
-| 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 在同一事务中续租 10 分钟并为同一 attempt 写一条新的 outbox 消息，提交后立即发送；不消耗重试次数。该 attempt 已有未发送的消息（Redis 一直不可用）时不再重复写入 |
+| 已发出但没有 worker 接手 | 租约（`StartTimeout` 10 分钟）到期时 attempt 仍为 `QUEUED` | 先查最近一次发送是否还在排队（见下文）。还在排队就只续租 10 分钟；否则在同一事务中续租并为同一 attempt 写一条新的 outbox 消息，提交后立即发送。都不消耗重试次数。该 attempt 已有未发送的消息（Redis 一直不可用）时不再重复写入 |
 | worker 执行中失联 | `RUNNING` 后租约（每次心跳续到 2 分钟后）到期 | attempt 置 `EXPIRED` 并发取消标记；按 `execution_timeout`（可重试）进入重试 |
 | 执行超过上限 | 租约到达执行上限（见下） | 同上，错误信息为 `attempt exceeded the execution time limit` |
 
 worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍几次心跳丢失。
+
+### 积压与丢失的区分
+
+队列积压时派发只是还没轮到，并没有丢；如果每 10 分钟都原样重发，积压越深重复越多。所以每次发送成功都把 `XADD` 返回的条目 ID 记在 outbox 消息的 `stream_id` 上，`StartTimeout` 到期时取该 attempt **最新一条**已发送且带 `stream_id` 的消息检查：
+
+1. `XRANGE q:image <id> <id>`：条目还在不在流里；
+2. `XINFO GROUPS q:image`：`workers` 组的 `last-delivered-id`。worker 以 `NOACK` 读取，ID 不大于它的条目都已交给某个 worker。
+
+两个 ID 都解析成 `(毫秒, 序号)` 两个无符号整数比较，不按字符串比较（字符串比较下 `…-10` 会排在 `…-2` 前面）。条目还在且 ID 大于 `last-delivered-id`，说明还在排队，只续租。其余情况都重发：条目不在了（被 `MAXLEN` 近似裁剪，或 Redis 丢了数据）、消费组不存在、已交给 worker 但一直没有 `RUNNING`、消息没有 `stream_id`。
+
+查询 Redis 出错时只续租、不重发并记一条日志：Redis 不可用时重发也发不出去，10 分钟后的下一次检查会在 Redis 恢复后再判断。检查在锁定 job 之前进行，不会在持有行锁时等待 Redis；锁定后会重新确认 job 与租约，期间别的实例重发或收到心跳都会推后租约，这一轮就跳过。
 
 ### 执行上限
 
@@ -79,6 +90,6 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 
 ## Redis 侧
 
-- `q:image` 与 `q:results` 写入时近似裁剪为 10 万条。
+- `q:image` 与 `q:results` 写入时近似裁剪为 10 万条。`q:image` 中还没投递就被裁掉的派发，在 `StartTimeout` 到期时按上文"积压与丢失的区分"查不到条目，随即重发。
 - `q:results` 由 orchestrator 在处理后 `XACK`；某个 orchestrator 崩溃后，其他实例会认领空闲超过 30 秒的未确认结果。
 - Redis 数据全部丢失时：未完成的 job 由恢复流程按上表重新派发，已完成的 job 不受影响。

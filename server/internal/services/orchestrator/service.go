@@ -267,7 +267,8 @@ func enqueue(tx *gorm.DB, attempt *models.Attempt, now time.Time) (*models.Outbo
 // stays unsent and becomes available to the relay again after a backoff.
 func (s *Service) deliver(ctx context.Context, msg *models.OutboxMessage) {
 	db := s.db.WithContext(ctx).Model(&models.OutboxMessage{}).Where("id = ? AND sent_at IS NULL", msg.ID)
-	if err := s.queue.Send(ctx, msg.Queue, msg.Payload); err != nil {
+	streamID, err := s.queue.Send(ctx, msg.Queue, msg.Payload)
+	if err != nil {
 		slog.Warn("send outbox message; relay will retry", "message_id", msg.ID, "attempt_id", msg.AttemptID, "error", err)
 		tries := msg.Tries + 1
 		if err := db.Updates(map[string]any{
@@ -277,7 +278,7 @@ func (s *Service) deliver(ctx context.Context, msg *models.OutboxMessage) {
 		}
 		return
 	}
-	if err := db.Updates(map[string]any{"sent_at": time.Now(), "tries": msg.Tries + 1}).Error; err != nil {
+	if err := db.Updates(map[string]any{"sent_at": time.Now(), "tries": msg.Tries + 1, "stream_id": streamID}).Error; err != nil {
 		slog.Warn("record outbox send", "message_id", msg.ID, "error", err)
 	}
 }
@@ -563,7 +564,9 @@ func (s *Service) retryOrFail(tx *gorm.DB, job *models.Job, code, message string
 // Recover handles lost messages and dead workers (sends that never reached
 // the queue are Relay's):
 //   - an attempt with no RUNNING heartbeat before StartTimeout is re-sent as
-//     the same attempt through the outbox, without consuming a retry;
+//     the same attempt through the outbox, without consuming a retry, unless
+//     its last send is still waiting in the stream (a backlog, not a loss):
+//     then only the lease is renewed;
 //   - a RUNNING attempt whose lease expired is abandoned and the job retried.
 //     Heartbeats cap the lease at the attempt's execution limit, so this is
 //     also where an attempt that runs too long is stopped.
@@ -575,6 +578,10 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		return err
 	}
 	for _, id := range expired {
+		waiting, err := s.stillWaiting(ctx, id)
+		if err != nil {
+			return err
+		}
 		var resend *models.OutboxMessage
 		var abandoned *uuid.UUID
 		if err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -597,7 +604,7 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 					Where("attempt_id = ? AND sent_at IS NULL", attempt.ID).Count(&pending).Error; err != nil {
 					return err
 				}
-				if pending == 0 {
+				if pending == 0 && !waiting {
 					if resend, err = enqueue(tx, &attempt, now); err != nil {
 						return err
 					}
@@ -626,4 +633,46 @@ func (s *Service) Recover(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// lastSendQuery finds the latest recorded send of a job's current attempt
+// while that attempt is still QUEUED.
+const lastSendQuery = `
+SELECT o.* FROM outbox_messages o
+JOIN jobs j ON j.current_attempt_id = o.attempt_id
+JOIN attempts a ON a.id = o.attempt_id
+WHERE j.id = ? AND a.status = ? AND o.sent_at IS NOT NULL AND o.stream_id <> ''
+ORDER BY o.sent_at DESC, o.id DESC
+LIMIT 1`
+
+// stillWaiting reports whether the latest send of job's QUEUED attempt is
+// still in the stream and not yet delivered to a worker: the queue is backed
+// up, the message is not lost, and re-sending would only queue a duplicate.
+// Anything else (no recorded stream ID, the entry trimmed or lost with the
+// stream or group, or delivered to a worker that never reported RUNNING)
+// is false, and Recover re-sends.
+//
+// When Redis cannot answer it reports true, so Recover only renews the
+// lease: a re-send could not reach Redis either, and the next check after
+// StartTimeout decides once Redis answers.
+//
+// It runs before Recover locks the job, so no row lock is held across Redis
+// calls; Recover re-checks the job and lease under the lock, and a concurrent
+// re-send or heartbeat moves the lease and so skips this round.
+func (s *Service) stillWaiting(ctx context.Context, jobID uuid.UUID) (bool, error) {
+	var msgs []models.OutboxMessage
+	if err := s.db.WithContext(ctx).Raw(lastSendQuery, jobID, models.AttemptQueued).Scan(&msgs).Error; err != nil {
+		return false, err
+	}
+	if len(msgs) == 0 {
+		return false, nil
+	}
+	msg := msgs[0]
+	waiting, err := s.queue.Waiting(ctx, msg.Queue, msg.StreamID)
+	if err != nil {
+		slog.Warn("check queued dispatch; renewing the lease without re-sending",
+			"attempt_id", msg.AttemptID, "stream_id", msg.StreamID, "error", err)
+		return true, nil
+	}
+	return waiting, nil
 }
