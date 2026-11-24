@@ -134,3 +134,44 @@ func TestRunningAttemptIsNotCheckedInTheStream(t *testing.T) {
 		t.Fatalf("expected the running attempt abandoned without a check: checks=%d", f.queue.checks)
 	}
 }
+
+// Once an attempt completes, its other copies must not run or upload over
+// the published output: the attempt is marked cancelled.
+func TestCompletionCancelsTheAttemptsOtherCopies(t *testing.T) {
+	f := setup(t, 2)
+	f.dispatch(t)
+	job := f.job(t, 0)
+	other := f.job(t, 1)
+	a := f.attempt(t, job)
+	if err := f.svc.ProcessResult(t.Context(), result(job, "RUNNING")); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.queue.cancelled) != 0 {
+		t.Fatalf("a heartbeat cancelled something: %v", f.queue.cancelled)
+	}
+	if err := f.svc.ProcessResult(t.Context(), failed(other, true)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.queue.cancelled) != 0 {
+		t.Fatalf("a failure is not a completion: %v", f.queue.cancelled)
+	}
+	if err := f.svc.ProcessResult(t.Context(), completed(job, "outputs/elsewhere.avif")); err == nil {
+		t.Fatal("expected the invalid completion rejected")
+	}
+	if len(f.queue.cancelled) != 0 {
+		t.Fatalf("a rejected completion cancelled the attempt: %v", f.queue.cancelled)
+	}
+	if err := f.svc.ProcessResult(t.Context(), completed(job, a.OutputKey)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.queue.cancelled) != 1 || f.queue.cancelled[0] != a.ID.String() {
+		t.Fatalf("completed attempt not cancelled: %v", f.queue.cancelled)
+	}
+	// The duplicate result is ignored and signals nothing more.
+	if err := f.svc.ProcessResult(t.Context(), completed(job, a.OutputKey)); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.queue.cancelled) != 1 {
+		t.Fatalf("duplicate completion signalled again: %v", f.queue.cancelled)
+	}
+}

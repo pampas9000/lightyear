@@ -361,7 +361,8 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 		return ErrInvalidResult
 	}
 	now := time.Now()
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	completed := false
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		job, err := jobstate.Lock(tx, jobID)
 		if err != nil {
 			return err
@@ -402,7 +403,11 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			}
 			return tx.Model(job).Updates(map[string]any{"progress": progress, "lease_expires_at": lease}).Error
 		case taskqueue.ResultCompleted:
-			return s.complete(tx, job, &attempt, r, now)
+			if err := s.complete(tx, job, &attempt, r, now); err != nil {
+				return err
+			}
+			completed = true
+			return nil
 		case taskqueue.ResultFailed:
 			code, message, retryable := "internal_error", "worker reported failure", false
 			if r.Error != nil {
@@ -428,6 +433,17 @@ func (s *Service) ProcessResult(ctx context.Context, r taskqueue.Result) error {
 			return ErrInvalidResult
 		}
 	})
+	if err == nil && completed {
+		// Another copy of this attempt may still be queued or running (a
+		// re-send, or the relay and the writer both sending). Its output key
+		// is the published object's, so it must not upload: a copy not yet
+		// started skips the attempt, a running one is killed within a cancel
+		// poll. Best effort, like every cancel signal.
+		if err := s.queue.Cancel(ctx, attemptID.String()); err != nil {
+			slog.Warn("signal completed attempt", "attempt_id", attemptID, "error", err)
+		}
+	}
+	return err
 }
 
 // recordFetched marks a FETCHING source UPLOADED once the worker reports it

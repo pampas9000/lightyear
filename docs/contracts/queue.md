@@ -45,7 +45,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `source_url` | 可选，源文件尚未抓取（`FETCHING`）时附带；worker 先下载这个 URL 并写到 `source_key`，再照常处理。见 `dispatch-url-v2.json` 与下文 [URL 源](#url-源) |
 | `output_key` | 产物必须写入的 key，按 attempt 唯一 |
 
-同一个 attempt 可能被投递多次（见可靠性设计的"恢复"），worker 不需要去重：产物 key 相同，重复执行只是覆盖同一个对象。
+同一个 attempt 可能被投递多次（见[可靠性设计](/architecture/reliability#恢复)），worker 不需要去重：attempt 完成后 orchestrator 写入它的取消标记，还没开始的副本开始前就跳过，正在跑的副本被杀掉、不上传。
 
 ## Result（worker → orchestrator）
 
@@ -120,7 +120,7 @@ orchestrator 自己还会写入两种错误码：`execution_timeout`（租约到
 
 ## 取消
 
-`cancel:attempt:<attempt_id>` 存在（24 小时过期）表示该 attempt 应放弃。worker 在开始前与执行中每 3 秒检查一次；发现后不上传、不回报。
+`cancel:attempt:<attempt_id>` 存在（24 小时过期）表示该 attempt 应放弃：attempt 被取消、租约过期被放弃，或已经完成（防止它的其他副本覆盖已发布的产物）。worker 在开始前与执行中每 3 秒检查一次；发现后不上传、不回报。
 
 ## 兼容规则
 
