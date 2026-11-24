@@ -493,7 +493,7 @@ func TestCancelledJobIgnoresLateCompletion(t *testing.T) {
 
 func TestMissingSourceFailsTheJob(t *testing.T) {
 	f := setup(t, 1)
-	f.db.Model(&models.File{}).Where("id = ?", f.job(t, 0).SourceFileID).Update("status", "DELETING")
+	f.db.Model(&models.File{}).Where("id = ?", f.job(t, 0).SourceFileID).Update("status", models.FileDeleted)
 	f.dispatch(t)
 	if got := f.job(t, 0); got.Status != models.JobFailed || got.ErrorCode != "source_unavailable" {
 		t.Fatalf("expected source_unavailable: %+v", got)

@@ -187,8 +187,8 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 | :--- | :--- |
 | `UPLOADED` 或 `FETCHING`，没有未结束的 job 读取它 | `200`，状态变为 `DELETED`，存储对象（如已下载）随后删除；草稿一并删除 |
 | `UPLOADED` 或 `FETCHING`，是未结束 job 的源文件 | `409 error.file.conflict` |
-| `UPLOADING`、`ABORTED`、`FAILED` | `200`，状态变为 `ABORTING`，由上传清理回收 |
-| `EXPIRED`、`DELETED` 等已在删除中的状态 | `200`，原样返回（幂等） |
+| `UPLOADING` | `200`，状态变为 `DELETED`；分片上传立即中止，已签出的上传 URL 过期（最多 1 小时）后删除对象和记录 |
+| `EXPIRED`、`DELETED` | `200`，原样返回（幂等） |
 | 不存在或不属于当前用户（含已彻底删除的文件） | `404 error.file.not_found` |
 
 先在事务里改状态，再删除存储对象；对象删除失败不影响响应，由[存储保留期](#存储保留期)的清理任务重试。被删除的文件若仍有 job 指向它，记录保留并显示 `DELETED`；否则对象删除后记录也删除。
@@ -201,9 +201,14 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 
 API 进程每 10 分钟运行一次清理：
 
-1. 为仍没有到期时间的 `UPLOADED` 与 `FETCHING` 文件补写 `expires_at`（例如上线前已有的文件、清理任务把中断的上传修复为 `UPLOADED` 的文件、所有 job 在下载前就已结束的 URL 源）。
+1. 为仍没有到期时间的 `UPLOADED` 与 `FETCHING` 文件补写 `expires_at`（例如上线前已有的文件、所有 job 在下载前就已结束的 URL 源）。
 2. 到期的文件（`UPLOADED` 或 `FETCHING`）改为 `EXPIRED`，再删除存储对象（`FETCHING` 文件可能留有下载到一半的对象）。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。
-3. 重试此前删除失败的对象（`EXPIRED`/`DELETED` 且尚未清除的文件）。
+3. 重试此前删除失败的对象（`EXPIRED`/`DELETED` 且尚未清除的文件），以及签名 URL 已过期的已删除上传的对象。
+
+另外每小时一次：
+
+- 上传窗口（24 小时）过了仍是 `UPLOADING` 的文件：存储里已有对象（上传完成但没调用 `complete`）则改为 `UPLOADED` 并写入 `expires_at`，否则改为 `DELETED` 并清除；存储暂时不可用时留到下次。
+- 7 天前加入、尚未提交的草稿：文件没有任何 job 引用则一并删除，否则只移除草稿。
 
 到期后：
 
@@ -286,12 +291,12 @@ API 进程每 10 分钟运行一次清理：
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `POST` | `/api/upload/init` | `{filename, type, size, hash}`，见下文 |
-| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}`；对已 `UPLOADED` 的文件重复调用直接返回；存储里还没有该对象时返回 `409` |
+| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}`；对已 `UPLOADED` 的文件重复调用直接返回；存储里还没有该对象时返回 `409`；文件已删除时返回 `404` |
 | `GET` | `/api/upload/multipart/:uploadId/list-parts?key=` | 已上传分片 |
 | `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber?key=` | 重新签一个分片（init 返回的 URL 一小时后过期） |
-| `POST` | `/api/upload/multipart/:uploadId/abort` | `{key}`；中止，文件变为 `ABORTED` |
+| `POST` | `/api/upload/multipart/:uploadId/abort` | `{key}`；中止并删除，文件变为 `DELETED`（同[删除](#删除)中的 `UPLOADING`） |
 
-`key` 不以 `uploads/<user_id>/` 开头，或 `uploadId` 与该文件不符时返回 `403`；文件记录不存在返回 `404 error.file.not_found`。
+`key` 不以 `uploads/<user_id>/` 开头，或 `uploadId` 与该文件不符时返回 `403`；文件记录不存在或已不是上传中（已删除、已过期）返回 `404 error.file.not_found`。
 
 `init` 的 `hash` 是十六进制 SHA-256，可省略。返回值有三种：
 
@@ -308,7 +313,7 @@ API 进程每 10 分钟运行一次清理：
 | `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件；签名包含基于 `file.Name` 的 `ResponseContentDisposition` attachment 头）；文件已过期或已删除时 `410 error.file.gone` |
 | `DELETE` | `/api/files/:id` | 删除本人的源文件或产物，见[删除](#删除) |
 | `GET` | `/api/drafts/list` | 草稿（游标分页 `?cursor=`） |
-| `POST` | `/api/drafts/:id/delete` | 删除草稿及其存储对象 |
+| `POST` | `/api/drafts/:id/delete` | 删除草稿；文件没有任何 job 引用时一并删除（同[删除](#删除)），否则只移除草稿。草稿不存在时 `404 error.file.not_found` |
 | `GET` | `/api/jobs/:id` | 单个 job |
 
 ## 对外 API /v1
@@ -351,7 +356,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | `POST` | `/v1/uploads/:id/complete` | write | `200` + `File` |
 | `GET` | `/v1/uploads/:id/parts` | write | `200 {parts: [{part_number, etag, size}]}` |
 | `POST` | `/v1/uploads/:id/parts/:part_number/url` | write | `200 {part_number, url, expires_at}` |
-| `POST` | `/v1/uploads/:id/abort` | write | `200` + `File`（`ABORTED`） |
+| `POST` | `/v1/uploads/:id/abort` | write | `200` + `File`（`DELETED`） |
 | `POST` | `/v1/tasks` | write | `202` + `Task`，`Location`、`Retry-After` |
 | `GET` | `/v1/tasks` | read | `200 {tasks, total, page, limit}` |
 | `GET` | `/v1/tasks/:id` | read | `200` + `Task`（含下载链接），`ETag`；或 `304` |
@@ -389,7 +394,8 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 - 上传 URL 在 `expires_at`（1 小时）后失效；分片可用 `POST /v1/uploads/:id/parts/:n/url` 重新签名，用 `GET …/parts` 查询已上传的分片。
 - `complete` 后文件为 `UPLOADED`，`size` 与 `mime_type` 以存储实际为准。对已上传的文件重复调用直接返回；分片上传未带 `parts` 返回 `400 error.param.required`；存储里还没有该对象（`PUT` 未完成或被存储拒绝，例如 `sha256` 不符）返回 `409 error.param.invalid`，文件仍为 `UPLOADING`，可以重新 `PUT` 后再调用。
 - 对单次 PUT 的上传调用分片相关端点、对已完成的上传中止，返回 `409 error.param.invalid`。
-- 未完成的上传 24 小时后由清理任务回收。
+- 中止即删除：文件变为 `DELETED`，之后的 `complete`、分片端点和再次中止返回 `404 error.file.not_found`。
+- 未完成的上传 24 小时后由清理任务回收（见[存储保留期](#存储保留期)）。
 - 上传中的文件按申报的 `size` 计入存储；申报后会超出存储配额时返回 `403 error.quota.exceeded`（秒传不检查），见[用量与配额](#用量与配额)。
 
 ### 创建任务

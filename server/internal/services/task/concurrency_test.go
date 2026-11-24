@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/testutil"
 
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 		OwnerID:    user.ID,
 		Name:       "lock_test.mp4",
 		Path:       "uploads/" + user.ID.String() + "/lock_test.mp4",
-		Status:     "UPLOADED",
+		Status:     models.FileUploaded,
 		UploadedAt: &now,
 	}
 	if err := db.Create(&file).Error; err != nil {
@@ -51,8 +52,8 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 	// We want to verify that row lock (FOR UPDATE) prevents concurrent modification/cleanup
 	// We will start a transaction in Goroutine A that locks the draft file row then the file row, sleeps to hold the lock,
 	// and then creates a job referencing this file and deletes the draft_file (simulating task creation).
-	// In Goroutine B, we will try to mark the file as DELETING (simulating cleanup).
-	// Goroutine B should block until Goroutine A commits. Once Goroutine A commits, Goroutine B's check should fail.
+	// In Goroutine B, we delete the draft through lifecycle, which would delete the file too.
+	// Goroutine B should block until Goroutine A commits. Once Goroutine A commits, the draft is gone.
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -77,7 +78,7 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 			}
 			// Lock file row
 			var f models.File
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND owner_id = ? AND status = ?", file.ID, user.ID, "UPLOADED").First(&f).Error; err != nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND owner_id = ? AND status = ?", file.ID, user.ID, models.FileUploaded).First(&f).Error; err != nil {
 				return err
 			}
 
@@ -100,7 +101,7 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 		taskCreatedResult = err
 	}()
 
-	// Goroutine B: Tries to claim file as DELETING (simulating cleanup thread)
+	// Goroutine B: deletes the draft, as the console or the stale-draft sweep does
 	go func() {
 		defer wg.Done()
 		goroutineAStart <- struct{}{} // Start A
@@ -109,32 +110,10 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 		time.Sleep(100 * time.Millisecond) // Ensure B calls SELECT FOR UPDATE after A has acquired lock
 
 		bStart := time.Now()
-		// Try to claim row (this should block because A is holding the lock)
-		txErr := db.Transaction(func(tx *gorm.DB) error {
-			var lockedDraft models.DraftFile
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("file_id = ?", file.ID).First(&lockedDraft).Error; err != nil {
-				return err
-			}
-			var lockedFile models.File
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", file.ID).First(&lockedFile).Error; err != nil {
-				return err
-			}
-
-			// Verify if used in job
-			var count int64
-			if err := tx.Table("jobs").Where("input_file_id = ?", lockedFile.ID).Count(&count).Error; err != nil {
-				return err
-			}
-			if count > 0 || lockedFile.Status != "UPLOADED" {
-				return errors.New("file is in use or status changed")
-			}
-
-			lockedFile.Status = "DELETING"
-			return tx.Save(&lockedFile).Error
-		})
-
+		// Locks the draft, then the file: blocks behind A.
+		_, cleanupResult = lifecycle.NewService(db, nil, "bucket", lifecycle.Policy{}).
+			DeleteDraft(t.Context(), user.ID, file.ID)
 		bBlockedDuration = time.Since(bStart)
-		cleanupResult = txErr
 	}()
 
 	wg.Wait()
@@ -149,12 +128,14 @@ func TestCreateTaskAndCleanupConcurrencyLock(t *testing.T) {
 		t.Errorf("expected Goroutine B to block on row lock for at least 1s, but only blocked for %v", bBlockedDuration)
 	}
 
-	// Goroutine B's transaction must have failed because Goroutine A successfully created the reference and committed,
-	// meaning the file is now referenced by a job when B gets the lock.
-	if cleanupResult == nil {
-		t.Error("expected cleanup to fail because file is in use after A committed, but it succeeded")
-	} else {
-		t.Logf("cleanup failed as expected: %v", cleanupResult)
+	// A submitted the file and removed the draft, so B finds no draft and
+	// leaves the file alone.
+	if !errors.Is(cleanupResult, lifecycle.ErrDraftNotFound) {
+		t.Errorf("expected the draft to be gone once A committed, got: %v", cleanupResult)
+	}
+	var after models.File
+	if err := db.First(&after, "id = ?", file.ID).Error; err != nil || after.Status != models.FileUploaded {
+		t.Errorf("file after B: %+v %v", after, err)
 	}
 
 	// Cleanup database

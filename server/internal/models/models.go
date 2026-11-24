@@ -102,19 +102,15 @@ type UserOauthAccount struct {
 // no worker has fetched yet: the first attempt of a job reading it fetches
 // SourceURL into Path, and the orchestrator marks it UPLOADED once the worker
 // reports the fetch. EXPIRED (retention ran out) and DELETED (the owner
-// deleted it) are set before the object is removed; PurgedAt records the
-// removal. DELETING and ABORTING are used by the draft and upload cleanup,
-// which remove the row together with the object.
+// deleted it, or the upload was aborted or abandoned) are set before the
+// object is removed; PurgedAt records the removal. services/lifecycle makes
+// every such change.
 const (
 	FileUploading = "UPLOADING"
 	FileFetching  = "FETCHING"
 	FileUploaded  = "UPLOADED"
 	FileExpired   = "EXPIRED"
 	FileDeleted   = "DELETED"
-	FileDeleting  = "DELETING"
-	FileAborting  = "ABORTING"
-	FileAborted   = "ABORTED"
-	FileFailed    = "FAILED"
 )
 
 type File struct {

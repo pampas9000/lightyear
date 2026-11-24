@@ -76,9 +76,9 @@ func run() error {
 	}
 	s3Service := storage.NewS3Service(s3Client)
 
-	// Background sweeps stop with ctx: stale upload records, and the
-	// retention sweep (expire sources and outputs, retry failed deletions).
-	storage.StartCleanupTask(ctx, db, s3Service, config.S3.Bucket, 1*time.Hour)
+	// Background sweeps stop with ctx: retention (expire sources and
+	// outputs, retry failed deletions) and, hourly, unfinished uploads and
+	// stale drafts.
 	lifecycle.NewService(db, s3Service, config.S3.Bucket, api.RetentionPolicy(config)).Start(ctx, 10*time.Minute)
 
 	app := newFiberApp(db, kv, config, s3Service)

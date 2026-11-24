@@ -240,6 +240,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.18 | `AUTO_MIGRATE` 默认关闭，迁移只经 `task migrate`（`cmd/migrate`）显式执行 | ✅ |
 | 12.19 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.13 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
 | 12.20 | Job 状态转换只有一份实现：领取、心跳、完成、复用、重试、失败、取消、手动重试都经 `jobstate.Run`/`Tx`，转换检查起始状态与 task 锁，写回前用 `jobstate.Check` 校验字段规则，状态变过的 task 在提交前聚合一次；测试结束时对库里全部 job 跑 `Check` | ✅ |
+| 12.21 | 文件删除只有一套模型：`files` 只剩 `UPLOADING`/`FETCHING`/`UPLOADED`/`EXPIRED`/`DELETED`，删除文件、草稿、任务产物与中止上传都经 `services/lifecycle`（先改为 `DELETED` 再删对象，失败重试）；未完成的上传删除后立即中止分片，签名 URL 过期后再中止一次并删对象；上传端点只接受 `UPLOADING`，`complete` 不再复活已删除的文件。过期上传与 7 天草稿并入 lifecycle 每小时一次、分批处理，删除 `storage/cleanup.go`。没有为旧状态（`DELETING`/`ABORTING`/`ABORTED`/`FAILED`）写数据迁移，库里遗留的这类行不会再被处理 | ✅ |
 
 ### 以后（结构已预留，暂不排期）
 
