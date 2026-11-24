@@ -152,7 +152,7 @@ func (f fixture) attempt(t *testing.T, job models.Job) models.Attempt {
 
 func (f fixture) dispatch(t *testing.T) {
 	t.Helper()
-	if _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -177,7 +177,7 @@ func TestConcurrentDispatchClaimsEachJobOnce(t *testing.T) {
 	f := setup(t, 5)
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Go(func() { _, _ = f.svc.DispatchDue(t.Context(), time.Now()) })
+		wg.Go(func() { _, _, _ = f.svc.DispatchDue(t.Context(), time.Now()) })
 	}
 	wg.Wait()
 	var attempts int64
@@ -274,7 +274,7 @@ func TestHeartbeatRenewsLeaseAndNeverLowersProgress(t *testing.T) {
 func TestRetryableFailureBacksOffUntilAttemptsRunOut(t *testing.T) {
 	f := setup(t, 1)
 	for attempt := 1; ; attempt++ {
-		if _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
+		if _, _, err := f.svc.DispatchDue(t.Context(), time.Now().Add(time.Hour)); err != nil {
 			t.Fatal(err)
 		}
 		job := f.job(t, 0)

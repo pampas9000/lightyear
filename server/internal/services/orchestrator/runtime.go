@@ -41,14 +41,7 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, rete
 		})
 	})
 	wg.Go(func() {
-		for {
-			if _, err := service.DispatchDue(ctx, time.Now()); err != nil && ctx.Err() == nil {
-				slog.Error("dispatch failed", "error", err)
-			}
-			if !wait(ctx, 500*time.Millisecond) {
-				return
-			}
-		}
+		dispatchLoop(ctx, service.DispatchDue, func(ctx context.Context) bool { return wait(ctx, DispatchInterval) })
 	})
 	wg.Go(func() {
 		for {
@@ -85,6 +78,26 @@ func Run(ctx context.Context, db *gorm.DB, kv *redis.Client, limits Limits, rete
 	<-ctx.Done()
 	wg.Wait()
 	return nil
+}
+
+// DispatchInterval is the pause between dispatch rounds that do not fetch the
+// next batch at once (see dispatchAgain).
+const DispatchInterval = 500 * time.Millisecond
+
+// dispatchLoop runs dispatch rounds until ctx ends or pause returns false.
+func dispatchLoop(ctx context.Context, dispatch func(context.Context, time.Time) (int, int, error), pause func(context.Context) bool) {
+	for ctx.Err() == nil {
+		claimed, candidates, err := dispatch(ctx, time.Now())
+		if err != nil && ctx.Err() == nil {
+			slog.Error("dispatch failed", "error", err)
+		}
+		if err == nil && dispatchAgain(claimed, candidates) {
+			continue
+		}
+		if !pause(ctx) {
+			return
+		}
+	}
 }
 
 func consume(ctx context.Context, kv *redis.Client, stream, group, consumer string, handle func(redis.XMessage) error) {

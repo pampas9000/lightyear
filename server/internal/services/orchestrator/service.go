@@ -153,27 +153,37 @@ type candidate struct {
 	OwnerID uuid.UUID
 }
 
-// DispatchDue claims due PENDING jobs and sends their attempts. A failed send
-// leaves the outbox message unsent, and Relay sends it later.
-func (s *Service) DispatchDue(ctx context.Context, now time.Time) (int, error) {
+// DispatchDue claims due PENDING jobs and sends their attempts. It returns
+// how many it claimed and how many candidates the batch had (at most
+// dispatchBatch); a candidate is skipped when it changed meanwhile, its owner
+// filled up, or its URL source is being fetched. A failed send leaves the
+// outbox message unsent, and Relay sends it later.
+func (s *Service) DispatchDue(ctx context.Context, now time.Time) (claimed, candidates int, err error) {
 	var due []candidate
 	if err := s.db.WithContext(ctx).Raw(dueQuery, map[string]any{
 		"cap": s.limits.MaxProcessingPerOwner, "now": now, "batch": dispatchBatch,
 	}).Scan(&due).Error; err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	claimed := 0
 	for _, c := range due {
 		msg, err := s.claim(ctx, c, now)
 		if err != nil {
-			return claimed, err
+			return claimed, len(due), err
 		}
 		if msg != nil {
 			s.deliver(ctx, msg)
 			claimed++
 		}
 	}
-	return claimed, nil
+	return claimed, len(due), nil
+}
+
+// dispatchAgain reports whether the next batch should be fetched at once: a
+// full batch that claimed something means more jobs are likely due. A short
+// batch, or a full one whose candidates were all skipped, waits for the next
+// round, so the loop never spins on candidates it cannot claim.
+func dispatchAgain(claimed, candidates int) bool {
+	return claimed > 0 && candidates == dispatchBatch
 }
 
 // claim turns one PENDING job into a QUEUED attempt and the outbox message

@@ -92,7 +92,7 @@ func TestAttemptPastExecutionLimitIsExpiredAndRetried(t *testing.T) {
 		t.Fatalf("over-limit attempt not signalled: %v", f.queue.cancelled)
 	}
 	// The retry is a new attempt with its own clock.
-	if _, err := f.svc.DispatchDue(t.Context(), *got.NextRunAt); err != nil {
+	if _, _, err := f.svc.DispatchDue(t.Context(), *got.NextRunAt); err != nil {
 		t.Fatal(err)
 	}
 	retried := f.reload(t, job.ID)

@@ -36,7 +36,7 @@ func TestLargeBacklogDoesNotDelayAnotherUser(t *testing.T) {
 	f.submit(t, big, 30) // submitted first, so every job is due earlier
 	smallTask := f.submit(t, small, 1)
 
-	sent, err := f.svc.DispatchDue(t.Context(), time.Now())
+	sent, _, err := f.svc.DispatchDue(t.Context(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestOwnerAtCapIsSkippedUntilAJobFinishes(t *testing.T) {
 	cappedTask := f.submit(t, capped, 6)
 	f.submit(t, other, 2)
 
-	if sent, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 5 {
+	if sent, _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 5 {
 		t.Fatalf("first round: sent %d, err %v", sent, err)
 	}
 	if n := f.count(t, capped, models.JobProcessing); n != 3 {
@@ -66,7 +66,7 @@ func TestOwnerAtCapIsSkippedUntilAJobFinishes(t *testing.T) {
 	if n := f.count(t, other, models.JobProcessing); n != 2 {
 		t.Fatalf("other user has %d processing, want 2", n)
 	}
-	if sent, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 0 {
+	if sent, _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 0 {
 		t.Fatalf("user at cap must be skipped: sent %d, err %v", sent, err)
 	}
 
@@ -78,7 +78,7 @@ func TestOwnerAtCapIsSkippedUntilAJobFinishes(t *testing.T) {
 			break
 		}
 	}
-	if sent, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 1 {
+	if sent, _, err := f.svc.DispatchDue(t.Context(), time.Now()); err != nil || sent != 1 {
 		t.Fatalf("a finished job frees exactly one slot: sent %d, err %v", sent, err)
 	}
 	if n := f.count(t, capped, models.JobProcessing); n != 3 {
@@ -100,7 +100,7 @@ func TestConcurrentOrchestratorsClaimOnceAndRespectTheCap(t *testing.T) {
 		svc := orchestrator.NewService(f.db, q, orchestrator.Limits{MaxProcessingPerOwner: limit}, lifecycle.Policy{})
 		wg.Go(func() {
 			for range 3 {
-				if _, err := svc.DispatchDue(t.Context(), time.Now()); err != nil {
+				if _, _, err := svc.DispatchDue(t.Context(), time.Now()); err != nil {
 					t.Error(err)
 				}
 			}
