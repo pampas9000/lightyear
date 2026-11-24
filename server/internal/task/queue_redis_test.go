@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -49,7 +50,7 @@ func TestRedisQueueWaiting(t *testing.T) {
 	t.Cleanup(func() { _ = kv.Close() })
 	ctx := t.Context()
 	stream := "test:image:" + uuid.NewString()
-	t.Cleanup(func() { kv.Del(ctx, stream) })
+	t.Cleanup(func() { kv.Del(context.Background(), stream) })
 	q := RedisQueue{Client: kv}
 
 	if ok, err := q.Waiting(ctx, stream, "5-2"); ok || err != nil {
