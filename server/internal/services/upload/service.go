@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,8 +34,9 @@ const (
 	minPartSize        = 5 << 20
 	// MaxParts is the S3 limit on parts per upload.
 	MaxParts = 10000
-	// URLExpiry is how long signed upload and part URLs stay valid.
-	URLExpiry = time.Hour
+	// URLExpiry is how long signed upload and part URLs stay valid. A deleted
+	// upload's object is removed only once they have run out.
+	URLExpiry = lifecycle.UploadURLExpiry
 	// uploadWindow is how long an unfinished upload is kept before cleanup.
 	uploadWindow = 24 * time.Hour
 )
@@ -58,12 +60,12 @@ func PartSize(size int64) int64 {
 }
 
 type Service struct {
-	db        *gorm.DB
-	storage   *storage.S3Service
-	bucket    string
-	retention lifecycle.Policy
-	quotas    *usage.Quotas
-	now       func() time.Time
+	db      *gorm.DB
+	storage *storage.S3Service
+	bucket  string
+	files   *lifecycle.Service
+	quotas  *usage.Quotas
+	now     func() time.Time
 }
 
 // WithQuotas makes Init check the storage quota. Without it nothing is checked.
@@ -72,10 +74,10 @@ func (s *Service) WithQuotas(q *usage.Quotas) *Service {
 	return s
 }
 
-// NewService builds the upload service. retention sets expires_at as an
-// upload completes.
-func NewService(db *gorm.DB, storage *storage.S3Service, bucket string, retention lifecycle.Policy) *Service {
-	return &Service{db: db, storage: storage, bucket: bucket, retention: retention, now: time.Now}
+// NewService builds the upload service. files sets expires_at as an upload
+// completes (its retention) and deletes aborted uploads.
+func NewService(db *gorm.DB, storage *storage.S3Service, bucket string, files *lifecycle.Service) *Service {
+	return &Service{db: db, storage: storage, bucket: bucket, files: files, now: time.Now}
 }
 
 type InitInput struct {
@@ -174,7 +176,7 @@ func (s *Service) Init(ctx context.Context, owner uuid.UUID, in InitInput) (*Ini
 		Path:            key,
 		MimeType:        contentType,
 		Size:            in.Size,
-		Status:          "UPLOADING",
+		Status:          models.FileUploading,
 		UploadID:        res.UploadID,
 		UploadExpiresAt: &expiresAt,
 		Hash:            in.Hash,
@@ -232,14 +234,15 @@ type Part struct {
 
 // Complete finishes the upload and marks the file UPLOADED with the size the
 // store reports. Parts are required for multipart uploads and ignored for a
-// single PUT. Completing an uploaded file returns it unchanged.
+// single PUT. Completing an uploaded file returns it unchanged. Only an
+// UPLOADING file can be completed: a deleted upload stays deleted, and a URL
+// source (FETCHING) is not an upload.
 func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part) (*models.File, error) {
-	if file.Status == "UPLOADED" {
+	switch file.Status {
+	case models.FileUploaded:
 		return file, nil
-	}
-	if file.Status == models.FileFetching {
-		// A URL source is not an upload; the orchestrator marks it UPLOADED
-		// once a worker has fetched it.
+	case models.FileUploading:
+	default:
 		return nil, ErrNotFound
 	}
 	if file.UploadID != "" {
@@ -266,13 +269,17 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 		file.MimeType = ct
 	}
 	now := s.now()
-	file.Status = "UPLOADED"
-	file.UploadedAt = &now
+	done := false
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Save(file).Error; err != nil {
-			return err
+		// Only an upload still UPLOADING is recorded: one deleted meanwhile
+		// stays deleted.
+		res := tx.Model(&models.File{}).Where("id = ? AND status = ?", file.ID, models.FileUploading).
+			Updates(map[string]any{"status": models.FileUploaded, "size": file.Size, "mime_type": file.MimeType, "uploaded_at": now})
+		if res.Error != nil || res.RowsAffected == 0 {
+			return res.Error
 		}
-		if _, err := lifecycle.Schedule(tx, s.retention, file.ID); err != nil {
+		done = true
+		if _, err := lifecycle.Schedule(tx, s.files.Policy(), file.ID); err != nil {
 			return err
 		}
 		return tx.Raw("SELECT expires_at FROM files WHERE id = ?", file.ID).Row().Scan(&file.ExpiresAt)
@@ -280,6 +287,15 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 	if err != nil {
 		return nil, fmt.Errorf("mark file uploaded: %w", err)
 	}
+	if !done {
+		// A concurrent complete may have won; anything else is gone.
+		var current models.File
+		if err := s.db.WithContext(ctx).First(&current, "id = ?", file.ID).Error; err == nil && current.Status == models.FileUploaded {
+			return &current, nil
+		}
+		return nil, ErrNotFound
+	}
+	file.Status, file.UploadedAt = models.FileUploaded, &now
 	return file, nil
 }
 
@@ -290,9 +306,9 @@ func (s *Service) Complete(ctx context.Context, file *models.File, parts []Part)
 // otherwise the bytes are not all there and ErrObjectMissing is returned.
 func (s *Service) Finish(ctx context.Context, file *models.File) (*models.File, error) {
 	switch {
-	case file.Status == "UPLOADED":
+	case file.Status == models.FileUploaded:
 		return file, nil
-	case file.Status != "UPLOADING":
+	case file.Status != models.FileUploading:
 		return nil, ErrNotFound
 	case file.UploadID == "":
 		return s.Complete(ctx, file, nil)
@@ -321,11 +337,8 @@ func (s *Service) Finish(ctx context.Context, file *models.File) (*models.File, 
 
 // ListParts lists the parts of an unfinished multipart upload.
 func (s *Service) ListParts(ctx context.Context, file *models.File) ([]Part, error) {
-	if file.UploadID == "" {
-		return nil, ErrNotMultipart
-	}
-	if file.Status == "UPLOADED" {
-		return nil, ErrAlreadyUploaded
+	if err := unfinishedMultipart(file); err != nil {
+		return nil, err
 	}
 	raw, err := s.storage.ListParts(ctx, s.bucket, file.Path, file.UploadID)
 	if err != nil {
@@ -343,33 +356,102 @@ func (s *Service) SignPart(ctx context.Context, file *models.File, number int32)
 	if number < 1 || number > MaxParts {
 		return "", time.Time{}, ErrInvalidPart
 	}
-	if file.UploadID == "" {
-		return "", time.Time{}, ErrNotMultipart
-	}
-	if file.Status == "UPLOADED" {
-		return "", time.Time{}, ErrAlreadyUploaded
+	if err := unfinishedMultipart(file); err != nil {
+		return "", time.Time{}, err
 	}
 	expires := s.now().Add(URLExpiry)
 	url, err := s.storage.SignPart(ctx, s.bucket, file.Path, file.UploadID, number, URLExpiry)
 	return url, expires, err
 }
 
-// Abort cancels an unfinished multipart upload and marks the file ABORTED.
-func (s *Service) Abort(ctx context.Context, file *models.File) error {
-	if file.UploadID == "" {
+// unfinishedMultipart checks that the file is a multipart upload still in
+// progress.
+func unfinishedMultipart(file *models.File) error {
+	switch {
+	case file.UploadID == "":
 		return ErrNotMultipart
-	}
-	if file.Status == "UPLOADED" {
+	case file.Status == models.FileUploaded:
 		return ErrAlreadyUploaded
+	case file.Status != models.FileUploading:
+		return ErrNotFound
 	}
-	if err := s.storage.AbortMultipartUpload(ctx, s.bucket, file.Path, file.UploadID); err != nil {
+	return nil
+}
+
+// Abort deletes an unfinished multipart upload. The file is DELETED at once
+// and its multipart upload aborted; lifecycle removes whatever reached
+// storage once the signed part URLs run out.
+func (s *Service) Abort(ctx context.Context, file *models.File) error {
+	if err := unfinishedMultipart(file); err != nil {
 		return err
 	}
-	file.Status = "ABORTED"
-	return s.db.WithContext(ctx).Model(file).Update("status", "ABORTED").Error
+	deleted, err := s.files.DeleteFile(ctx, file.OwnerID, file.ID)
+	if errors.Is(err, lifecycle.ErrFileNotFound) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	*file = *deleted
+	return nil
 }
 
 // Location is the bucket-qualified object path reported to Uppy.
 func (s *Service) Location(file *models.File) string {
 	return "/" + s.bucket + "/" + file.Path
+}
+
+// Draft is an uploaded file the owner has not submitted in a task yet.
+type Draft struct {
+	ID         uuid.UUID
+	Name       string
+	Size       int64
+	MimeType   string
+	Status     string
+	UploadedAt time.Time
+	// DraftedAt and DraftID order the list; the newest draft comes first.
+	DraftedAt time.Time
+	DraftID   uuid.UUID
+}
+
+// ListDrafts returns up to limit of the owner's drafts whose upload has
+// finished, newest first, starting after cursor (from a previous call; empty
+// for the first page). It returns the cursor of the next page, empty when
+// this page is not full.
+func (s *Service) ListDrafts(ctx context.Context, owner uuid.UUID, cursor string, limit int) ([]Draft, string, error) {
+	q := s.db.WithContext(ctx).Table("draft_files").
+		Select("draft_files.created_at AS drafted_at, draft_files.id AS draft_id, files.id, files.name, files.size, files.mime_type, files.status, files.uploaded_at").
+		Joins("JOIN files ON files.id = draft_files.file_id").
+		Where("draft_files.owner_id = ? AND files.status = ? AND files.uploaded_at IS NOT NULL", owner, models.FileUploaded)
+	if at, id, ok := decodeCursor(cursor); ok {
+		q = q.Where("draft_files.created_at < ? OR (draft_files.created_at = ? AND draft_files.id < ?)", at, at, id)
+	}
+	var drafts []Draft
+	if err := q.Order("draft_files.created_at DESC, draft_files.id DESC").Limit(limit).Scan(&drafts).Error; err != nil {
+		return nil, "", err
+	}
+	next := ""
+	if len(drafts) == limit && limit > 0 {
+		last := drafts[len(drafts)-1]
+		next = base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%d,%s", last.DraftedAt.UnixNano(), last.DraftID))
+	}
+	return drafts, next, nil
+}
+
+// decodeCursor reads a ListDrafts cursor; a malformed one starts from the top.
+func decodeCursor(cursor string) (time.Time, uuid.UUID, bool) {
+	raw, err := base64.StdEncoding.DecodeString(cursor)
+	if cursor == "" || err != nil {
+		return time.Time{}, uuid.Nil, false
+	}
+	ns, rest, ok := strings.Cut(string(raw), ",")
+	if !ok {
+		return time.Time{}, uuid.Nil, false
+	}
+	n, err1 := strconv.ParseInt(ns, 10, 64)
+	id, err2 := uuid.Parse(rest)
+	if err1 != nil || err2 != nil {
+		return time.Time{}, uuid.Nil, false
+	}
+	return time.Unix(0, n), id, true
 }

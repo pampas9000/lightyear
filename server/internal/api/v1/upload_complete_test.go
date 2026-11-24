@@ -32,7 +32,7 @@ func TestCompleteBeforeObjectIsUploadedIsConflict(t *testing.T) {
 		BaseEndpoint: aws.String(store.URL),
 		UsePathStyle: true,
 	}))
-	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.Policy{})
+	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.NewService(e.db, s3, "bucket", lifecycle.Policy{}))
 	key := e.key()
 
 	res, body := e.do(http.MethodPost, "/v1/uploads", key, `{"filename":"a.png","size":1024}`)
@@ -66,7 +66,7 @@ func TestCompleteStorageFailureDoesNotEchoError(t *testing.T) {
 		UsePathStyle:     true,
 		RetryMaxAttempts: 1,
 	}))
-	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.Policy{})
+	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.NewService(e.db, s3, "bucket", lifecycle.Policy{}))
 	key := e.key()
 
 	res, body := e.do(http.MethodPost, "/v1/uploads", key, `{"filename":"a.png","size":1024}`)
@@ -97,7 +97,7 @@ func TestCompleteSetsExpiresAt(t *testing.T) {
 		BaseEndpoint: aws.String(store.URL),
 		UsePathStyle: true,
 	}))
-	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.Days(30, 30))
+	e.h.uploads = upload.NewService(e.db, s3, "bucket", lifecycle.NewService(e.db, s3, "bucket", lifecycle.Days(30, 30)))
 	key := e.key()
 
 	res, body := e.do(http.MethodPost, "/v1/uploads", key, `{"filename":"a.png","size":1024}`)

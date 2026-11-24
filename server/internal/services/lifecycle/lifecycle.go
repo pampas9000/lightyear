@@ -82,6 +82,9 @@ func NewService(db *gorm.DB, store ObjectStore, bucket string, policy Policy) *S
 	return &Service{db: db, store: store, bucket: bucket, policy: policy, BatchSize: 500}
 }
 
+// Policy is the retention the service applies.
+func (s *Service) Policy() Policy { return s.policy }
+
 // unfinished are the job statuses that still need their source file.
 var unfinished = []models.JobStatus{models.JobPending, models.JobProcessing}
 

@@ -110,7 +110,7 @@ func (h *Handler) CompleteUpload(c fiber.Ctx) error {
 	if err != nil {
 		return respondUploadError(c, err, "complete upload")
 	}
-	if file.UploadID != "" && file.Status != "UPLOADED" && len(req.Parts) == 0 {
+	if file.UploadID != "" && file.Status != models.FileUploaded && len(req.Parts) == 0 {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamRequired, "parts are required for a multipart upload.", response.ValidationDetail{Field: "parts", Reason: "empty"})
 	}
 	parts := make([]upload.Part, len(req.Parts))

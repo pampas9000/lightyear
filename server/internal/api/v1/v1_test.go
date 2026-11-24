@@ -69,7 +69,7 @@ func setup(t *testing.T, opts ...func(*Handler, *gorm.DB)) *env {
 	keys := apikey.NewService(db)
 	deleted := &[]string{}
 	files := lifecycle.NewService(db, recordingStore{deleted}, "bucket", lifecycle.Days(30, 30))
-	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket", lifecycle.Days(30, 30)), files, sign)
+	h := New(task.NewService(db, nil), upload.NewService(db, s3, "bucket", files), files, sign)
 	for _, opt := range opts {
 		opt(h, db)
 	}
@@ -456,5 +456,37 @@ func TestUploads(t *testing.T) {
 	}
 	if res, _ := e.do(http.MethodPost, "/v1/uploads/"+up.File.ID.String()+"/parts/1/url", key, ""); res.StatusCode != http.StatusConflict {
 		t.Fatalf("signing a part of a single-PUT upload: %d", res.StatusCode)
+	}
+}
+
+// Aborting a multipart upload deletes it; a deleted upload cannot be
+// resumed, signed or completed back into existence.
+func TestAbortedUploadStaysDeleted(t *testing.T) {
+	e := setup(t)
+	key := e.key()
+	expires := time.Now().Add(24 * time.Hour)
+	up := models.File{OwnerID: e.owner, Name: "big.png", Path: "uploads/" + e.owner.String() + "/" + uuid.NewString() + ".png",
+		Status: models.FileUploading, UploadID: "mp-1", UploadExpiresAt: &expires, Size: 20 << 20}
+	if err := e.db.Create(&up).Error; err != nil {
+		t.Fatal(err)
+	}
+	res, body := e.do(http.MethodPost, "/v1/uploads/"+up.ID.String()+"/abort", key, "")
+	if res.StatusCode != http.StatusOK || decode[File](t, body.Data).Status != models.FileDeleted {
+		t.Fatalf("abort: %d %s %s", res.StatusCode, body.Message, body.Data)
+	}
+	for _, path := range []string{"/complete", "/parts/1/url"} {
+		if res, body := e.do(http.MethodPost, "/v1/uploads/"+up.ID.String()+path, key, `{"parts":[{"part_number":1,"etag":"x"}]}`); res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s after abort: %d %s", path, res.StatusCode, body.Message)
+		}
+	}
+	if res, _ := e.do(http.MethodGet, "/v1/uploads/"+up.ID.String()+"/parts", key, ""); res.StatusCode != http.StatusNotFound {
+		t.Errorf("list parts after abort: %d", res.StatusCode)
+	}
+	if res, _ := e.do(http.MethodPost, "/v1/uploads/"+up.ID.String()+"/abort", key, ""); res.StatusCode != http.StatusNotFound {
+		t.Errorf("second abort: %d", res.StatusCode)
+	}
+	var f models.File
+	if err := e.db.First(&f, "id = ?", up.ID).Error; err != nil || f.Status != models.FileDeleted {
+		t.Fatalf("file after abort: %+v %v", f, err)
 	}
 }

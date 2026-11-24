@@ -63,9 +63,9 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 	})
 	limiter := ratelimit.New(kv, "rl:v1:write:", cfg.RateLimit.PerMinute, cfg.RateLimit.Burst)
 	tasks := task.NewService(db, kv).WithQuotas(quotas)
-	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg)).WithQuotas(quotas)
-	keys := apikey.NewService(db)
 	files := lifecycle.NewService(db, s3Storage, cfg.S3.Bucket, RetentionPolicy(cfg))
+	uploads := upload.NewService(db, s3Storage, cfg.S3.Bucket, files).WithQuotas(quotas)
+	keys := apikey.NewService(db)
 	sign := func(ctx context.Context, path, filename string, ttl time.Duration) (string, error) {
 		return s3Storage.GetPresignedURL(ctx, cfg.S3.Bucket, path, filename, false, ttl)
 	}
@@ -88,7 +88,7 @@ func NewRouter(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Storage *stor
 		workflow: handlers.NewWorkflowHandler(db),
 		task:     handlers.NewTaskHandler(tasks, files),
 		upload:   handlers.NewUploadHandler(uploads),
-		draft:    handlers.NewDraftHandler(db, s3Storage, cfg.S3.Bucket),
+		draft:    handlers.NewDraftHandler(uploads, files),
 		file:     handlers.NewFileHandler(db, s3Storage, cfg.S3.Bucket, files),
 		auth:     handlers.NewAuthHandler(db, store, cfg),
 		apiKeys:  handlers.NewAPIKeyHandler(keys),

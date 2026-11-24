@@ -231,7 +231,7 @@ func setup(t *testing.T, opts ...func(*env)) *env {
 	e := &env{
 		t: t, db: db, keys: apikey.NewService(db), owner: uuid.New(), store: store,
 		tasks:  task.NewService(db, nil),
-		upload: upload.NewService(db, s3, "bucket", lifecycle.Days(30, 30)),
+		upload: upload.NewService(db, s3, "bucket", lifecycle.NewService(db, s3, "bucket", lifecycle.Days(30, 30))),
 	}
 	var err error
 	e.s, err = New(e.tasks, e.upload, e.keys, sign, nil)
