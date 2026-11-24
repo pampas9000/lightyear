@@ -34,6 +34,7 @@ Prerequisites: Bun, Node ≥ 23.6, Go 1.26+, Rust nightly (pinned by `rust-toolc
 ```bash
 task bootstrap         # bun install + go work sync + cargo fetch
 cp .env.example .env   # DATABASE_URL, REDIS_URL, S3_*
+task migrate           # create or update the schema (the API does not migrate by default)
 task dev               # API + orchestrator + worker + web (:3000)
 task check             # Go build, cargo check, vue-tsc, contracts up to date
 task test              # go test + cargo test + vue-tsc
@@ -41,7 +42,7 @@ task test:fixtures     # every fixture × every output format
 task test:consistency  # server vs browser artifacts
 ```
 
-After an incompatible schema change, rebuild a development database with `go run ./server/cmd/migrate -reset` (drops all application tables).
+Run `task migrate` again after pulling a model change. After an incompatible schema change, rebuild a development database with `go run ./server/cmd/migrate -reset` (drops all application tables).
 
 ## Repository layout
 

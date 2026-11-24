@@ -230,6 +230,12 @@ tasks:
   # 单个长寿命服务运行任务
   # ==========================================
 
+  migrate:
+    desc: "按当前模型迁移 .env 中 DATABASE_URL 指向的数据库（API 默认不自动迁移）"
+    dir: server
+    cmds:
+      - go run ./cmd/migrate
+
   api:
     desc: "启动 Go HTTP API 接口服务 (端口: 8080)"
     cmds:
