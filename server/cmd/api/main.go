@@ -3,21 +3,21 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"transcoder/server/internal/api"
+	"transcoder/server/internal/bootstrap"
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/pkg/s3"
 	"transcoder/server/internal/schema"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
 	aws_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
@@ -35,21 +35,9 @@ func main() {
 	}
 }
 
-func setupLogger(cfg config.Config) {
-	var handler slog.Handler
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}
-
-	if cfg.IsProduction() {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	}
-
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
-}
+// shutdownTimeout bounds how long in-flight requests get to finish after
+// SIGINT or SIGTERM.
+const shutdownTimeout = 10 * time.Second
 
 func run() error {
 	// Every timestamp the API returns is UTC ("…Z"). Without this, times made
@@ -58,112 +46,70 @@ func run() error {
 	// carry the session's, so one response could mix "Z" and "+08:00".
 	time.Local = time.UTC
 	config := config.Load()
-	setupLogger(config)
-	ctx := context.Background()
+	bootstrap.SetupLogger(config, slog.LevelDebug)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	db, err := openDatabase(ctx, config.DB)
+	db, err := bootstrap.OpenDatabase(config.DB)
 	if err != nil {
 		return err
 	}
+	defer bootstrap.CloseDatabase(db)
+	if config.DB.AutoMigrate {
+		slog.Info("running auto migration (AUTO_MIGRATE=true)")
+		if err := schema.Migrate(db); err != nil {
+			return fmt.Errorf("auto migrate schema: %w", err)
+		}
+	}
+	slog.Info("postgres connected")
 
-	// Open Redis Client
-	kv, err := openRedis(ctx, config.Redis)
+	kv, err := bootstrap.OpenRedis(ctx, config.Redis)
 	if err != nil {
 		return err
 	}
 	defer kv.Close()
+	slog.Info("redis connected")
 
-	// Open AWS S3 Client
 	s3Client, err := openS3(ctx, config.S3)
 	if err != nil {
 		return err
 	}
-
-	// Initialize Storage Service with S3 Client
 	s3Service := storage.NewS3Service(s3Client)
 
-	// Start background task to clean up expired upload records
+	// Background sweeps stop with ctx: stale upload records, and the
+	// retention sweep (expire sources and outputs, retry failed deletions).
 	storage.StartCleanupTask(ctx, db, s3Service, config.S3.Bucket, 1*time.Hour)
-
-	// Start the retention sweep: expire sources and outputs, retry failed
-	// object deletions
 	lifecycle.NewService(db, s3Service, config.S3.Bucket, api.RetentionPolicy(config)).Start(ctx, 10*time.Minute)
 
-	// Initialize Fiber App with Storage Service
 	app := newFiberApp(db, kv, config, s3Service)
-
 	slog.Info("server starting",
 		"env", config.AppEnv,
 		"addr", config.ListenAddr,
 		"auto_migrate", config.DB.AutoMigrate,
 	)
-
-	if err := app.Listen(config.ListenAddr); err != nil {
+	listened := make(chan error, 1)
+	go func() { listened <- app.Listen(config.ListenAddr) }()
+	select {
+	case err := <-listened:
+		if err != nil {
+			return fmt.Errorf("listen on %s: %w", config.ListenAddr, err)
+		}
+		return nil
+	case <-ctx.Done():
+	}
+	// A second signal now ends the process at once.
+	stop()
+	slog.Info("shutting down", "timeout", shutdownTimeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := app.ShutdownWithContext(shutdownCtx); err != nil {
+		return fmt.Errorf("shut down: %w", err)
+	}
+	if err := <-listened; err != nil {
 		return fmt.Errorf("listen on %s: %w", config.ListenAddr, err)
 	}
-
+	slog.Info("server stopped")
 	return nil
-}
-
-func openDatabase(ctx context.Context, cfg config.DatabaseConfig) (*gorm.DB, error) {
-	newLogger := gormlogger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags),
-		gormlogger.Config{
-			SlowThreshold:             1000 * time.Millisecond,
-			LogLevel:                  gormlogger.Warn,
-			IgnoreRecordNotFoundError: true,
-			Colorful:                  false,
-		},
-	)
-
-	db, err := gorm.Open(postgres.New(postgres.Config{
-		DSN:                  cfg.URL,
-		PreferSimpleProtocol: true,
-	}), &gorm.Config{
-		Logger:                                   newLogger,
-		DisableForeignKeyConstraintWhenMigrating: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open postgres connection: %w", err)
-	}
-
-	// 1. Configure database connection pool immediately so all startup queries reuse connections
-	sqlDB, err := db.DB()
-	if err == nil {
-		sqlDB.SetMaxIdleConns(10)           // Keep up to 10 idle connections warm
-		sqlDB.SetMaxOpenConns(50)           // Allow up to 50 concurrent open connections
-		sqlDB.SetConnMaxLifetime(time.Hour) // Close connections after 1 hour to recycle resources
-	} else {
-		slog.Warn("failed to configure connection pool", "error", err)
-	}
-
-	// 2. Run AutoMigrate if enabled
-	if cfg.AutoMigrate {
-		slog.Info("running auto migration (can be disabled via AUTO_MIGRATE=false for faster startup)")
-		if err := schema.Migrate(db); err != nil {
-			return nil, fmt.Errorf("auto migrate schema: %w", err)
-		}
-	}
-
-	slog.Info("postgres connected")
-	return db, nil
-}
-
-func openRedis(ctx context.Context, cfg config.RedisConfig) (*redis.Client, error) {
-	opt, err := redis.ParseURL(cfg.URL)
-	if err != nil {
-		return nil, fmt.Errorf("parse redis url: %w", err)
-	}
-
-	kv := redis.NewClient(opt)
-
-	if err := kv.Ping(ctx).Err(); err != nil {
-		_ = kv.Close()
-		return nil, fmt.Errorf("ping redis: %w", err)
-	}
-
-	slog.Info("redis connected")
-	return kv, nil
 }
 
 type structValidator struct {
