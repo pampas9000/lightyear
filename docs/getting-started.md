@@ -117,6 +117,8 @@ URL 源由 worker 抓取，相关配置：
 
 抓取的大小上限沿用 `WORKER_MAX_SOURCE_BYTES`。
 
+worker 收到 SIGTERM 或 SIGINT 后不再领取新 job，正在执行的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 `30`）秒完成，超时则中止并以可重试的 `worker_shutdown` 回报，见[可靠性设计](/architecture/reliability#worker-侧)。API 与 orchestrator 也在这两个信号下退出：API 停止接受新连接，最多等 10 秒让进行中的请求完成。
+
 ## 下一步
 
 - [架构总览](/architecture/overview) · [请求链路](/architecture/request-flows) · [可靠性设计](/architecture/reliability)

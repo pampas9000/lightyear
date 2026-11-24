@@ -24,12 +24,15 @@ pub enum ComputeError {
     /// server errors may pass next time; most client errors would not.
     FetchFailed { message: String, retryable: bool },
     Cancelled,
+    /// The worker was shut down and the job did not finish within the
+    /// shutdown grace period; it was stopped. Another attempt can run it.
+    WorkerShutdown,
     Internal(String),
 }
 
 impl std::fmt::Display for ComputeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (kind, msg) = match self {
+        let (kind, msg): (&str, &str) = match self {
             Self::InvalidRequest(m) => ("invalid request", m),
             Self::UnsupportedInput(m) => ("unsupported input", m),
             Self::SourceUnavailable(m) => ("source unavailable", m),
@@ -37,7 +40,11 @@ impl std::fmt::Display for ComputeError {
             Self::StorageFailed(m) => ("storage failed", m),
             Self::UrlRejected(m) => ("url rejected", m),
             Self::FetchFailed { message, .. } => ("fetch failed", message),
-            Self::Cancelled => ("cancelled", &String::new()),
+            Self::Cancelled => ("cancelled", ""),
+            Self::WorkerShutdown => (
+                "worker shutdown",
+                "the worker stopped before the job finished",
+            ),
             Self::Internal(m) => ("internal error", m),
         };
         write!(f, "{kind}: {msg}")
@@ -57,15 +64,17 @@ impl ComputeError {
             Self::UrlRejected(_) => "url_rejected",
             Self::FetchFailed { .. } => "fetch_failed",
             Self::Cancelled => "cancelled",
+            Self::WorkerShutdown => "worker_shutdown",
             Self::Internal(_) => "internal_error",
         }
     }
 
-    /// Only storage and transient fetch failures are worth another attempt;
-    /// the rest would fail the same way again.
+    /// Only storage and transient fetch failures, and jobs stopped by a
+    /// worker shutdown, are worth another attempt; the rest would fail the
+    /// same way again.
     pub fn retryable(&self) -> bool {
         match self {
-            Self::StorageFailed(_) => true,
+            Self::StorageFailed(_) | Self::WorkerShutdown => true,
             Self::FetchFailed { retryable, .. } => *retryable,
             _ => false,
         }

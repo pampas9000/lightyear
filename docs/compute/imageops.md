@@ -26,7 +26,7 @@ process(input, options, limits)
 | `Unsupported` | 输入无法按要求处理：未知或损坏、过大、PQ/HLG、被拦截的加载器 | `unsupported_input` |
 | `Failed` | libvips 或 cjxl 在受支持的请求上失败 | `processing_failed` |
 
-三者都不可重试；只有存储失败（`storage_failed`）会自动重试。
+三者都不可重试。worker 自动重试的只有存储失败（`storage_failed`）、URL 源的临时下载失败（`fetch_failed` 的一部分）和停机时没跑完的 job（`worker_shutdown`），见[队列契约](/contracts/queue#错误码)。
 
 ## 参数映射
 

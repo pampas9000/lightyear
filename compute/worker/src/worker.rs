@@ -3,10 +3,16 @@
 //!
 //! Ownership lives in the orchestrator's database lease. The worker only has
 //! to keep beating while it works and to stop when its attempt is cancelled.
+//!
+//! On shutdown (see `shutdown.rs`) it reads no further dispatches; a running
+//! job gets the grace period to finish and report, and is otherwise stopped
+//! like a cancelled one and reported as `worker_shutdown` (retryable).
 
+use crate::error::ComputeError;
 use crate::job::{self, Context};
 use crate::queue::Queue;
 use crate::redis_connection;
+use crate::shutdown::Shutdown;
 use compute_types::protocol::{Dispatch, JobResult, ResultError, Status, VERSION};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -18,16 +24,36 @@ const CANCEL_POLL: Duration = Duration::from_secs(3);
 /// How long to keep retrying a result publication before giving up; the lease
 /// then expires and the orchestrator schedules another attempt.
 const PUBLISH_DEADLINE: Duration = Duration::from_secs(90);
+/// How long one read waits for a dispatch. Short, because the shutdown flag
+/// is checked between reads: a pending read is never abandoned (see
+/// `shutdown.rs`), so this bounds how long an idle worker takes to stop.
+const READ_BLOCK_MS: usize = 1500;
 
 pub struct Worker {
     redis: redis::Client,
     queue: Queue,
     ctx: Context,
     consumer: String,
+    shutdown: Shutdown,
+    grace: Duration,
+}
+
+/// Why the watcher stopped a running job.
+enum Stop {
+    /// The attempt was cancelled: stop without reporting.
+    Cancelled,
+    /// The shutdown grace period ran out: stop and report `worker_shutdown`.
+    Shutdown,
 }
 
 impl Worker {
-    pub fn new(redis: redis::Client, queue: Queue, ctx: Context) -> Self {
+    pub fn new(
+        redis: redis::Client,
+        queue: Queue,
+        ctx: Context,
+        shutdown: Shutdown,
+        grace: Duration,
+    ) -> Self {
         let host = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".into());
         let consumer = format!(
             "worker-{host}-{}-{}",
@@ -39,14 +65,18 @@ impl Worker {
             queue,
             ctx,
             consumer,
+            shutdown,
+            grace,
         }
     }
 
+    /// Reads and runs dispatches until shutdown is requested; returns once
+    /// the job in hand (if any) has finished or been stopped and reported.
     pub async fn run(&mut self) -> anyhow::Result<()> {
         println!("Consumer: {}", self.consumer);
         self.queue.ensure_group().await?;
-        loop {
-            match self.queue.next(&self.consumer, 5000).await {
+        while !self.shutdown.requested() {
+            match self.queue.next(&self.consumer, READ_BLOCK_MS).await {
                 Ok(Some(raw)) => {
                     if let Some(dispatch) = parse(&raw) {
                         self.handle(dispatch).await;
@@ -66,11 +96,19 @@ impl Worker {
                 Err(e) => {
                     eprintln!("Redis read failed: {e}; reconnecting");
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                    let conn = redis_connection::connect_with_retry(&self.redis).await;
-                    self.queue.set_connection(conn);
+                    // Unlike a read, connecting may be abandoned.
+                    let mut shutdown = self.shutdown.clone();
+                    tokio::select! {
+                        conn = redis_connection::connect_with_retry(&self.redis) => {
+                            self.queue.set_connection(conn);
+                        }
+                        () = shutdown.wait() => {}
+                    }
                 }
             }
         }
+        println!("Worker stopped");
+        Ok(())
     }
 
     async fn handle(&mut self, dispatch: Dispatch) {
@@ -94,7 +132,9 @@ impl Worker {
         let fetch_outcome = fetch_reports.clone();
         let mut beats = self.queue.clone();
         let watcher_progress = progress.clone();
+        let grace = self.shutdown.clone().grace_expired(self.grace);
         let watcher = async {
+            tokio::pin!(grace);
             let mut heartbeat = tokio::time::interval(HEARTBEAT);
             heartbeat.tick().await;
             let mut poll = tokio::time::interval(CANCEL_POLL);
@@ -110,8 +150,13 @@ impl Worker {
                     _ = poll.tick() => {
                         if beats.is_cancelled(&attempt).await.unwrap_or(false) {
                             let _ = cancel.send(true);
-                            return;
+                            return Stop::Cancelled;
                         }
+                    }
+                    () = &mut grace => {
+                        eprintln!("Attempt {attempt} outlived the shutdown grace period; stopping it");
+                        let _ = cancel.send(true);
+                        return Stop::Shutdown;
                     }
                     changed = fetch_reports.changed(), if fetching => {
                         if changed.is_err() {
@@ -131,13 +176,19 @@ impl Worker {
         tokio::pin!(job);
         let outcome = tokio::select! {
             outcome = &mut job => outcome,
-            () = watcher => {
+            stop = watcher => {
                 // The job kills its compute process and returns once it has
-                // been reaped, so the next message is read only after this
-                // attempt has stopped using CPU. Its outcome is not published.
-                let _ = job.await;
-                println!("Attempt {attempt} was cancelled while running");
-                return;
+                // been reaped, so the next message is read (or the worker
+                // exits) only after this attempt has stopped using CPU.
+                let outcome = job.await;
+                match stop {
+                    // Its outcome is not published.
+                    Stop::Cancelled => {
+                        println!("Attempt {attempt} was cancelled while running");
+                        return;
+                    }
+                    Stop::Shutdown => after_shutdown(outcome),
+                }
             }
         };
 
@@ -153,7 +204,7 @@ impl Worker {
                 result.encode_rounds = Some(done.encode_rounds);
                 result.compute_ms = Some(done.compute_ms);
             }
-            Err(crate::error::ComputeError::Cancelled) => {
+            Err(ComputeError::Cancelled) => {
                 println!("Attempt {attempt} cancelled during processing");
                 return;
             }
@@ -179,6 +230,19 @@ impl Worker {
             self.queue.set_connection(conn);
         }
         println!("Attempt {attempt}: {:?}", result.status);
+    }
+}
+
+/// The outcome of a job stopped at the end of the shutdown grace period. One
+/// that finished meanwhile (uploaded included) or failed on its own is
+/// reported as such; one that was stopped becomes `worker_shutdown`, which
+/// the orchestrator retries like any retryable failure.
+fn after_shutdown(
+    outcome: Result<job::RunOutcome, ComputeError>,
+) -> Result<job::RunOutcome, ComputeError> {
+    match outcome {
+        Err(ComputeError::Cancelled) => Err(ComputeError::WorkerShutdown),
+        other => other,
     }
 }
 
@@ -222,5 +286,17 @@ mod tests {
         assert!(parse("{}").is_none());
         // Options that fail to decode reject the whole dispatch.
         assert!(parse(&fixture.replace("\"format\": \"avif\"", "\"format\": \"gif\"")).is_none());
+    }
+
+    #[test]
+    fn a_job_stopped_at_shutdown_is_a_retryable_worker_shutdown() {
+        let err = after_shutdown(Err(ComputeError::Cancelled)).err().unwrap();
+        assert_eq!(err.code(), "worker_shutdown");
+        assert!(err.retryable());
+        // A job that failed on its own keeps its own error.
+        let err = after_shutdown(Err(ComputeError::ProcessingFailed("x".into())))
+            .err()
+            .unwrap();
+        assert_eq!(err.code(), "processing_failed");
     }
 }

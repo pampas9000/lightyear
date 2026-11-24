@@ -39,6 +39,14 @@ pub struct WorkerConfig {
     /// Seconds to wait for any read of a source URL (head or next chunk).
     #[serde(default = "default_fetch_read_timeout_secs")]
     pub fetch_read_timeout_secs: u64,
+    /// Seconds a running job may still take after SIGTERM/SIGINT before it
+    /// is stopped and reported as `worker_shutdown` (retryable).
+    #[serde(default = "default_shutdown_grace_secs")]
+    pub shutdown_grace_secs: u64,
+}
+
+fn default_shutdown_grace_secs() -> u64 {
+    30
 }
 
 fn default_fetch_connect_timeout_secs() -> u64 {
@@ -108,6 +116,9 @@ impl WorkerConfig {
         }
         if let Ok(secs) = std::env::var("WORKER_FETCH_READ_TIMEOUT_SECS") {
             builder = builder.set_override("fetch_read_timeout_secs", secs)?;
+        }
+        if let Ok(secs) = std::env::var("WORKER_SHUTDOWN_GRACE_SECS") {
+            builder = builder.set_override("shutdown_grace_secs", secs)?;
         }
 
         let settings: WorkerConfig = builder.build()?.try_deserialize()?;

@@ -114,6 +114,7 @@ Redis 只负责投递；执行所有权、超时与重试都由数据库决定�
 | `storage_failed` | 是 | 对象存储读写失败 |
 | `url_rejected` | 否 | 源 URL 被拒绝：协议不是 http/https、地址不是公网地址（含重定向目标）、重定向超过 3 次、文件超过源文件大小上限 |
 | `fetch_failed` | 视情况 | 下载源 URL 失败：超时、连接失败、5xx、408、429 可重试；其他 4xx 与空响应不可重试 |
+| `worker_shutdown` | 是 | worker 收到 SIGTERM/SIGINT 后，job 没能在宽限期（`WORKER_SHUTDOWN_GRACE_SECS`，默认 30 秒）内完成，计算被中止 |
 | `internal_error` | 否 | 其他错误 |
 
 orchestrator 自己还会写入两种错误码：`execution_timeout`（租约到期或超过执行上限，可重试）与 `cancelled`。

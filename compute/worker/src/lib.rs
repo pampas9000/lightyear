@@ -8,5 +8,6 @@ pub mod job;
 pub mod process;
 pub mod queue;
 pub mod redis_connection;
+pub mod shutdown;
 pub mod storage;
 pub mod worker;

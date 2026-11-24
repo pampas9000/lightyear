@@ -70,7 +70,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 
 ## 重试
 
-- worker 的错误带 `retryable`。目前可重试的有 `storage_failed`（对象存储读写失败）、URL 源下载时的临时错误（`fetch_failed` 中的超时、连接失败、5xx、408、429）和租约超时；参数非法、输入不支持、处理失败、URL 被拒绝（`url_rejected`）都直接失败。URL 源抓取成功后即回报并记入数据库，之后的重试读存好的源文件，不再抓取。
+- worker 的错误带 `retryable`。目前可重试的有 `storage_failed`（对象存储读写失败）、URL 源下载时的临时错误（`fetch_failed` 中的超时、连接失败、5xx、408、429）、worker 停机时没跑完的 job（`worker_shutdown`）和租约超时；参数非法、输入不支持、处理失败、URL 被拒绝（`url_rejected`）都直接失败。URL 源抓取成功后即回报并记入数据库，之后的重试读存好的源文件，不再抓取。
 - 每个 job 最多 3 次 attempt（`max_attempts`）。重试时 job 回到 `PENDING`，`next_run_at` 按 5 秒起、每次翻倍、上限 5 分钟的间隔推迟。
 - 用户可在任务页对失败或取消的 job 手动重试，并可换一份参数。
 
@@ -88,6 +88,7 @@ worker 每 20 秒发一次 `RUNNING` 心跳，所以 2 分钟的租约能容忍�
 - `XREADGROUP … NOACK`：收到即确认，Redis 中没有待确认列表需要认领；消息丢失由数据库租约兜底。
 - 回报结果失败时，worker 会重连并持续重试最多 90 秒；仍失败则放弃，由租约超时处理。
 - worker 本身无状态，可以随时增减实例；多个实例同属消费组 `workers`，每条派发只交给其中一个。
+- **停机**：SIGTERM 或 SIGINT 只设置退出标志。worker 不再读取新派发，但不会中途放弃正在等待的 `XREADGROUP`：`NOACK` 下 Redis 交出的消息即算确认，丢掉这次读取就可能丢掉一条派发。所以每次读取只阻塞 1.5 秒，两次读取之间检查标志，空闲的 worker 最多约 1.5 秒退出。正在执行的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 30 秒）的宽限期，照常心跳、完成并回报；超时则按取消的路径杀掉计算子进程、等它回收完，再回报 `FAILED`，错误码 `worker_shutdown`、`retryable: true`。orchestrator 照常计一次尝试并按退避重试。宽限期内再收到一次信号会立即结束宽限期。
 - 每个 job 的计算（`compute-optimize`，含搜索的多轮编码）在子进程里进行：worker 以 `compute` 参数重新启动自身，经 stdin 传入参数与源图，经 stdout 收回进度与产物；子进程有独立的进程组和 `TMPDIR`。原因是 libvips 的 kill 标志只在像素管线的 tile 之间生效，而 libavif/aom、libheif、libjxl、libwebp 的编码一旦开始就无法中途停止，只能杀进程。附带的效果：libvips 或编码器崩溃只让这一个 attempt 以 `processing_failed` 失败，worker 本身不退出；每个 job 结束后内存归还系统。代价是每个 job 多一次进程启动与 libvips 初始化，在 Apple Silicon 上约 70 ms。
 
 ## Redis 侧
