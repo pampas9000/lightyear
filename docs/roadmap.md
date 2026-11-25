@@ -50,6 +50,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-11-18 | MCP 不提供 resources 与 prompts；错误作为工具结果（`isError` + `/v1` 的 `code`、`message`、`details`，限流的等待秒数放在 `details.retry_after`），不用 JSON-RPC 错误 | 三个工具覆盖整个流程；工具结果里的错误 Agent 能读到并自行处理，JSON-RPC 错误多半只显示给用户 |
 | 2026-11-18 | MCP 没有上传 complete 这一步：`submit_task` 遇到 `UPLOADING` 的文件时从存储确认对象（分片须从 1 连续且总大小等于申报值）再完成 | 少一次工具调用，Agent 也不必记录分片 ETag；对象不完整时返回 `error.param.invalid`，补传后重提即可 |
 | 2026-11-23 | 把 outbox 从 `attempts` 拆成独立的 `outbox_messages`：首次派发和 `StartTimeout` 重发都在事务中写一条消息，由每秒运行的投递循环补发；`attempts` 删掉 `dispatched_at`，保留 `payload` 作为该次执行派发内容的记录（取代 4.3 中"attempt 行充当 outbox"） | 一个 attempt 只有一个 `dispatched_at`，表示不了"又要发一次但还没发出"，所以重发不经过 outbox，一次失败就要再等 10 分钟；拆开后两类发送有同样的保证，发送记录可查，未发送消息的扫描与 attempts 的历史量无关，以后别的消息（如 webhook）可以复用同一条路径 |
+| 2026-11-25 | 队列与会话只支持标准 Redis，不再为 Upstash 等兼容实现确认或适配命令差异 | 12.13 等依赖 Streams 的完整语义（如 `XINFO GROUPS` 的 `last-delivered-id`）；为兼容实现逐条确认与降级的成本高于部署标准 Redis |
 
 ## 执行步骤
 
@@ -238,7 +239,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.16 | 结果消费：`XREADGROUP` 每次取 20 条、单协程顺序处理，`XAUTOCLAIM` 每 15 秒最多一次；`RUNNING` 心跳只锁 job 行，不再锁 task | ✅ |
 | 12.17 | 优雅退出：API 收到 SIGINT/SIGTERM 后 `ShutdownWithContext`（10 秒），后台清理随之停止；worker 只设退出标志、不打断进行中的 `NOACK` 读取（读取阻塞 1.5 秒），正在跑的 job 有 `WORKER_SHUTDOWN_GRACE_SECS`（默认 30 秒）宽限期，超时被杀并回报可重试的 `worker_shutdown`，照常计一次尝试。API 与 orchestrator 的后台协程没有等待退出，进行中的事务随 ctx 取消回滚 | ✅ |
 | 12.18 | `AUTO_MIGRATE` 默认关闭，迁移只经 `task migrate`（`cmd/migrate`）显式执行 | ✅ |
-| 12.19 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.13 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
+| 12.19 | 只面向标准 Redis：Streams 与消费组按标准 Redis 的语义使用（12.13 读 `XINFO GROUPS` 的 `last-delivered-id`，本地用 Redis 8 验证），不为 Upstash 等兼容实现做适配或验证，见 2026-11-25 的决定 | ✅ |
 | 12.20 | Job 状态转换只有一份实现：领取、心跳、完成、复用、重试、失败、取消、手动重试都经 `jobstate.Run`/`Tx`，转换检查起始状态与 task 锁，写回前用 `jobstate.Check` 校验字段规则，状态变过的 task 在提交前聚合一次；测试结束时对库里全部 job 跑 `Check` | ✅ |
 | 12.21 | 文件删除只有一套模型：`files` 只剩 `UPLOADING`/`FETCHING`/`UPLOADED`/`EXPIRED`/`DELETED`，删除文件、草稿、任务产物与中止上传都经 `services/lifecycle`（先改为 `DELETED` 再删对象，失败重试）；未完成的上传删除后立即中止分片，签名 URL 过期后再中止一次并删对象；上传端点只接受 `UPLOADING`，`complete` 不再复活已删除的文件。过期上传与 7 天草稿并入 lifecycle 每小时一次、分批处理，删除 `storage/cleanup.go`。没有为旧状态（`DELETING`/`ABORTING`/`ABORTED`/`FAILED`）写数据迁移，库里遗留的这类行不会再被处理 | ✅ |
 | 12.22 | 周期任务移到 orchestrator：存储清理（`lifecycle.Service.Run`，每 10 分钟 `Sweep`、每小时 `SweepUploads`）由 `cmd/worker`（orchestrator）启动，接 orchestrator 的信号 ctx，收到 SIGINT/SIGTERM 等本轮结束后退出；API 只处理请求，`cmd/api` 有测试保证它不引入 `lifecycle`/`orchestrator` 包。S3 客户端经 `bootstrap.OpenStorage` 共用初始化，API 与 orchestrator 缺 `S3_BUCKET`、`S3_ACCESS_ID` 或 `S3_ACCESS_KEY` 时都在连接数据库前启动失败并列出缺的变量。已知遗留：多个 orchestrator 实例各跑一份清理（见 12.3） | ✅ |
