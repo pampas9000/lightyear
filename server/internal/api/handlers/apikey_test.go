@@ -19,10 +19,7 @@ func TestAPIKeyEndpoints(t *testing.T) {
 	db := testutil.OpenDatabase(t)
 	keys := apikey.NewService(db)
 	app := fiber.New()
-	app.Use(func(c fiber.Ctx) error {
-		c.Locals("user_id", c.Get("Test-User"))
-		return c.Next()
-	})
+	app.Use(asTestUser)
 	NewAPIKeyHandler(keys).Install(app.Group("/api"))
 	owner := uuid.New()
 

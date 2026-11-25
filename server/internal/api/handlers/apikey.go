@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/apikey"
 
@@ -32,9 +33,9 @@ type CreateAPIKeyRequest struct {
 }
 
 func (h *APIKeyHandler) Create(c fiber.Ctx) error {
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	var req CreateAPIKeyRequest
 	if err := c.Bind().Body(&req); err != nil {
@@ -58,9 +59,9 @@ func (h *APIKeyHandler) Create(c fiber.Ctx) error {
 }
 
 func (h *APIKeyHandler) List(c fiber.Ctx) error {
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	keys, err := h.service.List(c.Context(), owner)
 	if err != nil {
@@ -73,9 +74,9 @@ func (h *APIKeyHandler) List(c fiber.Ctx) error {
 }
 
 func (h *APIKeyHandler) Revoke(c fiber.Ctx) error {
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {

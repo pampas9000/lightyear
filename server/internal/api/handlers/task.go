@@ -6,6 +6,7 @@ import (
 
 	"encoding/json"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
@@ -45,9 +46,9 @@ func (h *TaskHandler) DeleteTask(c fiber.Ctx) error {
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	res, err := h.files.DeleteTask(c.Context(), ownerID, taskID)
 	switch {
@@ -62,14 +63,9 @@ func (h *TaskHandler) DeleteTask(c fiber.Ctx) error {
 }
 
 func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	pageStr := c.Query("page", "1")
@@ -101,14 +97,9 @@ func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
 }
 
 func (h *TaskHandler) GetStats(c fiber.Ctx) error {
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	stats, err := h.service.GetStats(c.Context(), ownerID)
@@ -133,9 +124,9 @@ func (h *TaskHandler) CreateTask(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body.", map[string]any{"reason": err.Error()})
 	}
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 
 	created, err := h.service.CreateTask(c.Context(), task.CreateTaskInput{
@@ -188,19 +179,14 @@ func (h *TaskHandler) GetTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	result, err := h.service.GetTask(c.Context(), ownerID, parsedID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) || err.Error() == "record not found" {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return response.RespondError(c, fiber.StatusNotFound, response.CodeTaskNotFound, "Task not found.")
 		}
 		return response.RespondInternal(c, "Failed to fetch task.", err)
@@ -223,14 +209,9 @@ func (h *TaskHandler) RetryTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	var req RetryTaskRequest
@@ -280,14 +261,9 @@ func (h *TaskHandler) CancelTask(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid task id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	cancelledTask, err := h.service.CancelTask(c.Context(), ownerID, taskID)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/lifecycle"
@@ -43,9 +44,9 @@ func (h *FileHandler) DeleteFile(c fiber.Ctx) error {
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid file ID format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	f, err := h.files.DeleteFile(c.Context(), ownerID, id)
 	switch {
@@ -66,20 +67,15 @@ func (h *FileHandler) GetDownloadURL(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid file ID format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	userIdStr, ok := c.Locals("user_id").(string)
-	if !ok || userIdStr == "" {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID in context")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 
 	var file models.File
 	if err := h.db.Where("id = ? AND owner_id = ?", parsedID, ownerID).First(&file).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "File not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeFileNotFound, "File not found.")
 		}
 		return response.RespondInternal(c, "Failed to fetch file record.", err)
 	}

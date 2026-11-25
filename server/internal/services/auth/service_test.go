@@ -126,3 +126,21 @@ func TestPickGithubEmail(t *testing.T) {
 		}
 	}
 }
+
+// A taken username or email is reported as ErrUserAlreadyExists, recognised
+// by the Postgres error code (23505), not by the error text.
+func TestRegisterDuplicateIsUserAlreadyExists(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	s := NewServiceWithProviders(db, nil)
+	if _, err := s.Register(t.Context(), RegisterInput{Username: "dup", Email: "dup@example.test", Password: "password1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []RegisterInput{
+		{Username: "dup", Email: "other@example.test", Password: "password1"},
+		{Username: "other", Email: "dup@example.test", Password: "password1"},
+	} {
+		if _, err := s.Register(t.Context(), in); !errors.Is(err, ErrUserAlreadyExists) {
+			t.Fatalf("register %+v: %v, want ErrUserAlreadyExists", in, err)
+		}
+	}
+}

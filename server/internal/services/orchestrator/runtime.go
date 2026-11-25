@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -150,7 +149,7 @@ func consume(ctx context.Context, kv *redis.Client, stream, group, consumer stri
 				entries = append(entries, value.Messages...)
 			}
 		}
-		if err != nil && strings.HasPrefix(err.Error(), "NOGROUP") {
+		if err != nil && redis.HasErrorPrefix(err, "NOGROUP") {
 			// Redis lost the stream (restart without persistence). Results
 			// in it are gone; leases recover the affected jobs.
 			slog.Warn("consumer group missing; recreating", "stream", stream)
@@ -193,7 +192,7 @@ func consume(ctx context.Context, kv *redis.Client, stream, group, consumer stri
 
 func ensureGroup(ctx context.Context, kv *redis.Client, stream, group string) error {
 	err := kv.XGroupCreateMkStream(ctx, stream, group, "0").Err()
-	if err != nil && !strings.HasPrefix(err.Error(), "BUSYGROUP") {
+	if err != nil && !redis.HasErrorPrefix(err, "BUSYGROUP") {
 		return err
 	}
 	return nil

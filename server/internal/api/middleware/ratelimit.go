@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"math"
 	"strconv"
@@ -48,12 +47,13 @@ func Take(ctx context.Context, l Limiter, user string) (retryAfter int) {
 
 var lastFailOpenWarn atomic.Int64
 
-// RateLimit takes a token from the user's bucket (the user_id local, so all
-// of a user's API keys share it) and answers 429 with Retry-After when it is
+// RateLimit takes a token from the user's bucket (UserID, so all of a
+// user's API keys share it) and answers 429 with Retry-After when it is
 // empty. See Take for a limiter that fails.
 func RateLimit(l Limiter) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		user := fmt.Sprint(c.Locals("user_id"))
+		id, _ := UserID(c)
+		user := id.String()
 		seconds := Take(c.Context(), l, user)
 		if seconds == 0 {
 			return c.Next()

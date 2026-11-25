@@ -22,6 +22,7 @@ import (
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/pkg/dberr"
 	"transcoder/server/internal/services/jobstate"
 	"transcoder/server/internal/services/storage"
 	"transcoder/server/internal/services/usage"
@@ -32,8 +33,6 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -357,7 +356,7 @@ func (s *Service) Create(ctx context.Context, input CreateTaskInput) (*models.Ta
 		return s.quotas.CheckWork(tx, input.OwnerID, requested)
 	})
 	if err != nil {
-		if key != "" && isUniqueConstraintViolation(err) {
+		if key != "" && dberr.IsUniqueViolation(err) {
 			return existing()
 		}
 		return nil, false, err
@@ -796,17 +795,4 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (*StatsRespon
 		stats.GrowthRate = 100.0
 	}
 	return stats, nil
-}
-
-func isUniqueConstraintViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		return pgErr.Code == "23505"
-	}
-	if pqErr, ok := errors.AsType[*pq.Error](err); ok {
-		return pqErr.Code == "23505"
-	}
-	return errors.Is(err, gorm.ErrDuplicatedKey)
 }

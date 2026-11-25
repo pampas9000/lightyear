@@ -3,12 +3,12 @@ package handlers
 import (
 	"time"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	v1 "transcoder/server/internal/api/v1"
 	"transcoder/server/internal/services/usage"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/google/uuid"
 )
 
 // UsageHandler serves the console's usage, the same summary as GET /v1/usage.
@@ -25,13 +25,9 @@ func (h *UsageHandler) Install(router fiber.Router) {
 }
 
 func (h *UsageHandler) GetUsage(c fiber.Ctx) error {
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
-	}
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 	month, err := v1.ParseMonth(c.Query("month"), time.Now())
 	if err != nil {

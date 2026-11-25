@@ -5,18 +5,22 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/session"
+	"github.com/google/uuid"
 )
 
-// AuthMiddleware requires a logged-in session. The session ID is read only
-// from the HttpOnly session cookie: /api accepts no Authorization header, so
-// a session ID never reaches page scripts and cannot be sent as a bearer token.
+// AuthMiddleware requires a logged-in session and records its user with
+// SetUserID. The session ID is read only from the HttpOnly session cookie:
+// /api accepts no Authorization header, so a session ID never reaches page
+// scripts and cannot be sent as a bearer token.
 func AuthMiddleware(store *session.Store) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		sess, err := store.Get(c)
 		if err == nil && sess != nil {
-			if userID := sess.Get("user_id"); userID != nil {
-				c.Locals("user_id", userID)
-				return c.Next()
+			if raw, ok := sess.Get("user_id").(string); ok {
+				if userID, err := uuid.Parse(raw); err == nil && userID != uuid.Nil {
+					SetUserID(c, userID)
+					return c.Next()
+				}
 			}
 		}
 

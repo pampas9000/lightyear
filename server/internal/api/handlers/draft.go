@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/upload"
@@ -30,9 +31,9 @@ func (h *DraftHandler) Install(router fiber.Router) {
 }
 
 func (h *DraftHandler) ListDrafts(c fiber.Ctx) error {
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	limit, err := strconv.Atoi(c.Query("limit", "20"))
 	if err != nil || limit <= 0 {
@@ -69,9 +70,9 @@ func (h *DraftHandler) DeleteDraft(c fiber.Ctx) error {
 	if err != nil {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid file ID format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	deleted, err := h.files.DeleteDraft(c.Context(), owner, id)
 	switch {

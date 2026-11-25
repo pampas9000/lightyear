@@ -7,8 +7,8 @@ import (
 
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/models"
+	"transcoder/server/internal/pkg/dberr"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -75,10 +75,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*models.Us
 	}
 
 	if err := s.db.WithContext(ctx).Create(u).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return nil, ErrUserAlreadyExists
-		}
-		if err != nil && (err.Error() == "ERROR: duplicate key value violates unique constraint" || err.Error() == "UNIQUE constraint failed") {
+		if dberr.IsUniqueViolation(err) {
 			return nil, ErrUserAlreadyExists
 		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
@@ -186,7 +183,7 @@ func (s *Service) OAuthLogin(ctx context.Context, providerName string, code stri
 			Email:    oauthUser.Email,
 		}
 		if err := tx.Create(&user).Error; err != nil {
-			if isUniqueViolation(err) {
+			if dberr.IsUniqueViolation(err) {
 				// A concurrent registration took the email.
 				return ErrOAuthEmailTaken
 			}
@@ -217,11 +214,4 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*models.User, err
 		return nil, err
 	}
 	return &user, nil
-}
-
-func isUniqueViolation(err error) bool {
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		return pgErr.Code == "23505"
-	}
-	return errors.Is(err, gorm.ErrDuplicatedKey)
 }

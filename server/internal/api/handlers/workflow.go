@@ -5,6 +5,7 @@ import (
 
 	"encoding/json"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/compression"
 	"transcoder/server/internal/imageoptions"
@@ -47,14 +48,9 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body.", map[string]any{"reason": err.Error()})
 	}
 
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	wf, err := h.service.CreateWorkflow(c.Context(), workflow.CreateWorkflowInput{
@@ -82,15 +78,6 @@ func (h *WorkflowHandler) CreateWorkflow(c fiber.Ctx) error {
 	return response.RespondInternal(c, "Failed to create workflow.", err)
 }
 
-// ownerFromContext extracts and parses the authenticated user id from the request context.
-func ownerFromContext(c fiber.Ctx) (uuid.UUID, error) {
-	userIdStr, ok := c.Locals("user_id").(string)
-	if !ok || userIdStr == "" {
-		return uuid.Nil, errors.New("user id not found in context")
-	}
-	return uuid.Parse(userIdStr)
-}
-
 func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 	idStr := c.Params("id")
 	parsedID, err := uuid.Parse(idStr)
@@ -98,15 +85,15 @@ func (h *WorkflowHandler) GetWorkflow(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 
 	wf, err := h.service.GetWorkflow(c.Context(), ownerID, parsedID)
 	if err != nil {
 		if errors.Is(err, workflow.ErrWorkflowNotFound) {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeWorkflowNotFound, "Workflow not found.")
 		}
 		return response.RespondInternal(c, "Failed to fetch workflow.", err)
 	}
@@ -128,9 +115,9 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 
 	var req UpdateWorkflowRequest
@@ -159,7 +146,7 @@ func (h *WorkflowHandler) UpdateWorkflow(c fiber.Ctx) error {
 		errors.Is(err, compression.ErrTooManyOutputs):
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, err.Error())
 	case errors.Is(err, workflow.ErrWorkflowNotFound):
-		return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
+		return response.RespondError(c, fiber.StatusNotFound, response.CodeWorkflowNotFound, "Workflow not found.")
 	}
 
 	return response.RespondInternal(c, "Failed to update workflow.", err)
@@ -172,14 +159,14 @@ func (h *WorkflowHandler) DeleteWorkflow(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid ID.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
 
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 
 	if err := h.service.DeleteWorkflow(c.Context(), ownerID, parsedID); err != nil {
 		if errors.Is(err, workflow.ErrWorkflowNotFound) {
-			return response.RespondError(c, fiber.StatusNotFound, response.CodeOK, "Workflow not found.")
+			return response.RespondError(c, fiber.StatusNotFound, response.CodeWorkflowNotFound, "Workflow not found.")
 		}
 		return response.RespondInternal(c, "Failed to delete workflow.", err)
 	}
@@ -188,14 +175,9 @@ func (h *WorkflowHandler) DeleteWorkflow(c fiber.Ctx) error {
 }
 
 func (h *WorkflowHandler) ListWorkflows(c fiber.Ctx) error {
-	userIdStr, ok := c.Locals("user_id").(string)
+	ownerID, ok := middleware.UserID(c)
 	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context.")
-	}
-
-	ownerID, err := uuid.Parse(userIdStr)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Invalid user ID.")
+		return respondNoUser(c)
 	}
 
 	wfs, err := h.service.ListWorkflows(c.Context(), ownerID)

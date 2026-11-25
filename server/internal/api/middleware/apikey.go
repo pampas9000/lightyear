@@ -13,9 +13,9 @@ import (
 
 const apiKeyLocal = "api_key"
 
-// APIKeyAuth authenticates `Authorization: Bearer <api key>` and sets the
-// `user_id` local, like the session middleware, plus the key itself for
-// RequireScope. Sessions are not accepted here.
+// APIKeyAuth authenticates `Authorization: Bearer <api key>` and records the
+// key's owner with SetUserID, like the session middleware, plus the key
+// itself for RequireScope. Sessions are not accepted here.
 func APIKeyAuth(keys *apikey.Service) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		scheme, token, found := strings.Cut(c.Get(fiber.HeaderAuthorization), " ")
@@ -30,7 +30,7 @@ func APIKeyAuth(keys *apikey.Service) fiber.Handler {
 			}
 			return response.RespondError(c, fiber.StatusInternalServerError, response.CodeInternal, "Failed to verify API key.")
 		}
-		c.Locals("user_id", key.OwnerID.String())
+		SetUserID(c, key.OwnerID)
 		c.Locals(apiKeyLocal, key)
 		return c.Next()
 	}

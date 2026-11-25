@@ -66,7 +66,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 | 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
 | 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.origin_rejected`（仅 `/api`）、`error.auth.insufficient_scope`（仅 `/v1`） |
-| 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
+| 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.workflow.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
 | 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`、`error.file.conflict` |
 | 限额 | `error.quota.exceeded`（见[用量与配额](#用量与配额)）、`error.rate_limit.exceeded`（仅 `/v1`，见[限流](#限流)） |
 | 基础设施 | `error.database.unavailable`、`error.queue.unavailable`、`error.internal` |

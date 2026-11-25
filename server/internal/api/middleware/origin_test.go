@@ -88,14 +88,15 @@ func TestAuthMiddlewareIgnoresBearer(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		sess.Set("user_id", "u-1")
+		sess.Set("user_id", "0190b6a4-1c2d-7e3f-8a4b-5c6d7e8f9a0b")
 		if err := sess.Save(); err != nil {
 			return err
 		}
 		return c.SendString(sess.ID())
 	})
 	app.Get("/api/me", AuthMiddleware(store), func(c fiber.Ctx) error {
-		return c.SendString(c.Locals("user_id").(string))
+		id, _ := UserID(c)
+		return c.SendString(id.String())
 	})
 
 	res, err := app.Test(httptest.NewRequest(http.MethodPost, "/login", nil))

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strconv"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/upload"
@@ -42,6 +43,8 @@ type InitUploadRequest struct {
 // respondUploadError maps upload service errors for both /api and /v1.
 func respondUploadError(c fiber.Ctx, err error, action string) error {
 	switch {
+	case errors.Is(err, errNoUser):
+		return respondNoUser(c)
 	case errors.Is(err, usage.ErrQuotaExceeded):
 		return response.RespondQuotaExceeded(c, err)
 	case errors.Is(err, upload.ErrInvalidSize):
@@ -65,9 +68,9 @@ func (h *UploadHandler) InitUpload(c fiber.Ctx) error {
 	if err := c.Bind().Body(&req); err != nil {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeBodyInvalid, "Invalid request body")
 	}
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	res, err := h.service.Init(c.Context(), owner, upload.InitInput{
 		Filename: req.Filename, ContentType: req.Type, Size: req.Size, Hash: req.Hash,
@@ -91,9 +94,9 @@ func (h *UploadHandler) InitUpload(c fiber.Ctx) error {
 // multipartFile resolves the owner's file for a multipart route and checks
 // that the upload ID in the path belongs to it.
 func (h *UploadHandler) multipartFile(c fiber.Ctx, key string) (*models.File, error) {
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return nil, err
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return nil, errNoUser
 	}
 	if key == "" {
 		return nil, upload.ErrNotFound
@@ -163,9 +166,9 @@ func (h *UploadHandler) CompleteUpload(c fiber.Ctx) error {
 	if req.Key == "" {
 		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamRequired, "key is required")
 	}
-	owner, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found in context")
+	owner, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	file, err := h.service.FileByKey(c.Context(), owner, req.Key)
 	if err != nil {

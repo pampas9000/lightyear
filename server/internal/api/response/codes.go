@@ -47,6 +47,7 @@ const (
 	CodeUserExists       ResponseCode = "error.user.already_exists"
 	CodeQueueEnqueueFail ResponseCode = "error.queue.enqueue_failed"
 	CodeFileNotFound     ResponseCode = "error.file.not_found"
+	CodeWorkflowNotFound ResponseCode = "error.workflow.not_found"
 	CodeAPIKeyNotFound   ResponseCode = "error.api_key.not_found"
 	CodeAPIKeyLimit      ResponseCode = "error.api_key.limit_reached"
 	// CodeIdempotencyConflict: the Idempotency-Key was used with a different request.

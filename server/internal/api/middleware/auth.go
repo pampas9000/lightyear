@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 func NewJWTMiddleware(secret string) fiber.Handler {
@@ -55,8 +56,12 @@ func NewJWTMiddleware(secret string) fiber.Handler {
 			)
 		}
 
-		userID := claims["sub"].(string)
-		c.Locals("user_id", userID)
+		sub, _ := claims["sub"].(string)
+		userID, err := uuid.Parse(sub)
+		if err != nil || userID == uuid.Nil {
+			return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid token subject.")
+		}
+		SetUserID(c, userID)
 
 		return c.Next()
 	}

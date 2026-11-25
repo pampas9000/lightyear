@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"time"
@@ -87,7 +86,7 @@ func (h *Handler) Install(app fiber.Router, keys *apikey.Service) {
 }
 
 func owner(c fiber.Ctx) uuid.UUID {
-	id, _ := uuid.Parse(fmt.Sprint(c.Locals("user_id")))
+	id, _ := middleware.UserID(c)
 	return id
 }
 

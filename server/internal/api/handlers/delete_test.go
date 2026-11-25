@@ -37,10 +37,7 @@ func TestConsoleDeleteEndpoints(t *testing.T) {
 	owner := uuid.New()
 	files := lifecycle.NewService(db, nopStore{}, "bucket", lifecycle.Days(30, 30))
 	app := fiber.New()
-	app.Use(func(c fiber.Ctx) error {
-		c.Locals("user_id", c.Get("Test-User"))
-		return c.Next()
-	})
+	app.Use(asTestUser)
 	api := app.Group("/api")
 	NewTaskHandler(task.NewService(db, nil), files).Install(api)
 	NewFileHandler(db, nil, "bucket", files).Install(api)
@@ -87,10 +84,7 @@ func TestConsoleDraftEndpoints(t *testing.T) {
 	owner := uuid.New()
 	files := lifecycle.NewService(db, nopStore{}, "bucket", lifecycle.Days(30, 30))
 	app := fiber.New()
-	app.Use(func(c fiber.Ctx) error {
-		c.Locals("user_id", c.Get("Test-User"))
-		return c.Next()
-	})
+	app.Use(asTestUser)
 	NewDraftHandler(upload.NewService(db, nil, "bucket", files), files).Install(app.Group("/api"))
 
 	now := time.Now()

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/config"
 	"transcoder/server/internal/models"
@@ -197,17 +198,12 @@ func (h *AuthHandler) Logout(c fiber.Ctx) error {
 }
 
 func (h *AuthHandler) Me(c fiber.Ctx) error {
-	userID := c.Locals("user_id")
-	if userID == nil {
+	userID, ok := middleware.UserID(c)
+	if !ok {
 		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Not authenticated.")
 	}
 
-	idStr, ok := userID.(string)
-	if !ok {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "Invalid user ID format.")
-	}
-
-	user, err := h.service.GetUserByID(c.Context(), idStr)
+	user, err := h.service.GetUserByID(c.Context(), userID.String())
 	if err != nil {
 		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User not found.")
 	}

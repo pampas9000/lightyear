@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 
+	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/services/job"
 
@@ -34,9 +35,9 @@ func (h *Handler) GetJob(c fiber.Ctx) error {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid,
 			"Invalid job id format.", response.ValidationDetail{Field: "id", Reason: "must be a valid UUID"})
 	}
-	ownerID, err := ownerFromContext(c)
-	if err != nil {
-		return response.RespondError(c, fiber.StatusUnauthorized, response.CodeUnauthorized, "User ID not found.")
+	ownerID, ok := middleware.UserID(c)
+	if !ok {
+		return respondNoUser(c)
 	}
 	result, err := h.service.GetJob(c.Context(), ownerID, parsedID)
 	if err != nil {

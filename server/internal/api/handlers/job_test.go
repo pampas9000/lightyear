@@ -20,10 +20,7 @@ func TestJobEndpointDoesNotExposeAnotherOwnersJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := fiber.New()
-	app.Use(func(c fiber.Ctx) error {
-		c.Locals("user_id", c.Get("Test-User"))
-		return c.Next()
-	})
+	app.Use(asTestUser)
 	NewHandler(db).Install(app.Group("/api"))
 	for _, test := range []struct {
 		user   uuid.UUID
