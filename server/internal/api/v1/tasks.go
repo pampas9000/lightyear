@@ -2,7 +2,6 @@ package v1
 
 import (
 	"encoding/json"
-	"strconv"
 	"strings"
 
 	"transcoder/server/internal/api/response"
@@ -26,13 +25,6 @@ type RetryTaskRequest struct {
 	RetryAll bool            `json:"retry_all,omitempty"`
 	Options  json.RawMessage `json:"options,omitempty"`
 	Target   json.RawMessage `json:"target,omitempty"`
-}
-
-type TaskList struct {
-	Tasks []Task `json:"tasks"`
-	Total int64  `json:"total"`
-	Page  int    `json:"page"`
-	Limit int    `json:"limit"`
 }
 
 // accepted answers a request that queued work with 202, the task and where to poll.
@@ -109,27 +101,23 @@ var taskStatuses = []models.TaskStatus{
 }
 
 func (h *Handler) ListTasks(c fiber.Ctx) error {
-	page, err := strconv.Atoi(c.Query("page", "1"))
-	if err != nil || page < 1 {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid page.", response.ValidationDetail{Field: "page", Reason: "must be a positive integer"})
-	}
-	limit, err := strconv.Atoi(c.Query("limit", "20"))
-	if err != nil || limit < 1 || limit > 100 {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid limit.", response.ValidationDetail{Field: "limit", Reason: "must be 1-100"})
+	p, ok, err := response.ParsePage(c)
+	if !ok {
+		return err
 	}
 	status := strings.ToUpper(c.Query("status"))
 	if status != "" && !containsStatus(models.TaskStatus(status)) {
 		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid status.", response.ValidationDetail{Field: "status", Reason: "unknown status"})
 	}
-	tasks, total, err := h.tasks.ListTasks(c.Context(), owner(c), task.ListTasksParams{Page: page, Count: limit, Status: status})
+	tasks, total, err := h.tasks.ListTasks(c.Context(), owner(c), task.ListTasksParams{Page: p.Page, Limit: p.Limit, Status: status})
 	if err != nil {
 		return internalError(c, "list tasks", err)
 	}
-	out := TaskList{Tasks: make([]Task, len(tasks)), Total: total, Page: page, Limit: limit}
+	out := make([]Task, len(tasks))
 	for i := range tasks {
-		out.Tasks[i] = NewTask(&tasks[i])
+		out[i] = NewTask(&tasks[i])
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", out)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", response.NewList(out, p, total))
 }
 
 func containsStatus(s models.TaskStatus) bool {

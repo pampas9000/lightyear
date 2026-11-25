@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"strconv"
 
 	"encoding/json"
 
@@ -68,32 +67,19 @@ func (h *TaskHandler) ListTasks(c fiber.Ctx) error {
 		return respondNoUser(c)
 	}
 
-	pageStr := c.Query("page", "1")
-	countStr := c.Query("count", "20")
-	status := c.Query("status", "")
-
-	count, err := strconv.Atoi(countStr)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid limit.", map[string]any{"reason": err.Error()})
+	p, ok, err := response.ParsePage(c)
+	if !ok {
+		return err
 	}
-	page, err := strconv.Atoi(pageStr)
-	if err != nil {
-		return response.RespondErrorWithDetails(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid offset.", map[string]any{"reason": err.Error()})
-	}
-
 	results, total, err := h.service.ListTasks(c.Context(), ownerID, task.ListTasksParams{
-		Page:   page,
-		Count:  count,
-		Status: status,
+		Page:   p.Page,
+		Limit:  p.Limit,
+		Status: c.Query("status"),
 	})
 	if err != nil {
 		return response.RespondInternal(c, "Failed to list tasks.", err)
 	}
-
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", fiber.Map{
-		"tasks": results,
-		"total": total,
-	})
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Tasks fetched.", response.NewList(results, p, total))
 }
 
 func (h *TaskHandler) GetStats(c fiber.Ctx) error {

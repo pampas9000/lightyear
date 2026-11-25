@@ -5,6 +5,7 @@ import (
 
 	"transcoder/server/internal/api/middleware"
 	"transcoder/server/internal/api/response"
+	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/apikey"
 
 	"github.com/gofiber/fiber/v3"
@@ -63,14 +64,24 @@ func (h *APIKeyHandler) List(c fiber.Ctx) error {
 	if !ok {
 		return respondNoUser(c)
 	}
-	keys, err := h.service.List(c.Context(), owner)
+	p, ok, err := response.ParsePage(c)
+	if !ok {
+		return err
+	}
+	keys, total, err := h.service.List(c.Context(), owner, p.Limit, p.Offset())
 	if err != nil {
 		return response.RespondInternal(c, "Failed to list API keys.", err)
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "API keys fetched.", fiber.Map{
-		"api_keys": keys,
-		"scopes":   apikey.AllScopes,
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "API keys fetched.", APIKeyList{
+		List:   response.NewList(keys, p, total),
+		Scopes: apikey.AllScopes,
 	})
+}
+
+// APIKeyList is a page of keys plus the scopes a new key may be given.
+type APIKeyList struct {
+	response.List[models.APIKey]
+	Scopes []string `json:"scopes"`
 }
 
 func (h *APIKeyHandler) Revoke(c fiber.Ctx) error {

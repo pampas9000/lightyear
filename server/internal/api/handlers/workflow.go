@@ -180,10 +180,13 @@ func (h *WorkflowHandler) ListWorkflows(c fiber.Ctx) error {
 		return respondNoUser(c)
 	}
 
-	wfs, err := h.service.ListWorkflows(c.Context(), ownerID)
+	p, ok, err := response.ParsePage(c)
+	if !ok {
+		return err
+	}
+	wfs, total, err := h.service.ListWorkflows(c.Context(), ownerID, p.Limit, p.Offset())
 	if err != nil {
 		return response.RespondInternal(c, "Failed to list workflows.", err)
 	}
-
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflows fetched.", wfs)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Workflows fetched.", response.NewList(wfs, p, total))
 }

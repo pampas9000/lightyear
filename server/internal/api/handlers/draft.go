@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"errors"
-	"strconv"
 	"time"
 
 	"transcoder/server/internal/api/middleware"
@@ -35,12 +34,11 @@ func (h *DraftHandler) ListDrafts(c fiber.Ctx) error {
 	if !ok {
 		return respondNoUser(c)
 	}
-	limit, err := strconv.Atoi(c.Query("limit", "20"))
-	if err != nil || limit <= 0 {
-		limit = 20
+	p, ok, err := response.ParsePage(c)
+	if !ok {
+		return err
 	}
-	limit = min(limit, 100)
-	drafts, cursor, err := h.uploads.ListDrafts(c.Context(), owner, c.Query("cursor"), limit)
+	drafts, total, err := h.uploads.ListDrafts(c.Context(), owner, p.Limit, p.Offset())
 	if err != nil {
 		return response.RespondInternal(c, "Failed to list files", err)
 	}
@@ -58,10 +56,7 @@ func (h *DraftHandler) ListDrafts(c fiber.Ctx) error {
 		dtos = append(dtos, FileDTO{ID: d.ID.String(), Name: d.Name, Size: d.Size, MimeType: d.MimeType,
 			UploadedAt: d.UploadedAt, Status: d.Status})
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Files fetched successfully", fiber.Map{
-		"files":  dtos,
-		"cursor": cursor,
-	})
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Drafts fetched.", response.NewList(dtos, p, total))
 }
 
 // DeleteDraft removes a draft. Its file is deleted too unless a task uses it.

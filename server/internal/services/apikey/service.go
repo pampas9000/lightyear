@@ -137,11 +137,19 @@ func (s *Service) Create(ctx context.Context, owner uuid.UUID, name string, scop
 	return &key, plaintext, nil
 }
 
-// List returns the owner's keys, newest first, revoked ones included.
-func (s *Service) List(ctx context.Context, owner uuid.UUID) ([]models.APIKey, error) {
+// List returns one page of the owner's keys, newest first, revoked ones
+// included (limit after skipping offset), and how many there are in all.
+func (s *Service) List(ctx context.Context, owner uuid.UUID, limit, offset int) ([]models.APIKey, int64, error) {
+	q := s.db.WithContext(ctx).Model(&models.APIKey{}).Where("owner_id = ?", owner)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 	keys := []models.APIKey{}
-	err := s.db.WithContext(ctx).Where("owner_id = ?", owner).Order("created_at DESC").Find(&keys).Error
-	return keys, err
+	if err := q.Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&keys).Error; err != nil {
+		return nil, 0, err
+	}
+	return keys, total, nil
 }
 
 // Revoke disables a key immediately. Revoking a revoked key is a no-op.

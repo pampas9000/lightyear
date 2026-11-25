@@ -6,9 +6,10 @@ import AwsS3 from "@uppy/aws-s3";
 import { useApi, parseApiError } from "~/composables/useApi";
 import { useAuth } from "~/composables/useAuth";
 import type { Task, Workflow } from "~/lib/types/task";
-import type { ApiResponse } from "~/lib/types/api";
+import type { ApiResponse, ListData } from "~/lib/types/api";
 import type {
     CompleteUploadData,
+    DraftFile,
     InitUploadData,
     ListPartsData,
     SignPartData,
@@ -172,8 +173,8 @@ const loadAndReconcileDraft = async () => {
         }
 
         isReconciling.value = true;
-        const res = await api<ApiResponse<{ files: any[] }>>("/drafts/list");
-        const serverFiles = res?.data?.files || [];
+        const res = await api<ApiResponse<ListData<DraftFile>>>("/drafts/list");
+        const serverFiles = res.data.items;
         const serverFileMap = new Map(serverFiles.map((f) => [f.id, f]));
 
         if (draft.selectedServerFileIds && draft.selectedServerFileIds.length > 0) {
@@ -190,7 +191,6 @@ const loadAndReconcileDraft = async () => {
                         progress: 100,
                         status: "uploaded",
                         type: sf.mime_type || "",
-                        hash: sf.hash || "",
                     });
                     uploadedFileIds.value[`recent-${sf.id}`] = sf.id;
                 } else if (draft.pendingSubmission) {
@@ -247,7 +247,7 @@ watch(
 );
 
 // Recent uploads (Draft files)
-const recentFiles = ref<any[]>([]);
+const recentFiles = ref<DraftFile[]>([]);
 const filteredRecentFiles = computed(() => {
     return recentFiles.value.filter(
         (rf) => !files.value.some((f) => f.serverFileId === rf.id)
@@ -259,10 +259,8 @@ const fetchRecentFiles = async () => {
     if (!isAuthenticated.value) return;
     isLoadingRecent.value = true;
     try {
-        const res = await api<ApiResponse<{ files: any[] }>>("/drafts/list");
-        if (res && res.data && res.data.files) {
-            recentFiles.value = res.data.files;
-        }
+        const res = await api<ApiResponse<ListData<DraftFile>>>("/drafts/list");
+        recentFiles.value = res.data.items;
     } catch (err) {
         console.error("Failed to fetch recent files:", err);
     } finally {
@@ -270,7 +268,7 @@ const fetchRecentFiles = async () => {
     }
 };
 
-const addRecentFile = (file: any) => {
+const addRecentFile = (file: DraftFile) => {
     if (!checkAuthBeforeAction()) return;
     if (files.value.some((f) => f.serverFileId === file.id)) {
         toast.info("文件已在处理队列中");
@@ -591,8 +589,8 @@ const describeWorkflow = (wf: Workflow) => {
 const fetchWorkflows = async () => {
     if (!isAuthenticated.value) return;
     try {
-        const res = await api<ApiResponse<Workflow[]>>("/workflows");
-        if (res?.data) workflows.value = res.data;
+        const res = await api<ApiResponse<ListData<Workflow>>>("/workflows", { query: { limit: 100 } });
+        workflows.value = res.data.items;
     } catch (err) {
         console.error("Failed to fetch workflows:", err);
     }

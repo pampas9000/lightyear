@@ -132,8 +132,8 @@ func TestAuthenticateRevokeAndLastUsed(t *testing.T) {
 	if _, err := s.Authenticate(t.Context(), plaintext); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("revoked key authenticated: %v", err)
 	}
-	keys, err := s.List(t.Context(), owner)
-	if err != nil || len(keys) != 1 || keys[0].RevokedAt == nil {
-		t.Fatalf("list: %+v %v", keys, err)
+	keys, total, err := s.List(t.Context(), owner, 20, 0)
+	if err != nil || total != 1 || len(keys) != 1 || keys[0].RevokedAt == nil {
+		t.Fatalf("list: %+v %d %v", keys, total, err)
 	}
 }

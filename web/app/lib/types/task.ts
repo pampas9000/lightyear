@@ -1,3 +1,4 @@
+import type { ListData } from "./api";
 import type { ImageOptions } from './image-options';
 
 export const enum TaskStatus {
@@ -117,7 +118,4 @@ export interface TaskStats {
     growth_rate?: number;
 }
 
-export interface ListTasksData {
-    tasks: Task[];
-    total: number;
-}
+export type ListTasksData = ListData<Task>;

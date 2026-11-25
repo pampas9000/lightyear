@@ -87,13 +87,13 @@ const fetchTasks = async () => {
 
     loading.value = true
     try {
-        const query: Record<string, string | number> = { count: itemsPerPage, page: currentPage.value }
+        const query: Record<string, string | number> = { limit: itemsPerPage, page: currentPage.value }
         if (statusFilter.value !== 'ALL') query.status = statusFilter.value
 
         const res = await api<ApiResponse<ListTasksData>>('/tasks', { query })
         if (res.success) {
-            tasks.value = res.data.tasks || []
-            totalTasks.value = res.data.total || 0
+            tasks.value = res.data.items
+            totalTasks.value = res.data.total
         }
     } catch (err) {
         console.error("Failed to fetch tasks:", err)

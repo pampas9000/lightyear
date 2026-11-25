@@ -38,7 +38,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `GET` | `/api/api-keys` | 当前用户的全部 key（含已吊销），新的在前；另返回可选 `scopes` |
+| `GET` | `/api/api-keys` | 当前用户的 key（含已吊销），新的在前，按[列表与分页](#列表与分页)分页；`data` 另带可选的 `scopes`：`{items, page, limit, total, scopes}` |
 | `POST` | `/api/api-keys` | `{name, scopes?}` → `201 {api_key, key}`。`key` 是明文，**只在这一次返回** |
 | `DELETE` | `/api/api-keys/:id` | 吊销（软删除，写 `revoked_at`），立即生效；重复吊销无副作用 |
 
@@ -69,6 +69,18 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 
 `/mcp` 不用这个信封：它是 JSON-RPC，工具错误的格式见 [MCP 契约](/contracts/mcp)。
 
+### 列表与分页
+
+所有列表接口（`GET /api/tasks`、`/api/workflows`、`/api/drafts/list`、`/api/api-keys`、`GET /v1/tasks`）用同一种页码分页，`data` 为：
+
+```json
+{ "items": [ … ], "page": 1, "limit": 20, "total": 57 }
+```
+
+- 参数 `page`（从 1 开始，默认 1）与 `limit`（1–100，默认 20）；越界或不是整数返回 `400 error.param.invalid`，`details.field` 指出参数。
+- `items` 按创建时间倒序，没有数据时是空数组；`total` 是所有页的总数，与当前页无关。
+- 只属于某个资源的完整集合（如一次分片上传的 `parts`）不是列表接口，随资源一次返回、不分页。
+
 响应里的时间都是 RFC 3339 的 UTC 时间（以 `Z` 结尾）。响应码定义在 `server/internal/api/response/codes.go`：
 
 | 类别 | 码 |
@@ -87,7 +99,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `POST` | `/api/tasks` | 创建任务，返回 `201` 与任务 |
-| `GET` | `/api/tasks` | 分页列表：`?page=1&count=20&status=FAILED` |
+| `GET` | `/api/tasks` | [列表](#列表与分页)：`?page=1&limit=20&status=FAILED` |
 | `GET` | `/api/tasks/stats` | 各状态任务数、存储用量与上限（与[用量与配额](#用量与配额)的存储配额同口径；`storage_limit` 不限时为 `null`）、活跃 worker 数、近 7 天趋势 |
 | `GET` | `/api/tasks/:id` | 详情，含 jobs 及其 `source_file`、`output_file` |
 | `POST` | `/api/tasks/:id/retry` | 重试 |
@@ -290,7 +302,7 @@ orchestrator 每 10 分钟运行一次清理：
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `POST` | `/api/workflows` | `{name, outputs}`（也兼容单输出简写 `{name, options, target?}`） |
-| `GET` | `/api/workflows` | 当前用户的预设 |
+| `GET` | `/api/workflows` | 当前用户的预设，新的在前，按[列表与分页](#列表与分页)分页 |
 | `GET` | `/api/workflows/:id` | 详情 |
 | `PUT` | `/api/workflows/:id` | `{name, outputs}`（或单输出简写） |
 | `DELETE` | `/api/workflows/:id` | 删除 |
@@ -325,7 +337,7 @@ orchestrator 每 10 分钟运行一次清理：
 | :--- | :--- | :--- |
 | `GET` | `/api/files/:id/download-url` | 15 分钟预签名下载 URL（仅限本人文件；签名包含基于 `file.Name` 的 `ResponseContentDisposition` attachment 头）；文件已过期或已删除时 `410 error.file.gone` |
 | `DELETE` | `/api/files/:id` | 删除本人的源文件或产物，见[删除](#删除) |
-| `GET` | `/api/drafts/list` | 草稿（游标分页 `?cursor=`） |
+| `GET` | `/api/drafts/list` | 已上传完成的草稿，新的在前，按[列表与分页](#列表与分页)分页；每项为 `{id, name, size, mime_type, uploaded_at, status}` |
 | `POST` | `/api/drafts/:id/delete` | 删除草稿；文件没有任何 job 引用时一并删除（同[删除](#删除)），否则只移除草稿。草稿不存在时 `404 error.file.not_found` |
 | `GET` | `/api/jobs/:id` | 单个 job |
 
@@ -371,7 +383,7 @@ Key 在 Web 控制台的「API Keys」页面创建（[§API Key 管理](#api-key
 | `POST` | `/v1/uploads/:id/parts/:part_number/url` | write | `200 {part_number, url, expires_at}` |
 | `POST` | `/v1/uploads/:id/abort` | write | `200` + `File`（`DELETED`） |
 | `POST` | `/v1/tasks` | write | `202` + `Task`，`Location`、`Retry-After` |
-| `GET` | `/v1/tasks` | read | `200 {tasks, total, page, limit}` |
+| `GET` | `/v1/tasks` | read | `200 {items, page, limit, total}`，`items` 为 `Task` |
 | `GET` | `/v1/tasks/:id` | read | `200` + `Task`（含下载链接），`ETag`；或 `304` |
 | `POST` | `/v1/tasks/:id/cancel` | write | `200` + `Task` |
 | `POST` | `/v1/tasks/:id/retry` | write | `202` + `Task`，`Location`、`Retry-After` |
@@ -453,7 +465,7 @@ Retry-After: 2
 
 ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、文件）计算，任一变化都会换新值。下载链接每次请求都会重新签名，所以不参与计算；但任务含可下载产物时，ETag 额外包含当前 30 分钟时间片：拿到 `304` 时，客户端缓存中的下载链接仍至少有 30 分钟有效期。
 
-`GET /v1/tasks?page=1&limit=20&status=FAILED`：`page` ≥ 1，`limit` 1–100（默认 20），`status` 为任务状态（大小写不敏感），越界返回 `400 error.param.invalid`。按创建时间倒序；列表不带 ETag，也不带下载链接（需要时逐个 `GET`）。
+`GET /v1/tasks?page=1&limit=20&status=FAILED`：分页规则见[列表与分页](#列表与分页)；`status` 为任务状态（大小写不敏感），未知状态返回 `400 error.param.invalid`。按创建时间倒序；列表不带 ETag，也不带下载链接（需要时逐个 `GET`）。
 
 ### Task 与 Job
 

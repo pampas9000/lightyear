@@ -655,8 +655,10 @@ func (s *Service) CancelTask(ctx context.Context, ownerID uuid.UUID, taskID uuid
 	return s.GetTask(ctx, ownerID, taskID)
 }
 
+// ListTasksParams selects a page of tasks: Limit per page (1-100, else 20),
+// Page from 1, and optionally one Status.
 type ListTasksParams struct {
-	Count  int
+	Limit  int
 	Page   int
 	Status string
 }
@@ -673,8 +675,8 @@ func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID, params ListT
 		return nil, 0, err
 	}
 	limit, offset := 20, 0
-	if params.Count > 0 && params.Count <= 100 {
-		limit = params.Count
+	if params.Limit > 0 && params.Limit <= 100 {
+		limit = params.Limit
 	}
 	if params.Page > 0 {
 		offset = (params.Page - 1) * limit

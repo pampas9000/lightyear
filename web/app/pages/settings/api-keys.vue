@@ -59,8 +59,9 @@ const fetchKeys = async () => {
     }
     loading.value = true
     try {
-        const res = await api<ApiResponse<ListApiKeysData>>('/api-keys')
-        keys.value = res.data.api_keys
+        // At most 20 keys are active; one page of 100 also covers the revoked ones.
+        const res = await api<ApiResponse<ListApiKeysData>>('/api-keys', { query: { limit: 100 } })
+        keys.value = res.data.items
     } catch (err) {
         toast.error(parseApiError(err).userMessage)
     } finally {

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -414,44 +413,21 @@ type Draft struct {
 	DraftID   uuid.UUID
 }
 
-// ListDrafts returns up to limit of the owner's drafts whose upload has
-// finished, newest first, starting after cursor (from a previous call; empty
-// for the first page). It returns the cursor of the next page, empty when
-// this page is not full.
-func (s *Service) ListDrafts(ctx context.Context, owner uuid.UUID, cursor string, limit int) ([]Draft, string, error) {
+// ListDrafts returns one page of the owner's drafts whose upload has
+// finished, newest first (limit drafts after skipping offset), and how many
+// there are in all.
+func (s *Service) ListDrafts(ctx context.Context, owner uuid.UUID, limit, offset int) ([]Draft, int64, error) {
 	q := s.db.WithContext(ctx).Table("draft_files").
-		Select("draft_files.created_at AS drafted_at, draft_files.id AS draft_id, files.id, files.name, files.size, files.mime_type, files.status, files.uploaded_at").
 		Joins("JOIN files ON files.id = draft_files.file_id").
 		Where("draft_files.owner_id = ? AND files.status = ? AND files.uploaded_at IS NOT NULL", owner, models.FileUploaded)
-	if at, id, ok := decodeCursor(cursor); ok {
-		q = q.Where("draft_files.created_at < ? OR (draft_files.created_at = ? AND draft_files.id < ?)", at, at, id)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
 	var drafts []Draft
-	if err := q.Order("draft_files.created_at DESC, draft_files.id DESC").Limit(limit).Scan(&drafts).Error; err != nil {
-		return nil, "", err
+	if err := q.Select("draft_files.created_at AS drafted_at, draft_files.id AS draft_id, files.id, files.name, files.size, files.mime_type, files.status, files.uploaded_at").
+		Order("draft_files.created_at DESC, draft_files.id DESC").Limit(limit).Offset(offset).Scan(&drafts).Error; err != nil {
+		return nil, 0, err
 	}
-	next := ""
-	if len(drafts) == limit && limit > 0 {
-		last := drafts[len(drafts)-1]
-		next = base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%d,%s", last.DraftedAt.UnixNano(), last.DraftID))
-	}
-	return drafts, next, nil
-}
-
-// decodeCursor reads a ListDrafts cursor; a malformed one starts from the top.
-func decodeCursor(cursor string) (time.Time, uuid.UUID, bool) {
-	raw, err := base64.StdEncoding.DecodeString(cursor)
-	if cursor == "" || err != nil {
-		return time.Time{}, uuid.Nil, false
-	}
-	ns, rest, ok := strings.Cut(string(raw), ",")
-	if !ok {
-		return time.Time{}, uuid.Nil, false
-	}
-	n, err1 := strconv.ParseInt(ns, 10, 64)
-	id, err2 := uuid.Parse(rest)
-	if err1 != nil || err2 != nil {
-		return time.Time{}, uuid.Nil, false
-	}
-	return time.Unix(0, n), id, true
+	return drafts, total, nil
 }

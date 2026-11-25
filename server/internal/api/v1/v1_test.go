@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"transcoder/server/internal/api/response"
 	"transcoder/server/internal/models"
 	"transcoder/server/internal/services/apikey"
 	"transcoder/server/internal/services/jobstate"
@@ -377,8 +378,8 @@ func TestCompletedJobCarriesDownloadURL(t *testing.T) {
 	}
 	// Lists stay cheap: no URLs there.
 	_, body = e.do(http.MethodGet, "/v1/tasks", key, "")
-	list := decode[TaskList](t, body.Data)
-	if list.Total != 1 || list.Tasks[0].Jobs[0].OutputFile == nil || list.Tasks[0].Jobs[0].OutputFile.DownloadURL != "" {
+	list := decode[response.List[Task]](t, body.Data)
+	if list.Total != 1 || list.Items[0].Jobs[0].OutputFile == nil || list.Items[0].Jobs[0].OutputFile.DownloadURL != "" {
 		t.Fatalf("list: %+v", list)
 	}
 }

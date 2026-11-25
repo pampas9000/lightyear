@@ -340,7 +340,7 @@ curl -sS -X DELETE "$LIGHTYEAR_API/v1/files/$FILE_ID" \
 
 ## 其他端点
 
-- `GET /v1/tasks?page=1&limit=20&status=FAILED`：按创建时间倒序列出任务，`limit` 最大 100，`status` 可选。列表不带下载链接。
+- `GET /v1/tasks?page=1&limit=20&status=FAILED`：按创建时间倒序列出任务，`limit` 最大 100，`status` 可选。`data` 为 `{items, page, limit, total}`，`total` 是所有页的任务数。列表不带下载链接。
 - `GET /v1/usage?month=2026-11`：某月（UTC）用掉的处理单位、未结束任务预占的单位、存储占用与配额，以及按天的明细；需要 `tasks:read`。普通转换算 1 个单位，按体积目标搜索按实际编码轮数算，复用已有产物与失败不算，见[契约 §用量与配额](/contracts/http-api#用量与配额)。
 - 完整的端点表见[契约 §端点](/contracts/http-api#端点)。
 

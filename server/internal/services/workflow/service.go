@@ -139,10 +139,17 @@ func (s *Service) DeleteWorkflow(ctx context.Context, ownerID, id uuid.UUID) err
 	})
 }
 
-func (s *Service) ListWorkflows(ctx context.Context, ownerID uuid.UUID) ([]models.Workflow, error) {
-	var wfs []models.Workflow
-	if err := s.db.WithContext(ctx).Where("owner_id = ?", ownerID).Find(&wfs).Error; err != nil {
-		return nil, err
+// ListWorkflows returns one page of the owner's workflows, newest first
+// (limit after skipping offset), and how many there are in all.
+func (s *Service) ListWorkflows(ctx context.Context, ownerID uuid.UUID, limit, offset int) ([]models.Workflow, int64, error) {
+	q := s.db.WithContext(ctx).Model(&models.Workflow{}).Where("owner_id = ?", ownerID)
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
-	return wfs, nil
+	var wfs []models.Workflow
+	if err := q.Order("created_at DESC, id DESC").Limit(limit).Offset(offset).Find(&wfs).Error; err != nil {
+		return nil, 0, err
+	}
+	return wfs, total, nil
 }

@@ -2,6 +2,8 @@
  * API keys for the public /v1 API.
  * Mirrors: server/internal/models.APIKey and server/internal/api/handlers/apikey.go
  */
+import type { ListData } from "./api";
+
 export type ApiKeyScope = "tasks:read" | "tasks:write";
 
 export interface ApiKey {
@@ -16,8 +18,8 @@ export interface ApiKey {
     updated_at: string;
 }
 
-export interface ListApiKeysData {
-    api_keys: ApiKey[];
+/** A page of keys, plus the scopes a new key may be given. */
+export interface ListApiKeysData extends ListData<ApiKey> {
     scopes: ApiKeyScope[];
 }
 

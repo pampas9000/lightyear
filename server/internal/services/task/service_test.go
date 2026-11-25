@@ -326,7 +326,7 @@ func TestMultiOutputTargetReuseAndListPreload(t *testing.T) {
 	})
 
 	// ListTasks must preload OutputFile and populate compression + resolved_options.
-	listed, _, err := s.ListTasks(t.Context(), owner, ListTasksParams{Page: 1, Count: 10})
+	listed, _, err := s.ListTasks(t.Context(), owner, ListTasksParams{Page: 1, Limit: 10})
 	if err != nil || len(listed) != 1 || listed[0].Jobs[0].Compression == nil || !listed[0].Jobs[0].Compression.LargerThanSource {
 		t.Fatalf("ListTasks missing compression/LargerThanSource: err=%v listed=%+v", err, listed)
 	}

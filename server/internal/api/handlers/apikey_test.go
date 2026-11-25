@@ -67,6 +67,19 @@ func TestAPIKeyEndpoints(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(raw, created.Data.APIKey.Prefix) || strings.Contains(raw, plaintext) || strings.Contains(raw, apikey.Hash(plaintext)) {
 		t.Fatalf("list must show the prefix only: %d %s", status, raw)
 	}
+	var list struct {
+		Data struct {
+			Items  []map[string]any `json:"items"`
+			Page   int              `json:"page"`
+			Limit  int              `json:"limit"`
+			Total  int64            `json:"total"`
+			Scopes []string         `json:"scopes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &list); err != nil || len(list.Data.Items) != 1 || list.Data.Page != 1 ||
+		list.Data.Limit != 20 || list.Data.Total != 1 || len(list.Data.Scopes) != len(apikey.AllScopes) {
+		t.Fatalf("list shape: %s", raw)
+	}
 	if status, raw = call(http.MethodGet, "/api/api-keys", "", uuid.New()); status != http.StatusOK || strings.Contains(raw, created.Data.APIKey.Prefix) {
 		t.Fatalf("another user sees the key: %s", raw)
 	}

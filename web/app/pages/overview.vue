@@ -56,7 +56,7 @@ const fetchDashboardData = async () => {
             stats.value = statsRes.data
         }
         if (tasksRes.success) {
-            tasks.value = tasksRes.data.tasks || []
+            tasks.value = tasksRes.data.items
         }
     } catch (err) {
         console.error("Failed to fetch dashboard data:", err)

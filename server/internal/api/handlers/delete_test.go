@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -110,21 +110,23 @@ func TestConsoleDraftEndpoints(t *testing.T) {
 		return res.StatusCode, body
 	}
 
-	// Pages of two, newest first, follow the cursor.
+	// Pages of two, newest first, each with the total.
 	var seen []string
-	cursor := ""
-	for range 3 {
-		status, body := call(http.MethodGet, "/api/drafts/list?limit=2&cursor="+url.QueryEscape(cursor))
+	for page := 1; page <= 2; page++ {
+		status, body := call(http.MethodGet, "/api/drafts/list?limit=2&page="+strconv.Itoa(page))
 		if status != http.StatusOK {
 			t.Fatalf("list: %d %v", status, body)
 		}
 		data := body["data"].(map[string]any)
-		for _, f := range data["files"].([]any) {
+		if data["page"] != float64(page) || data["limit"] != float64(2) || data["total"] != float64(3) {
+			t.Fatalf("page %d: %v", page, data)
+		}
+		for _, f := range data["items"].([]any) {
 			seen = append(seen, f.(map[string]any)["id"].(string))
 		}
-		if cursor = data["cursor"].(string); cursor == "" {
-			break
-		}
+	}
+	if status, body := call(http.MethodGet, "/api/drafts/list?limit=101"); status != http.StatusBadRequest || body["code"] != "error.param.invalid" {
+		t.Fatalf("limit 101: %d %v", status, body)
 	}
 	want := []string{drafts[2].ID.String(), drafts[1].ID.String(), drafts[0].ID.String()}
 	if !slices.Equal(seen, want) {

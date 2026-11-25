@@ -29,6 +29,16 @@ export interface ListPartsData {
   parts: UploadPart[]
 }
 
+/** A draft: an uploaded file not yet submitted in a task (GET /drafts/list). */
+export interface DraftFile {
+  id: string
+  name: string
+  size: number
+  mime_type: string
+  uploaded_at: string
+  status: string
+}
+
 export interface SignPartData {
   part_number: number
   url: string
