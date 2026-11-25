@@ -12,13 +12,14 @@ trigger: always_on
 ## TypeScript
 - Type Safety: Don't use `any` if possible.
 - Use Modern TypeScript
-  - Use Temporal API to replace Date.
+  - Use the Temporal API for every date and time. `Date` is not allowed anywhere (no `new Date`, `Date.now`, `Date.parse`).
+  - Load Temporal on demand: use the native `globalThis.Temporal` when it exists; only when it does not, dynamically import the polyfill once, before anything uses it.
 
 ## Web
 - Use shadcn components when possible.
 - Type Safety for Backend APIs Responses.
-- Stale-while-revalidate: Use TanStack Query.
-- Virtual Scroll: Use TanStack Virtual.
+- Server data: Use TanStack Query (`@tanstack/vue-query`) for fetching, polling, caching and invalidation after mutations.
+- Virtual Scroll: Use TanStack Virtual only for lists that can exceed about 500 rows. Paginated lists do not need it.
 
 
 ## Rust

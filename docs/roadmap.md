@@ -52,6 +52,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 2026-11-23 | 把 outbox 从 `attempts` 拆成独立的 `outbox_messages`：首次派发和 `StartTimeout` 重发都在事务中写一条消息，由每秒运行的投递循环补发；`attempts` 删掉 `dispatched_at`，保留 `payload` 作为该次执行派发内容的记录（取代 4.3 中"attempt 行充当 outbox"） | 一个 attempt 只有一个 `dispatched_at`，表示不了"又要发一次但还没发出"，所以重发不经过 outbox，一次失败就要再等 10 分钟；拆开后两类发送有同样的保证，发送记录可查，未发送消息的扫描与 attempts 的历史量无关，以后别的消息（如 webhook）可以复用同一条路径 |
 | 2026-11-25 | 队列与会话只支持标准 Redis，不再为 Upstash 等兼容实现确认或适配命令差异 | 12.13 等依赖 Streams 的完整语义（如 `XINFO GROUPS` 的 `last-delivered-id`）；为兼容实现逐条确认与降级的成本高于部署标准 Redis |
 | 2026-11-25 | `/v1` 与 `/api` 共用同一个响应信封，不改用 RFC 9457；成功码只有 `ok`，错误靠 `error.*` 码区分；列表统一用页码分页 | 一套信封让前端、`/v1` 调用方与 MCP 的错误字段（`code`、`message`、`details`）保持一致；成功时接口与 HTTP 状态已说明结果，细分成功码没有调用方使用；草稿最多保留 7 天、任务列表按页翻，页码分页足够 |
+| 2026-11-25 | 前端的服务端数据用 TanStack Query；日期时间只用 Temporal、禁止 `Date`，运行环境没有原生 Temporal 时才动态加载 polyfill；虚拟滚动只用于可能超过约 500 行的列表 | 任务列表、详情与首页共用任务数据，需要按状态轮询、后台暂停与写操作后统一失效；统一用 Temporal 避免 `Date` 的解析与时区歧义，按需加载让已支持 Temporal 的环境不多下载 polyfill；现有列表要么分页、要么不超过 200 行 |
 
 ## 执行步骤
 
@@ -248,7 +249,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.24 | 控制台首页的存储统计用 `usage` 的上限与口径：`task.Service.GetStats` 的 `storage_used` 改用 `usage.StorageUsed`（`UPLOADED` 加 `UPLOADING` 的声明大小，与存储配额检查一致），`storage_limit` 取 `usage.Quotas.LimitsFor`（全局 `QUOTA_STORAGE_BYTES`，按用户 `storage_quota_bytes` 覆盖），不限时为 `null`；首页卡片不限时显示「已用 · 不限」、不画进度条，"% used"/"free" 文案进了 i18n | ✅ |
 | 12.25 | `/api` handler 小修：workflow 与文件下载地址的 404 改为 `error.workflow.not_found`（新增）与 `error.file.not_found`；会话、API Key（与已不用的 JWT）中间件把用户解析成 `uuid.UUID` 后用 `middleware.SetUserID` 存入，handler、`/v1`、限流统一用 `middleware.UserID` 取值，`ownerFromContext` 与各处字符串解析删除，会话里的 `user_id` 不是合法 UUID 时按未登录返回 401；不再比较错误字符串：唯一约束冲突统一由 `pkg/dberr.IsUniqueViolation` 按 SQLSTATE 23505 判断（注册、OAuth 绑定、任务幂等键共用），`GetTask` 只用 `errors.Is`，Redis 的 `NOGROUP`/`BUSYGROUP` 改用 go-redis 的 `HasErrorPrefix`（只匹配 Redis 返回的错误）。没开 GORM 的 `TranslateError`。前端错误码文案只在 `useApi.ts` 的英文兜底表里，补了两个 not_found，`web/i18n/locales` 无需改动 | ✅ |
 | 12.26 | Nitro 代理的后端地址从运行时配置读取：`/api/**` 的路由规则代理（构建时固定）换成服务端路由 `web/server/routes/api/[...path].ts`，用 h3 `proxyRequest` 转发到 `runtimeConfig.apiBase`（`NUXT_API_BASE`，默认 `http://localhost:8080`，只取 origin，改了不用重新构建）；照旧原样转发 `Origin`（API 的 Origin 检查依赖它）与 Cookie/Set-Cookie，`fetchOptions.redirect: "manual"` 让 OAuth 回调的 303 交给浏览器；拼出的目标不在该 origin 的 `/api` 下时返回 400。已在浏览器里经代理注册、登录、刷新后取 `/api/me` 与统计，用 curl 验证了 Origin 拒绝、OAuth 回调 303 不被跟随与 `session_id` 透传。已知遗留：前端没有测试工具，代理没有自动化测试 | ✅ |
-| 12.27 | 前端规则与大页面拆分：`.agent/rules/code-rules.md` 要求 Temporal 与 TanStack Query，代码里都没用；先定规则（保留 TanStack Query，还是用已安装的 VueUse 做轮询与失焦暂停；是否去掉 Temporal），再拆 `tasks/[id].vue`（约 1400 行）与 `tasks/new.vue`（约 1250 行）。**待决定** | ⬜ |
+| 12.27 | 前端规则落地与大页面拆分（在 12.23 的前端改动合入之后做）：服务端数据统一用 TanStack Query（`@tanstack/vue-query`，处理 `ssr: true` 下的数据交接），任务详情按状态轮询、任务结束即停、切到后台暂停，重试、取消、删除后让相关查询失效；日期时间全部改用 Temporal，前端不允许出现 `Date`（`task check` 加检查），格式化统一经一个工具并使用 i18n 的当前语言；Temporal 按需加载：有 `globalThis.Temporal` 就直接用，没有才动态引入 polyfill，并在首次使用前完成（服务端渲染与浏览器都要处理）；TanStack Virtual 只用于可能超过约 500 行的列表，目前没有；最后拆 `tasks/[id].vue`（约 1400 行）、`tasks/new.vue`（约 1250 行）与 `index.vue`（约 1050 行） | ⬜ |
 
 ### 以后（结构已预留，暂不排期）
 
