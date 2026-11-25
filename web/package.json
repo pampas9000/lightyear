@@ -25,6 +25,7 @@
         "image-size": "2.0.4",
         "reka-ui": "^2.9.8",
         "tailwind-merge": "^3.5.0",
+        "temporal-polyfill": "^1.0.8",
         "vue": "^3.5.34",
         "vue-router": "^5.0.7",
         "vue-sonner": "^2.0.9",
