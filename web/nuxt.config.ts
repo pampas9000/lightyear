@@ -51,20 +51,14 @@ export default defineNuxtConfig({
     typescript: {
         strict: true,
     },
+    runtimeConfig: {
+        // Where server/routes/api/[...path].ts proxies /api/**. Server-only;
+        // set NUXT_API_BASE at runtime (no rebuild needed).
+        apiBase: "http://localhost:8080",
+    },
     nitro: {
         routeRules: {
             "/**": { headers: crossOriginIsolation },
-            // `redirect: "manual"` passes API redirects (the OAuth callback's
-            // 303 to FRONTEND_URL) and their Set-Cookie through to the
-            // browser instead of following them server-side. The proxy
-            // forwards the browser's Origin header unchanged, which the API
-            // checks on state-changing requests.
-            "/api/**": {
-                proxy: {
-                    to: "http://localhost:8080/api/**",
-                    fetchOptions: { redirect: "manual" },
-                },
-            },
         },
     },
 });

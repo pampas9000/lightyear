@@ -34,13 +34,14 @@ web/
 │   ├── lib/types/              # API DTOs; image-options.ts is generated (task gen:types)
 │   ├── workers/vips.worker.ts
 │   └── assets/styles/main.css  # Tailwind 4 @theme tokens
+├── server/routes/api/          # /api/** proxy to the Go API (NUXT_API_BASE)
 ├── i18n/locales/               # 6 locale files
 └── nuxt.config.ts
 ```
 
 ## Integration surface
 
-- **API**: `useApi` creates a `$fetch` client with `baseURL: /api`; the Nitro route rule proxies `/api/**` to `http://localhost:8080/api/**`. Auth uses `auth_token` cookies plus `Authorization: Bearer` and opens the auth modal on 401.
+- **API**: `useApi` creates a `$fetch` client with `baseURL: /api`; the server route `server/routes/api/[...path].ts` proxies `/api/**` to `runtimeConfig.apiBase` (`NUXT_API_BASE`, default `http://localhost:8080`), forwarding `Origin` unchanged and passing redirects through (`redirect: "manual"`). Auth uses `auth_token` cookies plus `Authorization: Bearer` and opens the auth modal on 401.
 - **Sandbox**: `useVips` starts `vips.worker.ts` on first use; the worker loads wasm-vips with the AVIF/HEIF and JXL modules (Vite `?url` imports), blocks untrusted loaders like the server, and runs `lib/vips-ops.ts`. Results come back as transferable `Uint8Array`s. wasm-vips needs `SharedArrayBuffer`, so `nuxt.config.ts` sends COOP `same-origin` + COEP `credentialless` on every route (client-side navigation into the sandbox must already be isolated).
 - **Options UI**: `ImageOptionsForm.vue` edits an `ImageOptions` and hides fields that do not apply; the new-task page, workflow presets, the retry drawer and the sandbox (without HEIC) all use it. `scripts/consistency.ts` checks that `vips-ops.ts` produces the same artifacts as `compute-imageops`.
 
@@ -58,7 +59,7 @@ task gen:types       # after changing ImageOptions in compute-types
 
 ## Current status
 
-- [x] Nitro proxy to the Go API (`/api/**`)
+- [x] Nitro proxy to the Go API (`/api/**`, target from `NUXT_API_BASE`)
 - [x] Auth flows (password + OAuth) and session handling
 - [x] Task creation, listing, polling (`2s`), retry and cancel
 - [x] Multipart uploads with fast-upload support, drafts and workflow presets
@@ -67,7 +68,6 @@ task gen:types       # after changing ImageOptions in compute-types
 
 ### Known gaps
 
-- No runtime config/env variables are consumed yet; API base URL is fixed through the Nitro proxy
 - `app/lib/api/` does not exist — the client lives in `composables/useApi.ts`
 - No frontend test tooling (typecheck only)
 - The sandbox is unavailable in Safari (no COEP `credentialless`) and cannot read or write HEIC (see [Known limitations](../docs/compute/limitations.md))

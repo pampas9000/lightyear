@@ -99,7 +99,7 @@ TEST_DATABASE_URL='postgres://postgres@127.0.0.1:5432/lightyear_test?sslmode=dis
 | 服务 | 默认地址 | 说明 |
 | :--- | :--- | :--- |
 | API | `http://localhost:8080` | `SERVER_ADDR` 优先于 `PORT` |
-| Web | `http://localhost:3000` | Nitro 把 `/api/**` 代理到 API |
+| Web | `http://localhost:3000` | Nitro 把 `/api/**` 代理到 `NUXT_API_BASE`（默认 `http://localhost:8080`，只取 scheme、主机与端口；运行时读取，改了不用重新构建；设在 Web 进程的环境变量或 `web/.env` 里） |
 | PostgreSQL | `DATABASE_URL` | |
 | Redis | `REDIS_URL`，默认 `redis://localhost:6379/0` | 会话、队列、取消标记 |
 | S3 / R2 | `S3_ENDPOINT`、`S3_ACCESS_ID`、`S3_ACCESS_KEY`、`S3_BUCKET`、`S3_REGION`（空为 `auto`） | API 与 orchestrator（存储清理）都要；缺 `S3_BUCKET`、`S3_ACCESS_ID` 或 `S3_ACCESS_KEY` 时两者都拒绝启动 |
