@@ -1,5 +1,5 @@
 // Package bootstrap opens what the API and the orchestrator both start from:
-// the logger, the database pool and the Redis client.
+// the logger, the database pool, the Redis client and object storage.
 package bootstrap
 
 import (
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"transcoder/server/internal/config"
+	"transcoder/server/internal/pkg/s3"
+	"transcoder/server/internal/services/storage"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
@@ -69,4 +71,17 @@ func OpenRedis(ctx context.Context, cfg config.RedisConfig) (*redis.Client, erro
 		return nil, fmt.Errorf("ping redis: %w", err)
 	}
 	return kv, nil
+}
+
+// OpenStorage builds the S3 client. It fails when the bucket or credentials
+// are not configured; it does not contact the store.
+func OpenStorage(ctx context.Context, cfg config.S3Config) (*storage.S3Service, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	client, err := s3.NewClient(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("open s3 client: %w", err)
+	}
+	return storage.NewS3Service(client), nil
 }

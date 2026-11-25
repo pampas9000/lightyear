@@ -199,7 +199,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 
 文件变为 `UPLOADED` 时（上传 `complete`、worker 产出产物或下载完 URL 源）在同一事务里写入 `expires_at`，所以 `complete` 的响应已带到期时间。还没下载成功的 URL 源（`FETCHING`）从创建时间（`created_at`）算起，按源文件保留期到期；下载成功后改从 `uploaded_at` 重新计算。
 
-API 进程每 10 分钟运行一次清理：
+orchestrator 每 10 分钟运行一次清理：
 
 1. 为仍没有到期时间的 `UPLOADED` 与 `FETCHING` 文件补写 `expires_at`（例如上线前已有的文件、所有 job 在下载前就已结束的 URL 源）。
 2. 到期的文件（`UPLOADED` 或 `FETCHING`）改为 `EXPIRED`，再删除存储对象（`FETCHING` 文件可能留有下载到一半的对象）。仍被未结束 job 读取的文件跳过，等 job 结束后再处理。

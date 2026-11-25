@@ -12,14 +12,11 @@ import (
 	"transcoder/server/internal/api"
 	"transcoder/server/internal/bootstrap"
 	"transcoder/server/internal/config"
-	"transcoder/server/internal/pkg/s3"
 	"transcoder/server/internal/schema"
-	"transcoder/server/internal/services/lifecycle"
 	"transcoder/server/internal/services/storage"
 
 	"gorm.io/gorm"
 
-	aws_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/logger"
@@ -50,6 +47,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// The API runs no background work: the storage lifecycle sweeps run in
+	// the orchestrator (cmd/worker). Storage is checked first because it
+	// needs no network, so a missing variable is reported before anything
+	// else can fail.
+	s3Service, err := bootstrap.OpenStorage(ctx, config.S3)
+	if err != nil {
+		return err
+	}
+
 	db, err := bootstrap.OpenDatabase(config.DB)
 	if err != nil {
 		return err
@@ -69,17 +75,6 @@ func run() error {
 	}
 	defer kv.Close()
 	slog.Info("redis connected")
-
-	s3Client, err := openS3(ctx, config.S3)
-	if err != nil {
-		return err
-	}
-	s3Service := storage.NewS3Service(s3Client)
-
-	// Background sweeps stop with ctx: retention (expire sources and
-	// outputs, retry failed deletions) and, hourly, unfinished uploads and
-	// stale drafts.
-	lifecycle.NewService(db, s3Service, config.S3.Bucket, api.RetentionPolicy(config)).Start(ctx, 10*time.Minute)
 
 	app := newFiberApp(db, kv, config, s3Service)
 	slog.Info("server starting",
@@ -114,16 +109,6 @@ func run() error {
 
 type structValidator struct {
 	validate *validator.Validate
-}
-
-func openS3(ctx context.Context, cfg config.S3Config) (*aws_s3.Client, error) {
-	client, err := s3.NewClient(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("open s3 client: %w", err)
-	}
-
-	slog.Info("s3 connected")
-	return client, nil
 }
 
 // Validator needs to implement the Validate method

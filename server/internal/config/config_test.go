@@ -35,3 +35,18 @@ func TestLoadQuotaAndRateLimit(t *testing.T) {
 		t.Fatalf("rate limit = %+v", cfg.RateLimit)
 	}
 }
+
+// The orchestrator and the API refuse to start without a bucket and
+// credentials; the error names what is missing.
+func TestS3ConfigValidate(t *testing.T) {
+	if err := (S3Config{Bucket: "b", AccessID: "id", AccessKey: "k"}).Validate(); err != nil {
+		t.Fatalf("complete config: %v", err)
+	}
+	err := (S3Config{AccessID: "id", AccessKey: " "}).Validate()
+	if err == nil {
+		t.Fatal("missing bucket and key accepted")
+	}
+	if got, want := err.Error(), "missing S3 configuration: set S3_BUCKET, S3_ACCESS_KEY"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}

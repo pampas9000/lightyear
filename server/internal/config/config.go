@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,24 @@ type S3Config struct {
 	AccessKey string `koanf:"S3_ACCESS_KEY"`
 	Region    string `koanf:"S3_REGION"`
 	Bucket    string `koanf:"S3_BUCKET"`
+}
+
+// Validate reports the S3 variables that are missing. The endpoint and
+// region may be empty (AWS, and "auto" for R2); the bucket and credentials
+// may not.
+func (c S3Config) Validate() error {
+	var missing []string
+	for _, v := range []struct{ name, value string }{
+		{"S3_BUCKET", c.Bucket}, {"S3_ACCESS_ID", c.AccessID}, {"S3_ACCESS_KEY", c.AccessKey},
+	} {
+		if strings.TrimSpace(v.value) == "" {
+			missing = append(missing, v.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing S3 configuration: set %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // RetentionConfig is the global storage retention, in days; 0 keeps files

@@ -222,7 +222,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 |---|---|---|
 | 12.1 | 按用户公平派发：每个用户同时 `PROCESSING` 的 job 数有上限（`DISPATCH_MAX_PROCESSING_PER_USER`，默认 8），领取时在用户之间轮询；按用户的部分索引与 advisory lock 保证多实例下不超限、不重复派发。交互与批量优先级留作后续 | ✅ |
 | 12.2 | 单个 attempt 的最长执行时间：从 `started_at` 起算，普通 10 分钟、搜索任务 30 分钟（`EXECUTION_LIMIT`/`TARGET_EXECUTION_LIMIT`）；心跳续租不越过上限，到期由恢复循环按 `execution_timeout` 重试 | ✅ |
-| 12.3 | 存储生命周期：`SOURCE_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS`（默认 30 天）与按用户覆盖字段（暂无界面）；`services/lifecycle` 每 10 分钟把到期文件标为 `EXPIRED` 后删对象，失败重试，跳过未结束 job 的源文件；复用与秒传只选剩余保留期过半的文件。R2 生命周期规则只写了文档。已知遗留：显式重试已完成的 job 时旧产物不再被引用，要等到期才删；清理没有跨实例互斥（可并发，只是重复劳动） | ✅ |
+| 12.3 | 存储生命周期：`SOURCE_RETENTION_DAYS` / `OUTPUT_RETENTION_DAYS`（默认 30 天）与按用户覆盖字段（暂无界面）；orchestrator 里的 `services/lifecycle` 每 10 分钟把到期文件标为 `EXPIRED` 后删对象，失败重试，跳过未结束 job 的源文件；复用与秒传只选剩余保留期过半的文件。R2 生命周期规则只写了文档。已知遗留：显式重试已完成的 job 时旧产物不再被引用，要等到期才删；清理由 orchestrator 运行（12.22），多个 orchestrator 实例之间没有互斥（可并发，只是重复劳动） | ✅ |
 | 12.4 | 配额：按用户的存储（`QUOTA_STORAGE_BYTES`，默认 10 GiB）与每月处理单位（`QUOTA_MONTHLY_UNITS`，默认 10000），`users` 上可按用户覆盖（暂无界面），`0` 为不限。创建任务与重试时按"已结算 + 未结束 job 预占 + 本次预占"检查（搜索预占 7、JXL 搜索 9、其余 1，完成后按实际轮数结算），按用户 advisory lock 串行；上传 `init` 按申报大小检查，存储为软限制。超出返回 `403 error.quota.exceeded`，已接受的任务照常跑完。单任务 job 数沿用全局常量 `MaxItems` 100、`MaxOutputs` 10、`MaxTotalJobs` 200（`400 error.param.invalid`）。不引入组织层级 | ✅ |
 | 12.5 | 可观测性：指标（各队列积压、排队等待时间、处理耗时分位、各错误码比例、按用户用量）、追踪与告警。目前只有日志（限流、配额拒绝、用量写入失败都有结构化日志）；按用户用量直接从 `usage_records` 汇总，不另做指标。有了派发延迟与积压指标后，再决定派发是否需要多实例并行（目前多实例只靠 advisory lock 保证不重复，吞吐不随实例数增加） | ⬜ |
 | 12.6 | 生产部署：部署方式、staging 环境、Postgres 备份、密钥轮换；worker 按队列积压扩缩容（见"以后"的自动扩缩容）；生产环境启动时校验 S3 等必需配置，缺失或仍是开发默认值时拒绝启动。目前只有本地开发 | ⬜ |
@@ -241,7 +241,7 @@ API / MCP ─▶ API 服务 ─▶ Postgres（唯一事实来源）◀── Orc
 | 12.19 | 上线前需确认 Upstash 支持 `XINFO GROUPS` 并返回 `last-delivered-id`（12.13 依赖它；本地只用 Redis 8 验证过）。不支持时 `Waiting` 会一直报错，恢复循环只续租不重发，丢失的派发就不会再发出 | ⬜ |
 | 12.20 | Job 状态转换只有一份实现：领取、心跳、完成、复用、重试、失败、取消、手动重试都经 `jobstate.Run`/`Tx`，转换检查起始状态与 task 锁，写回前用 `jobstate.Check` 校验字段规则，状态变过的 task 在提交前聚合一次；测试结束时对库里全部 job 跑 `Check` | ✅ |
 | 12.21 | 文件删除只有一套模型：`files` 只剩 `UPLOADING`/`FETCHING`/`UPLOADED`/`EXPIRED`/`DELETED`，删除文件、草稿、任务产物与中止上传都经 `services/lifecycle`（先改为 `DELETED` 再删对象，失败重试）；未完成的上传删除后立即中止分片，签名 URL 过期后再中止一次并删对象；上传端点只接受 `UPLOADING`，`complete` 不再复活已删除的文件。过期上传与 7 天草稿并入 lifecycle 每小时一次、分批处理，删除 `storage/cleanup.go`。没有为旧状态（`DELETING`/`ABORTING`/`ABORTED`/`FAILED`）写数据迁移，库里遗留的这类行不会再被处理 | ✅ |
-| 12.22 | 周期任务移到 orchestrator：lifecycle 清理目前由 API 进程启动（`cmd/api` 每 10 分钟），API 多实例时各跑一份；移到 `cmd/worker`（orchestrator）后 API 只处理请求，orchestrator 因此需要 S3 配置。12.3 的"清理没有跨实例互斥"随之只剩 orchestrator 多实例的情况 | ⬜ |
+| 12.22 | 周期任务移到 orchestrator：存储清理（`lifecycle.Service.Run`，每 10 分钟 `Sweep`、每小时 `SweepUploads`）由 `cmd/worker`（orchestrator）启动，接 orchestrator 的信号 ctx，收到 SIGINT/SIGTERM 等本轮结束后退出；API 只处理请求，`cmd/api` 有测试保证它不引入 `lifecycle`/`orchestrator` 包。S3 客户端经 `bootstrap.OpenStorage` 共用初始化，API 与 orchestrator 缺 `S3_BUCKET`、`S3_ACCESS_ID` 或 `S3_ACCESS_KEY` 时都在连接数据库前启动失败并列出缺的变量。已知遗留：多个 orchestrator 实例各跑一份清理（见 12.3） | ✅ |
 | 12.23 | `/v1` 的响应格式在对外开放前定下来：沿用现在与 `/api` 相同的 envelope（`code`、`message`、`data`/`details`），还是改成直接返回资源 JSON、错误用 RFC 9457（`application/problem+json`）；`/api` 不变。开放后再改就要做版本迁移。**待决定** | ⬜ |
 | 12.24 | 控制台首页的存储统计用 `usage` 的上限与口径：`task.Service.GetStats` 的 `StorageLimit` 写死为 10 TB，与 12.4 的存储配额（默认 10 GiB、可按用户覆盖）不一致 | ⬜ |
 | 12.25 | `/api` handler 小修：文件、workflow 的 404 返回的是 `CodeOK`，改成对应的 `not_found` 错误码；`user_id` 的解析从 9 个 handler 的 `ownerFromContext` 挪进会话中间件；按哨兵错误或错误类型判断，不比较错误字符串（`handlers/task.go` 比较 `"record not found"`，`auth/service.go` 用错误文本判断唯一约束冲突） | ⬜ |

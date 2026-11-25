@@ -16,8 +16,8 @@ web ──HTTP──▶ API（Go） ──▶ PostgreSQL（唯一事实来源）
 
 | 组件 | 位置 | 职责 |
 | :--- | :--- | :--- |
-| API | `server/cmd/api` | HTTP API（`/api` 供控制台、会话认证；`/v1` 对外、API Key 认证）与 MCP 服务器（`/mcp`，同一套 API Key 与服务）、上传与下载签名、任务与预设持久化 |
-| Orchestrator | `server/cmd/worker` | 从数据库领取到期任务并派发、处理 worker 结果、租约恢复 |
+| API | `server/cmd/api` | HTTP API（`/api` 供控制台、会话认证；`/v1` 对外、API Key 认证）与 MCP 服务器（`/mcp`，同一套 API Key 与服务）、上传与下载签名、任务与预设持久化；只处理请求，不跑周期任务 |
+| Orchestrator | `server/cmd/worker` | 从数据库领取到期任务并派发、处理 worker 结果、租约恢复；所有周期任务（含存储清理，因此也需要 `S3_*` 配置） |
 | 迁移 | `server/cmd/migrate` | 建表；`-reset` 删除全部应用表后重建（仅开发） |
 | image worker | `compute/worker` | 从 `q:image` 收派发、下载源图（URL 源先从外部地址抓取并存入存储）、调用 `compute-imageops`、上传产物、回报结果；**不连数据库** |
 | compute-imageops | `compute/crates/imageops` | `ImageOptions` → libvips 的映射与输入防护，见[处理核心](/compute/imageops) |
@@ -85,7 +85,7 @@ Job 的每种转换只在 `server/internal/services/jobstate` 实现一次：领
 
 ### 保留期与删除
 
-代码在 `server/internal/services/lifecycle`。源文件与产物各有保留期（`SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天，`0` 为永久），从 `uploaded_at` 算起，用户可单独覆盖。被任意 job 产出的文件算产物，其余算源文件。文件变为 `UPLOADED` 时（上传完成、orchestrator 记录产物）在同一事务里写入 `expires_at`（`lifecycle.Schedule`）；还没下载的 URL 源（`FETCHING`）从 `created_at` 起按源文件保留期计算，下载成功后改从 `uploaded_at` 重算。API 进程每 10 分钟清理一次（`Sweep`）：给仍没有 `expires_at` 的文件补写，把到期的文件改为 `EXPIRED` 并删除对象，再重试此前删除失败的对象；每小时另清理一次未完成的上传与陈旧草稿（`SweepUploads`，见上节）。每一步每轮最多处理 `BatchSize`（500）行。用户删除任务、文件或草稿、中止上传（[HTTP API §删除](/contracts/http-api#删除)）走同一套删除：文件改为 `DELETED` 只经 `markDeleted` 一处。
+代码在 `server/internal/services/lifecycle`。源文件与产物各有保留期（`SOURCE_RETENTION_DAYS`、`OUTPUT_RETENTION_DAYS`，默认 30 天，`0` 为永久），从 `uploaded_at` 算起，用户可单独覆盖。被任意 job 产出的文件算产物，其余算源文件。文件变为 `UPLOADED` 时（上传完成、orchestrator 记录产物）在同一事务里写入 `expires_at`（`lifecycle.Schedule`）；还没下载的 URL 源（`FETCHING`）从 `created_at` 起按源文件保留期计算，下载成功后改从 `uploaded_at` 重算。orchestrator 进程每 10 分钟清理一次（`Sweep`）：给仍没有 `expires_at` 的文件补写，把到期的文件改为 `EXPIRED` 并删除对象，再重试此前删除失败的对象；每小时另清理一次未完成的上传与陈旧草稿（`SweepUploads`，见上节）。每一步每轮最多处理 `BatchSize`（500）行。用户删除任务、文件或草稿、中止上传（[HTTP API §删除](/contracts/http-api#删除)）走同一套删除：文件改为 `DELETED` 只经 `markDeleted` 一处。
 
 未完成的上传被删除时，浏览器可能还拿着有效的签名 URL，`PUT` 或分片会在删除之后落地。所以删除时把 `upload_expires_at` 提前到最多 `UploadURLExpiry`（1 小时，与签名有效期相同）之后，立即中止分片上传，但到 `upload_expires_at` 之后才删除对象和记录，届时再中止一次分片上传（S3 文档说明正在传的分片可能在中止后仍然成功；`NoSuchUpload` 视为已中止）。
 
@@ -96,7 +96,7 @@ Job 的每种转换只在 `server/internal/services/jobstate` 实现一次：领
 - **产物引用计数。** 一个产物可能被多个任务的 job 复用。删除任务时，只有不再有任何 job 指向的产物才删除；仍被引用的产物保留，按自己的保留期过期。
 - **复用不延长寿命。** 复用与秒传只选剩余保留期不少于一半的文件，所以任何对象都不会活过它的保留期，按对象年龄配置的存储生命周期规则也就不会删掉仍在用的文件。
 
-清理在多实例下可并发运行：每一步都重新加锁、复查状态，重复删除对象无害。
+清理只在 orchestrator 里运行，API 实例再多也不会多跑一份。多个 orchestrator 实例会各跑一份、可以并发：每一步都重新加锁、复查状态，重复删除对象无害，只是重复劳动。
 
 #### 可选：R2 生命周期规则兜底
 

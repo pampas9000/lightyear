@@ -429,3 +429,35 @@ func TestFailedObjectDeletionIsRetried(t *testing.T) {
 		t.Fatalf("unreferenced deleted file: row kept=%v", ok)
 	}
 }
+
+// Run sweeps at once and returns when its context is cancelled, so the
+// orchestrator can stop on SIGTERM.
+func TestRunSweepsAtOnceAndStopsWithContext(t *testing.T) {
+	e := setup(t)
+	src := e.source("a.png")
+	e.setExpiry(src.ID, time.Now().Add(-time.Minute))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		e.svc.Run(ctx, time.Hour)
+		close(done)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		// A purged file no job points at loses its row too.
+		if _, ok := e.file(src.ID); !ok && e.store.has(src.Path) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Run did not sweep the expired file")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after its context was cancelled")
+	}
+}

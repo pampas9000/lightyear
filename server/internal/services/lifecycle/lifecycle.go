@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sync"
 	"time"
 
 	"transcoder/server/internal/models"
@@ -91,23 +92,34 @@ var unfinished = []models.JobStatus{models.JobPending, models.JobProcessing}
 // gone are the statuses whose object is (being) removed and whose row is kept.
 var gone = []string{models.FileExpired, models.FileDeleted}
 
-// UploadSweepInterval is how often Start runs SweepUploads. Unfinished
+// SweepInterval is how often Run runs Sweep.
+const SweepInterval = 10 * time.Minute
+
+// UploadSweepInterval is how often Run runs SweepUploads. Unfinished
 // uploads are given a day and drafts a week, so an hour is soon enough.
 const UploadSweepInterval = time.Hour
 
-// Start runs Sweep every interval and SweepUploads every UploadSweepInterval
-// until ctx is done.
-func (s *Service) Start(ctx context.Context, interval time.Duration) {
+// Run runs Sweep every interval and SweepUploads every UploadSweepInterval,
+// starting at once, and returns when ctx is done and both loops have
+// stopped. The orchestrator runs it; the API runs no sweeps.
+func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	slog.Info("storage lifecycle sweep started", "interval", interval, "upload_interval", UploadSweepInterval,
 		"source_retention", s.policy.Source, "output_retention", s.policy.Output)
-	go every(ctx, interval, func() error {
-		_, err := s.Sweep(ctx, time.Now())
-		return err
-	}, "storage lifecycle sweep")
-	go every(ctx, UploadSweepInterval, func() error {
-		_, err := s.SweepUploads(ctx, time.Now())
-		return err
-	}, "upload sweep")
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		every(ctx, interval, func() error {
+			_, err := s.Sweep(ctx, time.Now())
+			return err
+		}, "storage lifecycle sweep")
+	})
+	wg.Go(func() {
+		every(ctx, UploadSweepInterval, func() error {
+			_, err := s.SweepUploads(ctx, time.Now())
+			return err
+		}, "upload sweep")
+	})
+	wg.Wait()
+	slog.Info("storage lifecycle sweep stopped")
 }
 
 // every runs fn now and then every interval until ctx is done.
@@ -136,8 +148,8 @@ type SweepResult struct {
 }
 
 // Sweep schedules, expires and purges files. It is safe to run concurrently
-// (for example from several API instances): every step locks the row and
-// re-checks it, and deleting an object twice is harmless.
+// (for example from several orchestrator instances): every step locks the
+// row and re-checks it, and deleting an object twice is harmless.
 func (s *Service) Sweep(ctx context.Context, now time.Time) (SweepResult, error) {
 	var res SweepResult
 	n, err := s.schedule(ctx)
