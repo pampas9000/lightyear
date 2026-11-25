@@ -13,9 +13,9 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// UploadHandler serves the web console's upload endpoints. Their bodies are
-// bare camelCase objects because Uppy expects that shape; /v1/uploads wraps
-// the same service in the standard envelope.
+// UploadHandler serves the web console's upload endpoints. Like every /api
+// route they answer with the response envelope; the console adapts the data
+// to what Uppy expects. /v1/uploads serves the same service to API callers.
 type UploadHandler struct {
 	service *upload.Service
 }
@@ -78,17 +78,36 @@ func (h *UploadHandler) InitUpload(c fiber.Ctx) error {
 	if err != nil {
 		return respondUploadError(c, err, "initialize upload")
 	}
-	body := fiber.Map{"key": res.File.Path, "fileId": res.File.ID.String()}
+	out := InitUploadData{Key: res.File.Path, FileID: res.File.ID.String()}
 	switch {
 	case res.FastUpload:
-		body["fastUpload"] = true
+		out.FastUpload = true
+		return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "File already uploaded; no upload needed.", out)
 	case res.UploadID != "":
-		body["uploadId"] = res.UploadID
-		body["partUrls"] = res.PartURLs
+		out.UploadID, out.PartURLs = res.UploadID, res.PartURLs
 	default:
-		body["url"] = res.URL
+		out.URL = res.URL
 	}
-	return c.JSON(body)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Upload initialized.", out)
+}
+
+// InitUploadData tells the console how to send a file's bytes: nothing
+// (fast_upload, the content is already stored), one PUT to url, or a
+// multipart upload whose part i+1 goes to part_urls[i].
+type InitUploadData struct {
+	FileID     string   `json:"file_id"`
+	Key        string   `json:"key"`
+	FastUpload bool     `json:"fast_upload,omitempty"`
+	URL        string   `json:"url,omitempty"`
+	UploadID   string   `json:"upload_id,omitempty"`
+	PartURLs   []string `json:"part_urls,omitempty"`
+}
+
+// UploadPart is a part S3 has stored for a multipart upload.
+type UploadPart struct {
+	PartNumber int32  `json:"part_number"`
+	Size       int64  `json:"size"`
+	ETag       string `json:"etag"`
 }
 
 // multipartFile resolves the owner's file for a multipart route and checks
@@ -120,41 +139,37 @@ func (h *UploadHandler) ListParts(c fiber.Ctx) error {
 	if err != nil {
 		return respondUploadError(c, err, "list parts")
 	}
-	// Format required by Uppy.
-	type uppyPart struct {
-		PartNumber int32  `json:"PartNumber"`
-		Size       int64  `json:"Size"`
-		ETag       string `json:"ETag"`
-	}
-	formatted := make([]uppyPart, len(parts))
+	out := make([]UploadPart, len(parts))
 	for i, p := range parts {
-		formatted[i] = uppyPart{PartNumber: p.Number, Size: p.Size, ETag: p.ETag}
+		out[i] = UploadPart{PartNumber: p.Number, Size: p.Size, ETag: p.ETag}
 	}
-	return c.JSON(formatted)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Parts fetched.", fiber.Map{"parts": out})
 }
 
 func (h *UploadHandler) SignPart(c fiber.Ctx) error {
 	number, err := strconv.ParseInt(c.Params("partNumber"), 10, 32)
 	if err != nil {
-		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid partNumber")
+		return response.RespondError(c, fiber.StatusBadRequest, response.CodeParamInvalid, "Invalid partNumber.")
 	}
 	file, err := h.multipartFile(c, c.Query("key"))
 	if err != nil {
 		return respondUploadError(c, err, "sign part")
 	}
-	url, _, err := h.service.SignPart(c.Context(), file, int32(number))
+	url, expires, err := h.service.SignPart(c.Context(), file, int32(number))
 	if err != nil {
 		return respondUploadError(c, err, "sign part")
 	}
-	return c.JSON(fiber.Map{"url": url})
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Part URL signed.", fiber.Map{
+		"part_number": int32(number), "url": url, "expires_at": expires,
+	})
 }
 
 type CompleteUploadRequest struct {
 	Key string `json:"key"`
 	// Parts is required for multipart uploads and ignored for a single PUT.
 	Parts []struct {
-		PartNumber int32  `json:"PartNumber"`
-		ETag       string `json:"ETag"`
+		PartNumber int32  `json:"part_number"`
+		ETag       string `json:"etag"`
 	} `json:"parts"`
 }
 
@@ -181,8 +196,8 @@ func (h *UploadHandler) CompleteUpload(c fiber.Ctx) error {
 	if file, err = h.service.Complete(c.Context(), file, parts); err != nil {
 		return respondUploadError(c, err, "complete upload")
 	}
-	return c.JSON(fiber.Map{
-		"fileId":   file.ID.String(),
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Upload completed.", fiber.Map{
+		"file_id":  file.ID.String(),
 		"key":      file.Path,
 		"location": h.service.Location(file),
 	})
@@ -204,5 +219,5 @@ func (h *UploadHandler) AbortMultipartUpload(c fiber.Ctx) error {
 	if err := h.service.Abort(c.Context(), file); err != nil {
 		return respondUploadError(c, err, "abort upload")
 	}
-	return c.JSON(fiber.Map{})
+	return response.RespondEmptySuccess(c, fiber.StatusOK, response.CodeOK, "Upload aborted.")
 }

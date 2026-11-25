@@ -8,9 +8,10 @@ import { useAuth } from "~/composables/useAuth";
 import type { Task, Workflow } from "~/lib/types/task";
 import type { ApiResponse } from "~/lib/types/api";
 import type {
-    CompleteUploadResponse,
-    InitUploadResponse,
-    PartSignatureResponse,
+    CompleteUploadData,
+    InitUploadData,
+    ListPartsData,
+    SignPartData,
 } from "~/lib/types/s3";
 import { createLimiter, probeImage, sha256File } from "~/lib/upload-prep";
 import { toast } from "vue-sonner";
@@ -340,10 +341,10 @@ onMounted(() => {
             key: file.meta.key as string,
         }),
         listParts: async (file, { uploadId, key }) => {
-            const res = await api<any>(
+            const res = await api<ApiResponse<ListPartsData>>(
                 `/upload/multipart/${uploadId}/list-parts?key=${encodeURIComponent(key)}`,
             );
-            return res;
+            return res.data.parts.map((p) => ({ PartNumber: p.part_number, Size: p.size, ETag: p.etag }));
         },
         signPart: async (file, { uploadId, key, partNumber }) => {
             const cached = (file.meta.partUrls as string[] | undefined)?.[partNumber - 1];
@@ -351,9 +352,10 @@ onMounted(() => {
             if (cached && Date.now() - signedAt < PART_URL_TTL_MS) {
                 return { url: cached };
             }
-            return api<PartSignatureResponse>(
+            const res = await api<ApiResponse<SignPartData>>(
                 `/upload/multipart/${uploadId}/sign-part/${partNumber}?key=${encodeURIComponent(key)}`,
             );
+            return { url: res.data.url };
         },
         abortMultipartUpload: async (file, { uploadId, key }) => {
             await api(`/upload/multipart/${uploadId}/abort`, {
@@ -361,11 +363,14 @@ onMounted(() => {
                 body: { key },
             });
         },
-        completeMultipartUpload: (file, { key, parts }) =>
-            api<CompleteUploadResponse>("/upload/complete", {
+        // What this returns becomes the upload-success response body.
+        completeMultipartUpload: async (file, { key, parts }) => {
+            const res = await api<ApiResponse<CompleteUploadData>>("/upload/complete", {
                 method: "POST",
-                body: { key, parts },
-            }),
+                body: { key, parts: parts.map((p) => ({ part_number: p.PartNumber, etag: p.ETag })) },
+            });
+            return res.data;
+        },
     });
 
     uppy.on("file-added", (file) => {
@@ -400,13 +405,13 @@ onMounted(() => {
         try {
             // Multipart was completed inside Uppy; a single PUT still needs
             // the server to record the object.
-            let fileId = (response.body as CompleteUploadResponse | undefined)?.fileId;
+            let fileId = (response.body as CompleteUploadData | undefined)?.file_id;
             if (!file.meta.uploadId) {
-                const res = await api<CompleteUploadResponse>("/upload/complete", {
+                const res = await api<ApiResponse<CompleteUploadData>>("/upload/complete", {
                     method: "POST",
                     body: { key: file.meta.key },
                 });
-                fileId = res.fileId;
+                fileId = res.data.file_id;
             }
             if (!f) return;
             f.status = "uploaded";
@@ -479,17 +484,17 @@ const processSingleFile = async (file: File) => {
                 return;
             }
 
-            const res = await api<InitUploadResponse>("/upload/init", {
+            const { data: init } = await api<ApiResponse<InitUploadData>>("/upload/init", {
                 method: "POST",
                 body: { filename: file.name, type: file.type, size: file.size, hash },
             });
             if (!isQueued()) return;
 
-            if (res.fastUpload) {
-                item.serverFileId = res.fileId;
+            if (init.fast_upload) {
+                item.serverFileId = init.file_id;
                 item.status = "uploaded";
                 item.progress = 100;
-                uploadedFileIds.value[item.id] = res.fileId;
+                uploadedFileIds.value[item.id] = init.file_id;
                 toast.success(`文件 '${file.name}' 秒传成功！`);
                 saveDraft();
                 return;
@@ -501,10 +506,10 @@ const processSingleFile = async (file: File) => {
                 data: file,
                 meta: {
                     clientId: item.id,
-                    key: res.key,
-                    url: res.url,
-                    uploadId: res.uploadId,
-                    partUrls: res.partUrls,
+                    key: init.key,
+                    url: init.url,
+                    uploadId: init.upload_id,
+                    partUrls: init.part_urls,
                     signedAt: Date.now(),
                 },
             });

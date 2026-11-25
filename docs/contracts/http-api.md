@@ -57,14 +57,25 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 { "success": true, "code": "ok", "message": "Task fetched.", "data": { }, "details": null }
 ```
 
-失败时 `success=false`、`data=null`，`details` 为机器可读上下文（如 `{"field":"items","reason":"empty"}`）。`500 error.internal` 不带内部错误内容（SQL、存储响应只写进服务端日志），`details` 只有 `request_id`；每个响应都带 `X-Request-ID` 头，排查时按它查日志。
+`/api` 与 `/v1` 的所有 JSON 响应都是这个信封，五个字段始终出现：
+
+- 成功时 `success=true`、`code` 为 `ok`；没有数据可返回时 `data` 为 `null`。
+- 失败时 `success=false`、`data=null`，`code` 是区分错误的 `error.*` 码。`details` 为机器可读上下文（如 `{"field":"items","reason":"empty"}`），没有时为 `null`。
+- `message` 只给人看，措辞可能变化；调用方按 `code` 判断。
+- 框架层的错误也走信封：未知路由 `404 error.route.not_found`，路径存在但方法不对 `405 error.route.method_not_allowed`（带 `Allow` 头），请求体超过 4 MB `413 error.body.too_large`，处理中的 panic 与其他未处理错误 `500 error.internal`。
+- 不带响应体的只有重定向（OAuth 登录与回调）、`304`（`GET /v1/tasks/:id` 的条件请求）与 `204`。
+
+`500 error.internal` 不带内部错误内容（SQL、存储响应、panic 只写进服务端日志），`details` 只有 `request_id`；每个响应都带 `X-Request-ID` 头，排查时按它查日志。
+
+`/mcp` 不用这个信封：它是 JSON-RPC，工具错误的格式见 [MCP 契约](/contracts/mcp)。
 
 响应里的时间都是 RFC 3339 的 UTC 时间（以 `Z` 结尾）。响应码定义在 `server/internal/api/response/codes.go`：
 
 | 类别 | 码 |
 | :--- | :--- |
 | 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
-| 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
+| 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.body.too_large`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
+| 路由 | `error.route.not_found`、`error.route.method_not_allowed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.origin_rejected`（仅 `/api`）、`error.auth.insufficient_scope`（仅 `/v1`） |
 | 资源 | `error.job.not_found`、`error.task.not_found`、`error.file.not_found`、`error.workflow.not_found`、`error.api_key.not_found`、`error.user.already_exists`、`error.file.gone`（文件已过期或已删除） |
 | 冲突 | `error.api_key.limit_reached`、`error.idempotency.conflict`（仅 `/v1`）、`error.task.conflict`、`error.file.conflict` |
@@ -291,18 +302,20 @@ orchestrator 每 10 分钟运行一次清理：
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
 | `POST` | `/api/upload/init` | `{filename, type, size, hash}`，见下文 |
-| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts:[{PartNumber, ETag}]`。文件变为 `UPLOADED`，返回 `{fileId, key}`；对已 `UPLOADED` 的文件重复调用直接返回；存储里还没有该对象时返回 `409`；文件已删除时返回 `404` |
-| `GET` | `/api/upload/multipart/:uploadId/list-parts?key=` | 已上传分片 |
-| `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber?key=` | 重新签一个分片（init 返回的 URL 一小时后过期） |
-| `POST` | `/api/upload/multipart/:uploadId/abort` | `{key}`；中止并删除，文件变为 `DELETED`（同[删除](#删除)中的 `UPLOADING`） |
+| `POST` | `/api/upload/complete` | `{key, parts?}`；分片上传须带 `parts: [{part_number, etag}]`。文件变为 `UPLOADED`，`data` 为 `{file_id, key, location}`；对已 `UPLOADED` 的文件重复调用直接返回；存储里还没有该对象时返回 `409`；文件已删除时返回 `404` |
+| `GET` | `/api/upload/multipart/:uploadId/list-parts?key=` | 已上传分片：`data` 为 `{parts: [{part_number, size, etag}]}` |
+| `GET` | `/api/upload/multipart/:uploadId/sign-part/:partNumber?key=` | 重新签一个分片（init 返回的 URL 一小时后过期）：`data` 为 `{part_number, url, expires_at}` |
+| `POST` | `/api/upload/multipart/:uploadId/abort` | `{key}`；中止并删除，文件变为 `DELETED`（同[删除](#删除)中的 `UPLOADING`），`data` 为 `null` |
 
 `key` 不以 `uploads/<user_id>/` 开头，或 `uploadId` 与该文件不符时返回 `403`；文件记录不存在或已不是上传中（已删除、已过期）返回 `404 error.file.not_found`。
 
-`init` 的 `hash` 是十六进制 SHA-256，可省略。返回值有三种：
+这些接口与其他 `/api` 一样返回[响应封装](#响应封装)，字段为 `snake_case`；控制台自己把 `data` 转成 Uppy 需要的形状。
 
-- 命中本人已上传的同 `hash` 文件：`{fileId, key, fastUpload: true}`，无需上传。
-- `size` 不超过 10 MB：`{fileId, key, url}`。向 `url` 单次 `PUT` 文件内容；`hash` 已签进 URL，内容不符时存储拒绝写入。
-- 更大的文件：`{fileId, key, uploadId, partUrls}`。分片大小为 `max(5 MiB, ceil(size / 10000))`，`partUrls[i]` 对应第 `i + 1` 片。
+`init` 的 `hash` 是十六进制 SHA-256，可省略。`data` 有三种：
+
+- 命中本人已上传的同 `hash` 文件：`{file_id, key, fast_upload: true}`，无需上传。
+- `size` 不超过 10 MB：`{file_id, key, url}`。向 `url` 单次 `PUT` 文件内容；`hash` 已签进 URL，内容不符时存储拒绝写入。
+- 更大的文件：`{file_id, key, upload_id, part_urls}`。分片大小为 `max(5 MiB, ceil(size / 10000))`，`part_urls[i]` 对应第 `i + 1` 片。
 
 除秒传外，`size` 加上已占用的存储超过配额时返回 `403 error.quota.exceeded`，见[用量与配额](#用量与配额)。
 
@@ -511,5 +524,4 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 
 ## 已知不一致
 
-- `/api/upload/*` 直接返回 camelCase 的裸对象（`uploadId`、`fileId`、`fastUpload`），没有使用统一封装（Uppy 的约定）；`/v1/uploads` 没有这个问题。
 - `JWT_SECRET` 配置与 JWT 中间件仍在代码中，但没有使用（实际是 session 认证）。

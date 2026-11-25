@@ -17,10 +17,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
-	"github.com/gofiber/fiber/v3/middleware/logger"
-	"github.com/gofiber/fiber/v3/middleware/requestid"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
@@ -107,26 +104,6 @@ func run() error {
 	return nil
 }
 
-type structValidator struct {
-	validate *validator.Validate
-}
-
-// Validator needs to implement the Validate method
-func (v *structValidator) Validate(out any) error {
-	return v.validate.Struct(out)
-}
-
 func newFiberApp(db *gorm.DB, kv *redis.Client, cfg config.Config, s3Service *storage.S3Service) *fiber.App {
-	app := fiber.New(fiber.Config{
-		AppName:         "transcoder-server",
-		StructValidator: &structValidator{validate: validator.New()},
-	})
-
-	app.Use(requestid.New())
-	app.Use(logger.New())
-
-	r := api.NewRouter(db, kv, cfg, s3Service)
-	r.Install(app)
-
-	return app
+	return api.NewApp(api.NewRouter(db, kv, cfg, s3Service))
 }

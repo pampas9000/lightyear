@@ -76,7 +76,7 @@ func TestCompleteStorageFailureDoesNotEchoError(t *testing.T) {
 	up := decode[Upload](t, body.Data)
 
 	res, body = e.do(http.MethodPost, "/v1/uploads/"+up.File.ID.String()+"/complete", key, "")
-	if res.StatusCode != http.StatusInternalServerError || body.Code != "error.internal" || len(body.Details) != 0 ||
+	if res.StatusCode != http.StatusInternalServerError || body.Code != "error.internal" || string(body.Details) != "null" ||
 		strings.Contains(body.Message, "403") || strings.Contains(body.Message, "head object") {
 		t.Fatalf("complete with failing store: %d %s %q %s", res.StatusCode, body.Code, body.Message, body.Details)
 	}

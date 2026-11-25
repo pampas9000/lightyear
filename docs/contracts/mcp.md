@@ -38,7 +38,7 @@ Authorization: Bearer ly_…
 
 每个工具都声明 `inputSchema` 与 `outputSchema`。成功的结果同时带：
 
-- `structuredContent`：`/v1` 的表示本身（不带 `/v1` 的 `{success, code, message, data}` 信封），符合 `outputSchema`；
+- `structuredContent`：`/v1` 的表示本身（不带 `/v1` 的 `{success, code, message, data, details}` 信封），符合 `outputSchema`；
 - 一条 `text` 内容：同一个对象的 JSON 文本，给不读 `structuredContent` 的客户端。
 
 `options` 的 Schema 不在 MCP 里另写：输入与输出 Schema 都把 [ImageOptions 的 JSON Schema](/contracts/image-options) 放在根上的 `$defs.ImageOptions`（其余定义一起提到根上），用 `$ref` 引用。为了让把 Schema 转成单一类型方言的客户端（如 Gemini 的函数声明）能用：

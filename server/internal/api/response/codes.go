@@ -32,9 +32,15 @@ const (
 	CodeParamInvalid   ResponseCode = "error.param.invalid"
 	CodeParamRequired  ResponseCode = "error.param.required"
 	CodeParamMalformed ResponseCode = "error.param.malformed"
-	CodeUnauthorized   ResponseCode = "error.auth.unauthorized"
-	CodeForbidden      ResponseCode = "error.auth.forbidden"
-	CodeInvalidCreds   ResponseCode = "error.auth.invalid_credentials"
+	// CodeBodyTooLarge: the request body exceeds the server's body limit.
+	CodeBodyTooLarge ResponseCode = "error.body.too_large"
+	// CodeRouteNotFound: no route matches the path.
+	CodeRouteNotFound ResponseCode = "error.route.not_found"
+	// CodeMethodNotAllowed: the path exists, but not for this method (see Allow).
+	CodeMethodNotAllowed ResponseCode = "error.route.method_not_allowed"
+	CodeUnauthorized     ResponseCode = "error.auth.unauthorized"
+	CodeForbidden        ResponseCode = "error.auth.forbidden"
+	CodeInvalidCreds     ResponseCode = "error.auth.invalid_credentials"
 	// CodeOriginRejected: a state-changing /api request without the
 	// frontend's Origin header (cross-site request protection).
 	CodeOriginRejected ResponseCode = "error.auth.origin_rejected"

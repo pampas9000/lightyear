@@ -34,13 +34,13 @@ Authorization: Bearer ly_…
 
 ## 响应格式
 
-所有响应（`304` 除外）都是同一个信封，字段一律 `snake_case`：
+所有响应（`304` 除外）都是同一个信封，五个字段始终出现，字段一律 `snake_case`：
 
 ```json
-{ "success": true, "code": "ok", "message": "Task accepted.", "data": { … } }
+{ "success": true, "code": "ok", "message": "Task accepted.", "data": { … }, "details": null }
 ```
 
-失败时 `success` 为 `false`，`code` 是稳定的错误码，`details` 可能补充出错的字段或原因：
+成功时 `code` 总是 `ok`。失败时 `success` 为 `false`，`code` 是稳定的错误码，`details` 可能补充出错的字段或原因（没有时为 `null`）：
 
 ```json
 { "success": false, "code": "error.param.invalid", "message": "…", "data": null,

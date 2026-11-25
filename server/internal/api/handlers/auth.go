@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 
@@ -181,7 +182,7 @@ func (h *AuthHandler) OAuthCallback(c fiber.Ctx) error {
 func (h *AuthHandler) redirectOAuthError(c fiber.Ctx, code string) error {
 	target, err := url.Parse(h.frontendURL)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Invalid FRONTEND_URL.")
+		return response.RespondInternal(c, "Failed to redirect to the frontend.", fmt.Errorf("parse FRONTEND_URL: %w", err))
 	}
 	q := target.Query()
 	q.Set("auth_error", code)

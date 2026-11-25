@@ -57,6 +57,9 @@ export const parseApiError = (err: unknown): ApiError => {
     const friendlyMessages: Record<string, string> = {
         'error.request.invalid': 'The request is invalid. Please check your input.',
         'error.body.invalid': 'The request body could not be parsed.',
+        'error.body.too_large': 'The request is too large.',
+        'error.route.not_found': 'The requested resource was not found.',
+        'error.route.method_not_allowed': 'This action is not supported.',
         'error.param.invalid': 'One or more parameters are invalid.',
         'error.param.required': 'A required parameter is missing.',
         'error.param.malformed': 'The parameters are malformed.',

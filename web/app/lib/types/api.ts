@@ -7,5 +7,6 @@ export interface ApiResponse<T> {
     code: string;
     message: string;
     data: T;
-    details?: unknown;
+    /** Machine-readable error context; null when there is none. */
+    details: unknown;
 }

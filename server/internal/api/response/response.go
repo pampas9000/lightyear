@@ -9,18 +9,17 @@ import (
 
 // Response is the unified API response envelope for all HTTP handlers.
 //
-// Notes:
-//   - success responses should use a stable "ok.*" code
-//   - error responses should use a stable "error.*" code
-//   - Data is always present in the JSON payload to keep the shape consistent
-//   - Details is optional and should only be used for machine-readable error context
+// All five fields are always present:
+//   - success responses use the code "ok"; errors use a stable "error.*" code
+//   - Data is null on errors and on successes with nothing to return
+//   - Details is null unless an error carries machine-readable context
+//   - Message is for people; clients branch on Code
 type Response[T any] struct {
 	Success bool   `json:"success"`
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Data    T      `json:"data"`
-	//
-	Details any `json:"details,omitempty"`
+	Details any    `json:"details"`
 }
 
 // SuccessResponse builds a success envelope with data.
