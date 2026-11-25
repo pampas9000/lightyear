@@ -73,7 +73,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 
 | 类别 | 码 |
 | :--- | :--- |
-| 成功 | `ok`、`ok.user.registered`、`ok.user.logged_in`、`ok.job.fetched` |
+| 成功 | `ok`（所有成功响应都用它） |
 | 请求与校验 | `error.request.invalid`、`error.body.invalid`、`error.body.too_large`、`error.param.invalid`、`error.param.required`、`error.param.malformed` |
 | 路由 | `error.route.not_found`、`error.route.method_not_allowed` |
 | 认证 | `error.auth.unauthorized`、`error.auth.forbidden`、`error.auth.invalid_credentials`、`error.auth.origin_rejected`（仅 `/api`）、`error.auth.insufficient_scope`（仅 `/v1`） |

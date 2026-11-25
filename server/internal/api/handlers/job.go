@@ -46,5 +46,5 @@ func (h *Handler) GetJob(c fiber.Ctx) error {
 		}
 		return response.RespondInternal(c, "Failed to fetch job.", err)
 	}
-	return response.RespondSuccess(c, fiber.StatusOK, response.CodeJobFetched, "Job fetched successfully.", result)
+	return response.RespondSuccess(c, fiber.StatusOK, response.CodeOK, "Job fetched.", result)
 }

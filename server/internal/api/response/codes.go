@@ -2,15 +2,9 @@ package response
 
 // ResponseCode is a stable, machine-readable API response code.
 //
-// Naming convention:
-//   - success codes start with "ok."
-//   - error codes start with "error."
-//   - format: "<kind>.<domain>.<reason>"
-//
-// Examples:
-//   - ok.job.created
-//   - error.param.invalid
-//   - error.job.not_found
+// Every success is "ok": the route and the HTTP status already say what
+// happened. Errors are "error.<domain>.<reason>", e.g. error.param.invalid
+// or error.job.not_found; clients tell errors apart by them.
 type ResponseCode string
 
 func (c ResponseCode) String() string {
@@ -18,13 +12,8 @@ func (c ResponseCode) String() string {
 }
 
 const (
-	// Success codes.
-	CodeOK                ResponseCode = "ok"
-	CodeJobCreated        ResponseCode = "ok.job.created"
-	CodeJobFetched        ResponseCode = "ok.job.fetched"
-	CodeJobCreatedPartial ResponseCode = "ok.job.created_partial"
-	CodeUserRegistered    ResponseCode = "ok.user.registered"
-	CodeUserLoggedIn      ResponseCode = "ok.user.logged_in"
+	// CodeOK is the code of every success.
+	CodeOK ResponseCode = "ok"
 
 	// Client-side request / validation errors.
 	CodeRequestInvalid ResponseCode = "error.request.invalid"
