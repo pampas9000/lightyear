@@ -131,6 +131,15 @@ tasks:
     cmds:
       - echo "==> Checking Web TypeScript types..."
       - bunx vue-tsc -b --noEmit
+      # Temporal only: any use of the Date global (new Date, Date.now,
+      # Date.parse, a Date type) fails. -w matches the whole word, so
+      # Update, PlainDate or toLocaleDateString do not.
+      - echo "==> Checking the Web frontend for Date (use Temporal)..."
+      - |
+        if grep -rnw --include='*.ts' --include='*.vue' Date app server; then
+          echo "Date is not allowed in web/app or web/server; use Temporal through useTime() or ~/lib/time (.agent/rules/code-rules.md)." >&2
+          exit 1
+        fi
 
   # ==========================================
   # 测试相关任务

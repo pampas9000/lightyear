@@ -16,9 +16,7 @@
         "dark_mode": "ダークモード",
         "enabled": "有効",
         "disabled": "無効",
-        "just_now": "たった今",
-        "minutes_ago": "{n}分前",
-        "hours_ago": "{n}時間前"
+        "just_now": "たった今"
     },
     "nav": {
         "new_task": "新規タスク",

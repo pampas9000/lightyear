@@ -16,9 +16,7 @@
         "dark_mode": "Dark Mode",
         "enabled": "Enabled",
         "disabled": "Disabled",
-        "just_now": "just now",
-        "minutes_ago": "{n}m ago",
-        "hours_ago": "{n}h ago"
+        "just_now": "just now"
     },
     "nav": {
         "new_task": "New Task",

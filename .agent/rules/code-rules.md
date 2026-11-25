@@ -12,7 +12,7 @@ trigger: always_on
 ## TypeScript
 - Type Safety: Don't use `any` if possible.
 - Use Modern TypeScript
-  - Use the Temporal API for every date and time. `Date` is not allowed anywhere (no `new Date`, `Date.now`, `Date.parse`).
+  - Use the Temporal API for every date and time. `Date` is not allowed anywhere (no `new Date`, `Date.now`, `Date.parse`). In `web/`, `task check:web` fails on any `Date` word in `app/` and `server/`; format through `useTime()` (`web/app/composables/useTime.ts`), which uses the i18n locale and the viewer's time zone.
   - Load Temporal on demand: use the native `globalThis.Temporal` when it exists; only when it does not, dynamically import the polyfill once, before anything uses it.
 
 ## Web

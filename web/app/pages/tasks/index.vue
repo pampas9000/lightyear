@@ -128,15 +128,7 @@ const getStatusStyle = (status: TaskStatus | string) => {
     }
 }
 
-const formatTimeAgo = (date: string) => {
-    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000)
-    if (seconds < 60) return $t('common.just_now')
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return $t('common.minutes_ago', { n: minutes })
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return $t('common.hours_ago', { n: hours })
-    return new Date(date).toLocaleDateString()
-}
+const { time, relative } = useTime()
 
 const getTaskSummaryLabel = (task: Task) => {
     if (!task.jobs || task.jobs.length === 0 || !task.jobs[0]) return 'UNKNOWN'
@@ -294,7 +286,7 @@ const getMediaFlow = (task: Task) => {
                                         Task-{{ task.id.substring(0, 8) }}
                                     </span>
                                     <span class="text-[11px] text-ink-subtle tabular-nums">
-                                        {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                                        {{ time(task.created_at) }}
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium flex-wrap">
@@ -314,7 +306,7 @@ const getMediaFlow = (task: Task) => {
                                     </span>
                                     <div class="w-1 h-1 rounded-full bg-hairline-strong"></div>
                                     <span class="font-mono text-xs">
-                                        {{ task.status === 'COMPLETED' ? $t('tasks.completed_time', { time: formatTimeAgo(task.updated_at) }) : $t('tasks.started_time', { time: formatTimeAgo(task.created_at) }) }}
+                                        {{ task.status === 'COMPLETED' ? $t('tasks.completed_time', { time: relative(task.updated_at) }) : $t('tasks.started_time', { time: relative(task.created_at) }) }}
                                     </span>
                                 </div>
                             </div>

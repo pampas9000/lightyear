@@ -16,9 +16,7 @@
         "dark_mode": "深色模式",
         "enabled": "已啟用",
         "disabled": "已停用",
-        "just_now": "剛剛",
-        "minutes_ago": "{n} 分鐘前",
-        "hours_ago": "{n} 小時前"
+        "just_now": "剛剛"
     },
     "nav": {
         "new_task": "新建任務",

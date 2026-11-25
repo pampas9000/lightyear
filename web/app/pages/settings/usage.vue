@@ -62,24 +62,20 @@ const percent = (used: number, limit: number | null) =>
 const barClass = (p: number) =>
     p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-500' : 'bg-primary'
 
+// Usage periods are calendar months in UTC.
+const { format: formatTime, plainDate } = useTime()
+
 const monthLabel = computed(() => {
     if (!usage.value) return ''
-    return new Date(usage.value.period_start).toLocaleDateString(locale.value, {
-        year: 'numeric', month: 'long', timeZone: 'UTC',
-    })
+    return formatTime(usage.value.period_start, { year: 'numeric', month: 'long' }, 'UTC')
 })
 
 const resetsOn = computed(() => {
     if (!usage.value) return ''
-    return new Date(usage.value.period_end).toLocaleDateString(locale.value, {
-        dateStyle: 'medium', timeZone: 'UTC',
-    })
+    return formatTime(usage.value.period_end, { dateStyle: 'medium' }, 'UTC')
 })
 
-const dayLabel = (date: string) =>
-    new Date(date + 'T00:00:00Z').toLocaleDateString(locale.value, {
-        month: 'short', day: 'numeric', timeZone: 'UTC',
-    })
+const dayLabel = (date: string) => plainDate(date, { month: 'short', day: 'numeric' })
 
 const unitsPercent = computed(() =>
     usage.value ? percent(usage.value.units.used + usage.value.units.reserved, usage.value.units.limit) : 0)

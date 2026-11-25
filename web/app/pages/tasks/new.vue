@@ -146,7 +146,7 @@ const saveDraft = () => {
         selectedServerFileIds,
         options: options.value,
         target: target.value,
-        updatedAt: Date.now(),
+        updatedAt: Temporal.Now.instant().epochMilliseconds,
         pendingSubmission: pendingSubmission.value,
     };
     localStorage.setItem(getDraftKey(), JSON.stringify(draft));
@@ -347,7 +347,7 @@ onMounted(() => {
         signPart: async (file, { uploadId, key, partNumber }) => {
             const cached = (file.meta.partUrls as string[] | undefined)?.[partNumber - 1];
             const signedAt = (file.meta.signedAt as number | undefined) ?? 0;
-            if (cached && Date.now() - signedAt < PART_URL_TTL_MS) {
+            if (cached && Temporal.Now.instant().epochMilliseconds - signedAt < PART_URL_TTL_MS) {
                 return { url: cached };
             }
             const res = await api<ApiResponse<SignPartData>>(
@@ -508,7 +508,7 @@ const processSingleFile = async (file: File) => {
                     url: init.url,
                     uploadId: init.upload_id,
                     partUrls: init.part_urls,
-                    signedAt: Date.now(),
+                    signedAt: Temporal.Now.instant().epochMilliseconds,
                 },
             });
         });

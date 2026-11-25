@@ -84,15 +84,7 @@ const getStatusStyle = (status: TaskStatus | string) => {
     }
 }
 
-const formatTimeAgo = (date: string) => {
-    const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000)
-    if (seconds < 60) return $t('common.just_now')
-    const minutes = Math.floor(seconds / 60)
-    if (minutes < 60) return $t('common.minutes_ago', { n: minutes })
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return $t('common.hours_ago', { n: hours })
-    return new Date(date).toLocaleDateString()
-}
+const { time, relative } = useTime()
 
 const maxDailyCount = computed(() => {
     if (!stats.value.daily_chart || stats.value.daily_chart.length === 0) return 1
@@ -299,14 +291,14 @@ const getTaskProgress = (task: Task) => {
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-mono font-medium text-ink">Task-{{ task.id.substring(0, 8) }}</span>
                                     <span class="text-[11px] text-ink-subtle tabular-nums">
-                                        {{ new Date(task.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                                        {{ time(task.created_at) }}
                                     </span>
                                 </div>
                                 <div class="flex items-center gap-2 text-xs text-ink-subtle font-medium">
                                     <span class="font-medium text-ink-muted bg-surface-2 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase">
                                         {{ getTaskTargetFormat(task) }}
                                     </span>
-                                    <span class="text-xs text-ink-subtle font-mono">Started {{ formatTimeAgo(task.created_at) }}</span>
+                                    <span class="text-xs text-ink-subtle font-mono">Started {{ relative(task.created_at) }}</span>
                                 </div>
                             </div>
 

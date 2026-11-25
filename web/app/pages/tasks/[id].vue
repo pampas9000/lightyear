@@ -258,28 +258,17 @@ const getTaskProgress = computed(() => {
     return Math.round(sum / task.value.jobs.length)
 })
 
+const { format: formatTime, date: formatDate, duration: formatElapsed } = useTime()
+
+// While the task runs the duration counts up to now; afterwards it ends at
+// the last update.
 const getTaskTimeDetails = computed(() => {
     if (!task.value) return { started: '', duration: '' }
-    const started = new Date(task.value.created_at).toLocaleString()
-    
-    const created = new Date(task.value.created_at).getTime()
-    let end = new Date(task.value.updated_at).getTime()
-    
-    if (task.value.status === 'PROCESSING' || task.value.status === 'PENDING') {
-        end = new Date().getTime()
+    const active = task.value.status === 'PROCESSING' || task.value.status === 'PENDING'
+    return {
+        started: formatTime(task.value.created_at, { dateStyle: 'medium', timeStyle: 'medium' }),
+        duration: formatElapsed(task.value.created_at, active ? undefined : task.value.updated_at),
     }
-    
-    const diff = Math.max(0, Math.floor((end - created) / 1000))
-    let duration = ''
-    if (diff < 60) {
-        duration = `${diff}s`
-    } else {
-        const mins = Math.floor(diff / 60)
-        const secs = diff % 60
-        duration = `${mins}m ${secs}s`
-    }
-    
-    return { started, duration }
 })
 
 // An output is downloadable while it is stored; expired or deleted outputs
@@ -1235,7 +1224,7 @@ const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?:
                             <button
                                 v-else-if="job.status === 'COMPLETED'"
                                 :disabled="downloadingJobs[job.id] || !job.output_file_id"
-                                :title="job.output_file?.expires_at ? $t('task_detail.kept_until', { date: new Date(job.output_file.expires_at).toLocaleDateString() }) : undefined"
+                                :title="job.output_file?.expires_at ? $t('task_detail.kept_until', { date: formatDate(job.output_file.expires_at) }) : undefined"
                                 @click="downloadJobOutput(job)"
                                 class="h-8 px-3 text-xs font-medium border border-hairline bg-surface-1 hover:bg-surface-2 text-ink rounded-lg flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                             >

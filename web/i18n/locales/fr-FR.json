@@ -16,9 +16,7 @@
         "dark_mode": "Mode sombre",
         "enabled": "Activé",
         "disabled": "Désactivé",
-        "just_now": "à l'instant",
-        "minutes_ago": "il y a {n} min",
-        "hours_ago": "il y a {n}h"
+        "just_now": "à l'instant"
     },
     "nav": {
         "new_task": "Nouvelle tâche",

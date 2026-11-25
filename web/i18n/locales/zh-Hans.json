@@ -16,9 +16,7 @@
         "dark_mode": "深色模式",
         "enabled": "已启用",
         "disabled": "已禁用",
-        "just_now": "刚刚",
-        "minutes_ago": "{n} 分钟前",
-        "hours_ago": "{n} 小时前"
+        "just_now": "刚刚"
     },
     "nav": {
         "new_task": "新建任务",

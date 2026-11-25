@@ -16,9 +16,7 @@
         "dark_mode": "Dunkler Modus",
         "enabled": "Aktiviert",
         "disabled": "Deaktiviert",
-        "just_now": "gerade eben",
-        "minutes_ago": "vor {n} Min.",
-        "hours_ago": "vor {n} Std."
+        "just_now": "gerade eben"
     },
     "nav": {
         "new_task": "Neue Aufgabe",

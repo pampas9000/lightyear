@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'vue-sonner'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 useHead({
     title: t('api_keys.title') + ' | Lightyear',
@@ -49,8 +49,7 @@ const canCreate = computed(() => name.value.trim() !== '' && selectedScopes.valu
 const scopeLabel = (scope: ApiKeyScope) =>
     scope === 'tasks:read' ? t('api_keys.scope_read') : t('api_keys.scope_write')
 
-const formatDate = (iso: string) =>
-    new Date(iso).toLocaleString(locale.value, { dateStyle: 'medium', timeStyle: 'short' })
+const { dateTime: formatDate } = useTime()
 
 const fetchKeys = async () => {
     if (!isAuthenticated.value) {
