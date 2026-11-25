@@ -77,7 +77,7 @@ OAuth 只按 `(provider, provider_account_id)` 找已绑定的用户，从不按
 | :--- | :--- | :--- |
 | `POST` | `/api/tasks` | 创建任务，返回 `201` 与任务 |
 | `GET` | `/api/tasks` | 分页列表：`?page=1&count=20&status=FAILED` |
-| `GET` | `/api/tasks/stats` | 各状态任务数、存储用量、活跃 worker 数、近 7 天趋势 |
+| `GET` | `/api/tasks/stats` | 各状态任务数、存储用量与上限（与[用量与配额](#用量与配额)的存储配额同口径；`storage_limit` 不限时为 `null`）、活跃 worker 数、近 7 天趋势 |
 | `GET` | `/api/tasks/:id` | 详情，含 jobs 及其 `source_file`、`output_file` |
 | `POST` | `/api/tasks/:id/retry` | 重试 |
 | `POST` | `/api/tasks/:id/cancel` | 取消未结束的 job |

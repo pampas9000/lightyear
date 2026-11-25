@@ -694,16 +694,18 @@ func (s *Service) ListTasks(ctx context.Context, ownerID uuid.UUID, params ListT
 }
 
 type StatsResponse struct {
-	Pending         int     `json:"PENDING"`
-	Processing      int     `json:"PROCESSING"`
-	Completed       int     `json:"COMPLETED"`
-	Failed          int     `json:"FAILED"`
-	PartiallyFailed int     `json:"PARTIALLY_FAILED"`
-	StorageUsed     int64   `json:"storage_used"`
-	StorageLimit    int64   `json:"storage_limit"`
-	ActiveWorkers   int     `json:"active_workers"`
-	DailyChart      []int   `json:"daily_chart"`
-	GrowthRate      float64 `json:"growth_rate"`
+	Pending         int `json:"PENDING"`
+	Processing      int `json:"PROCESSING"`
+	Completed       int `json:"COMPLETED"`
+	Failed          int `json:"FAILED"`
+	PartiallyFailed int `json:"PARTIALLY_FAILED"`
+	// StorageUsed and StorageLimit are counted as usage counts them for the
+	// storage quota; StorageLimit is null when storage is unlimited.
+	StorageUsed   int64   `json:"storage_used"`
+	StorageLimit  *int64  `json:"storage_limit"`
+	ActiveWorkers int     `json:"active_workers"`
+	DailyChart    []int   `json:"daily_chart"`
+	GrowthRate    float64 `json:"growth_rate"`
 }
 
 // GetStats summarizes the owner's tasks, storage and the active workers.
@@ -717,7 +719,7 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (*StatsRespon
 		Group("status").Scan(&results).Error; err != nil {
 		return nil, err
 	}
-	stats := &StatsResponse{StorageLimit: 10995116277760} // 10 TB
+	stats := &StatsResponse{}
 	for _, r := range results {
 		switch models.TaskStatus(r.Status) {
 		case models.TaskPending:
@@ -733,10 +735,20 @@ func (s *Service) GetStats(ctx context.Context, ownerID uuid.UUID) (*StatsRespon
 		}
 	}
 
-	if err := s.db.WithContext(ctx).Model(&models.File{}).
-		Select("COALESCE(SUM(size), 0)").Where("owner_id = ? AND status = ?", ownerID, models.FileUploaded).
-		Row().Scan(&stats.StorageUsed); err != nil {
-		slog.Error("failed to query storage used", "owner_id", ownerID, "error", err)
+	used, err := usage.StorageUsed(s.db.WithContext(ctx), ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("storage used: %w", err)
+	}
+	stats.StorageUsed = used
+	// Without quotas (s.quotas nil) nothing limits storage.
+	if s.quotas != nil {
+		limits, err := s.quotas.LimitsFor(s.db.WithContext(ctx), ownerID)
+		if err != nil {
+			return nil, fmt.Errorf("storage limit: %w", err)
+		}
+		if limits.StorageBytes > 0 {
+			stats.StorageLimit = &limits.StorageBytes
+		}
 	}
 
 	// Workers create their consumer group on first start; until then there are none.

@@ -101,3 +101,53 @@ func TestRetryIsCheckedAgainstTheQuota(t *testing.T) {
 		t.Fatalf("refused retry changed the job: %s", job.Status)
 	}
 }
+
+// The overview's storage figures are the storage quota's: the global limit or
+// the user's override (0 is unlimited, shown as null), and used bytes counted
+// as the quota counts them (stored and uploading files, not expired ones).
+func TestGetStatsUsesStorageQuota(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	s := NewService(db, nil).WithQuotas(usage.NewQuotas(db, usage.Limits{StorageBytes: 1000}))
+	user := func(storage *int64) uuid.UUID {
+		u := models.User{Username: uuid.NewString(), Email: uuid.NewString() + "@example.com", StorageQuotaBytes: storage}
+		if err := db.Create(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+		return u.ID
+	}
+	file := func(owner uuid.UUID, status string, size int64) {
+		f := models.File{OwnerID: owner, Name: "a.png", Path: "uploads/" + uuid.NewString() + ".png", Status: status, Size: size}
+		if err := db.Create(&f).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	limit := func(owner uuid.UUID) (int64, *int64) {
+		stats, err := s.GetStats(t.Context(), owner)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stats.StorageUsed, stats.StorageLimit
+	}
+
+	global := user(nil)
+	file(global, models.FileUploaded, 100)
+	file(global, models.FileUploading, 20)
+	file(global, models.FileExpired, 5000)
+	if used, lim := limit(global); used != 120 || lim == nil || *lim != 1000 {
+		t.Fatalf("global: used %d limit %v, want 120 and 1000", used, lim)
+	}
+	override := int64(50)
+	if _, lim := limit(user(&override)); lim == nil || *lim != 50 {
+		t.Fatalf("override: limit %v, want 50", lim)
+	}
+	zero := int64(0)
+	if _, lim := limit(user(&zero)); lim != nil {
+		t.Fatalf("override 0: limit %d, want null (unlimited)", *lim)
+	}
+	if _, lim := limit(uuid.New()); lim == nil || *lim != 1000 {
+		t.Fatalf("no user row: limit %v, want the global 1000", lim)
+	}
+	if stats, err := NewService(db, nil).GetStats(t.Context(), global); err != nil || stats.StorageLimit != nil {
+		t.Fatalf("without quotas: %v %+v, want unlimited", err, stats)
+	}
+}

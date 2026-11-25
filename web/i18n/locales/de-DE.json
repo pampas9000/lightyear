@@ -59,6 +59,8 @@
         "last_7_days": "Letzte 7 Tage",
         "total_tasks": "Aufgaben gesamt",
         "storage_usage": "Speichernutzung",
+        "storage_percent_used": "{n} % belegt",
+        "storage_free": "{size} frei",
         "worker_nodes": "Worker-Knoten",
         "worker_active": "Aktiv",
         "recent_tasks": "Kürzliche Aufgaben",

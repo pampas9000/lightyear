@@ -59,6 +59,8 @@
         "last_7_days": "過去 7 日間",
         "total_tasks": "タスク合計",
         "storage_usage": "ストレージ使用量",
+        "storage_percent_used": "{n}% 使用中",
+        "storage_free": "空き {size}",
         "worker_nodes": "ワーカーノード",
         "worker_active": "アクティブ",
         "recent_tasks": "最近のタスク",

@@ -59,6 +59,8 @@
         "last_7_days": "7 derniers jours",
         "total_tasks": "Tâches totales",
         "storage_usage": "Utilisation du stockage",
+        "storage_percent_used": "{n} % utilisé",
+        "storage_free": "{size} libres",
         "worker_nodes": "Nœuds de travail",
         "worker_active": "Actif",
         "recent_tasks": "Tâches récentes",

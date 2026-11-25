@@ -116,14 +116,20 @@ const storageUsedInfo = computed(() => {
     return formatBytes(stats.value.storage_used || 0)
 })
 
-const storageLimitInfo = computed(() => {
-    return formatBytes(stats.value.storage_limit || 10995116277760)
-})
+// The storage quota in bytes; null means unlimited (no limit, bar or free
+// space), undefined that stats have not loaded yet.
+const storageLimit = computed(() => typeof stats.value.storage_limit === 'number' ? stats.value.storage_limit : null)
+const storageUnlimited = computed(() => stats.value.storage_limit === null)
+
+const storageLimitInfo = computed(() => storageLimit.value === null ? null : formatBytes(storageLimit.value))
 
 const storagePercentage = computed(() => {
-    if (!stats.value.storage_limit) return 0
-    return Math.min(100, Math.round(((stats.value.storage_used || 0) / stats.value.storage_limit) * 100))
+    if (!storageLimit.value) return 0
+    return Math.min(100, Math.round(((stats.value.storage_used || 0) / storageLimit.value) * 100))
 })
+
+const storageFreeInfo = computed(() => storageLimit.value === null ? null
+    : formatBytes(Math.max(0, storageLimit.value - (stats.value.storage_used || 0))))
 
 const getTaskTargetFormat = (task: Task) => {
     if (task.jobs && task.jobs.length > 0) {
@@ -204,23 +210,26 @@ const getTaskProgress = (task: Task) => {
                         <Database class="w-3.5 h-3.5 text-ink-subtle" />
                         {{ $t('dashboard.storage_usage') }}
                     </span>
-                    <Badge variant="outline" class="text-[11px] font-medium border-transparent bg-surface-2 text-ink-subtle">
-                        {{ storagePercentage }}% USED
+                    <Badge v-if="storageLimitInfo" variant="outline" class="text-[11px] font-medium border-transparent bg-surface-2 text-ink-subtle">
+                        {{ $t('dashboard.storage_percent_used', { n: storagePercentage }) }}
                     </Badge>
                 </div>
                 <div class="mt-4 flex items-baseline justify-between">
                     <div class="flex items-baseline gap-1.5">
                         <span class="text-3xl font-semibold tracking-tight text-ink leading-none tabular-nums">{{ storageUsedInfo.value }}</span>
-                        <span class="text-sm text-ink-subtle">{{ storageUsedInfo.unit }} / {{ storageLimitInfo.value }} {{ storageLimitInfo.unit }}</span>
+                        <span v-if="storageLimitInfo" class="text-sm text-ink-subtle">{{ storageUsedInfo.unit }} / {{ storageLimitInfo.value }} {{ storageLimitInfo.unit }}</span>
+                        <span v-else-if="storageUnlimited" class="text-sm text-ink-subtle">{{ storageUsedInfo.unit }} · {{ $t('usage.unlimited') }}</span>
+                        <span v-else class="text-sm text-ink-subtle">{{ storageUsedInfo.unit }}</span>
                     </div>
                 </div>
-                <div class="mt-4 space-y-1.5">
-                    <div class="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden">
+                <div v-if="!storageUnlimited" class="mt-4 space-y-1.5">
+                    <div class="w-full h-1.5 bg-surface-3 rounded-full overflow-hidden" role="progressbar"
+                        :aria-valuenow="storagePercentage" aria-valuemin="0" aria-valuemax="100" :aria-label="$t('dashboard.storage_usage')">
                         <div class="h-full bg-primary rounded-full transition-all duration-500" :style="{ width: `${storagePercentage}%` }"></div>
                     </div>
                     <div class="flex justify-between text-xs text-ink-subtle tabular-nums">
-                        <span>{{ storagePercentage }}% Used</span>
-                        <span>{{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).value }} {{ formatBytes(Math.max(0, (stats.storage_limit || 10995116277760) - (stats.storage_used || 0))).unit }} Free</span>
+                        <span>{{ $t('dashboard.storage_percent_used', { n: storagePercentage }) }}</span>
+                        <span v-if="storageFreeInfo">{{ $t('dashboard.storage_free', { size: `${storageFreeInfo.value} ${storageFreeInfo.unit}` }) }}</span>
                     </div>
                 </div>
             </Card>

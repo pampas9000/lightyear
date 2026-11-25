@@ -59,6 +59,8 @@
         "last_7_days": "最近 7 天",
         "total_tasks": "任务总数",
         "storage_usage": "存储占用",
+        "storage_percent_used": "已用 {n}%",
+        "storage_free": "剩余 {size}",
         "worker_nodes": "工作节点",
         "worker_active": "活跃",
         "recent_tasks": "最近任务",

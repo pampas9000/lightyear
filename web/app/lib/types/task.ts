@@ -110,7 +110,8 @@ export interface TaskStats {
     FAILED: number;
     PARTIALLY_FAILED?: number;
     storage_used?: number;
-    storage_limit?: number;
+    /** The storage quota in bytes; null when storage is unlimited. */
+    storage_limit?: number | null;
     active_workers?: number;
     daily_chart?: number[];
     growth_rate?: number;
