@@ -73,82 +73,9 @@
                 <div v-else class="flex-1 flex flex-col min-h-0 gap-4">
 
                     <!-- Filmstrip Queue Panel -->
-                    <div
-                        class="shrink-0 flex flex-col gap-2 py-3 px-4 bg-surface-1 border border-hairline rounded-xl select-none animate-fade-in">
-                        <div
-                            class="flex items-center justify-between text-xs font-medium text-ink-muted px-1">
-                            <div class="flex items-center gap-1.5">
-                                <SlidersHorizontal class="w-3.5 h-3.5 text-ink-subtle" />
-                                <span>{{ $t('wasm_sandbox.processing_queue', { count: items.length }) }}</span>
-                            </div>
-                            <Button variant="ghost"
-                                class="h-6 px-2 text-xs font-medium text-primary hover:bg-primary-soft hover:text-primary border-none cursor-pointer rounded-md gap-1"
-                                :disabled="items.filter(i => i.status === 'done').length === 0 || hasPendingChanges"
-                                @click="downloadAll">
-                                <Download class="w-3 h-3" />
-                                {{ $t('wasm_sandbox.download_all') }}
-                            </Button>
-                        </div>
-
-                        <div
-                            class="flex items-end gap-4 overflow-x-auto py-2 px-1 scrollbar-thin scrollbar-thumb-hairline scrollbar-track-transparent">
-                            <div v-for="item in items" :key="item.id"
-                                class="flex flex-col items-center gap-2 shrink-0 cursor-pointer group"
-                                @click="selectItem(item.id)">
-                                <!-- Thumbnail Container -->
-                                <div class="relative w-28 h-20 rounded-lg border overflow-hidden transition-all duration-200 bg-surface-2 flex items-center justify-center"
-                                    :class="selectedItemId === item.id ? 'border-primary ring-1 ring-primary shadow-sm' : 'border-hairline group-hover:border-ink-subtle group-hover:scale-102'">
-                                    <!-- Image (Contain center, with slight dimming on non-selected) -->
-                                    <img :src="item.originalUrl"
-                                        class="w-full h-full object-cover transition-opacity duration-200"
-                                        :class="selectedItemId === item.id ? 'opacity-100' : 'opacity-85 group-hover:opacity-95'" />
-
-                                    <!-- Hover Close / Remove Button -->
-                                    <button
-                                        class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-surface-1/90 backdrop-blur-md text-ink-subtle hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/45 border border-hairline flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-150 z-20 cursor-pointer shadow-xs"
-                                        @click.stop="removeItem(item.id)">
-                                        <X class="w-3 h-3" />
-                                    </button>
-
-                                    <!-- Status Badge/Indicator (Sleek High-Contrast Badges) -->
-                                    <div class="absolute top-1.5 left-1.5 z-25 flex items-center justify-center">
-                                        <!-- Pending -->
-                                        <div v-if="item.status === 'pending'"
-                                            class="w-5 h-5 rounded-full bg-surface-1/90 backdrop-blur-md border border-hairline text-ink-subtle flex items-center justify-center shadow-xs">
-                                            <div class="w-1.5 h-1.5 rounded-full bg-ink-subtle/60 animate-pulse" />
-                                        </div>
-                                        <!-- Processing -->
-                                        <div v-else-if="item.status === 'processing'"
-                                            class="w-5 h-5 rounded-full bg-primary/15 border border-primary/30 text-primary flex items-center justify-center shadow-xs backdrop-blur-md">
-                                            <Cpu class="w-3 h-3 animate-pulse" />
-                                        </div>
-                                        <!-- Done -->
-                                        <div v-else-if="item.status === 'done'"
-                                            class="w-5 h-5 rounded-full bg-emerald-500 dark:bg-emerald-600 text-white flex items-center justify-center shadow-xs border border-emerald-600/10">
-                                            <Check class="w-3.5 h-3.5" stroke-width="3" />
-                                        </div>
-                                        <!-- Failed -->
-                                        <div v-else-if="item.status === 'failed'"
-                                            class="w-5 h-5 rounded-full bg-red-500 dark:bg-red-600 text-white flex items-center justify-center shadow-xs border border-red-600/10">
-                                            <AlertCircle class="w-3.5 h-3.5" stroke-width="2.5" />
-                                        </div>
-                                    </div>
-
-                                    <!-- Size Badge (Subtle Glassmorphism) -->
-                                    <div v-if="item.status === 'done' && item.metrics"
-                                        class="absolute bottom-1 right-1 bg-surface-1/90 backdrop-blur-xs text-[9px] font-bold text-ink-subtle px-1 py-0.5 rounded border border-hairline select-none font-mono shadow-xs">
-                                        {{ formatBytes(item.metrics.size) }}
-                                    </div>
-                                </div>
-
-                                <!-- Filename below thumbnail -->
-                                <span class="text-[10px] font-mono text-ink-muted truncate w-28 text-center select-none"
-                                    :class="selectedItemId === item.id ? 'text-primary font-bold' : ''">
-                                    {{ item.file.name }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
+                    <SandboxFilmstrip :items="items" :selected-item-id="selectedItemId"
+                        :has-pending-changes="hasPendingChanges" @select="queue.selectItem"
+                        @remove="queue.removeItem" @download-all="queue.downloadAll" />
 
                     <!-- Mode Switcher Tabs (Prioritizing shadcn/vue) -->
                     <div class="flex justify-center shrink-0">
@@ -167,215 +94,23 @@
                     </div>
 
                     <!-- View 1: Side by Side -->
-                    <div v-if="viewMode === 'side-by-side'"
-                        class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0 items-start">
-
-                        <!-- Original Image Card -->
-                        <Card
-                            class="border border-hairline shadow-xs flex flex-col overflow-hidden bg-surface-1 py-0 gap-0">
-                            <CardHeader
-                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
-                                <CardTitle
-                                    class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
-                                    <Image class="w-3.5 h-3.5 shrink-0" />
-                                    {{ $t('wasm_sandbox.source_image') }}
-                                </CardTitle>
-                                <div class="flex items-center gap-1.5 shrink-0">
-                                    <Badge v-if="originalMetadata" variant="outline"
-                                        class="h-5 px-1.5 font-mono text-[10px] uppercase border-hairline">
-                                        {{ originalMetadata.format }} · {{ originalMetadata.width }}x{{
-                                            originalMetadata.height }}
-                                    </Badge>
-                                    <Button variant="ghost"
-                                        class="h-6 px-2 text-xs font-medium text-primary hover:bg-primary-soft hover:text-primary border-none cursor-pointer rounded-md gap-1"
-                                        @click="triggerReplaceInput">
-                                        <ArrowLeftRight class="w-3 h-3" />
-                                        {{ $t('wasm_sandbox.replace') }}
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <!-- Image Display Box -->
-                            <div class="relative w-full preview-canvas overflow-hidden select-none group rounded-b-xl"
-                                :style="{ aspectRatio: previewAspectRatio }">
-                                <div class="absolute inset-0 flex items-center justify-center">
-                                    <img :src="originalUrl"
-                                        class="h-full w-full object-contain transition-all duration-300"
-                                        alt="Original image" />
-                                </div>
-
-                                <!-- Low Profile Bottom Interactive Bar -->
-                                <div class="absolute bottom-0 left-0 right-0 bg-surface-1/90 backdrop-blur-md py-1 px-2.5 text-[11px] text-ink-subtle border-t border-hairline flex items-center justify-between gap-3 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20 animate-fade-in"
-                                    @click="triggerReplaceInput">
-                                    <span class="font-medium truncate">{{ $t('wasm_sandbox.click_to_replace') }}</span>
-                                    <span
-                                        class="text-[10px] text-primary font-semibold flex items-center gap-0.5 shrink-0">
-                                        {{ $t('wasm_sandbox.change_image') }}
-                                        <ArrowLeftRight class="w-2.5 h-2.5" />
-                                    </span>
-                                </div>
-                            </div>
-                        </Card>
-
-                        <!-- Processed Image Card -->
-                        <Card
-                            class="border border-hairline shadow-xs flex flex-col overflow-hidden bg-surface-1 relative py-0 gap-0">
-                            <CardHeader
-                                class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
-                                <CardTitle
-                                    class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
-                                    <Zap class="w-3.5 h-3.5 text-ink-subtle shrink-0" />
-                                    {{ $t('wasm_sandbox.optimized_preview') }}
-                                </CardTitle>
-                                <Badge v-if="processedUrl && metrics" variant="outline"
-                                    class="h-5 px-1.5 font-mono text-[10px] border-hairline shrink-0">
-                                    {{ formatBytes(metrics.size) }}
-                                </Badge>
-                            </CardHeader>
-                            <div class="relative w-full preview-canvas overflow-hidden select-none rounded-b-xl"
-                                :style="{ aspectRatio: previewAspectRatio }">
-                                <div v-if="isProcessing"
-                                    class="absolute inset-0 bg-canvas/70 backdrop-blur-md z-10 flex flex-col items-center justify-center gap-3 animate-fade-in">
-                                    <div
-                                        class="w-10 h-10 rounded-full bg-primary-soft flex items-center justify-center text-primary">
-                                        <Cpu class="w-5 h-5 animate-pulse" />
-                                    </div>
-                                    <span
-                                        class="text-xs font-medium text-ink-muted">{{
-                                            $t('wasm_sandbox.processing') }}</span>
-                                </div>
-                                <div v-else-if="processError"
-                                    class="absolute inset-0 flex items-center justify-center p-4">
-                                    <div class="text-center max-w-sm text-red-600 dark:text-red-400">
-                                        <XCircle class="w-7 h-7 mx-auto mb-2 text-red-500" />
-                                        <p class="text-xs font-bold">{{ $t('wasm_sandbox.process_failed') }}</p>
-                                        <p class="text-xs mt-1 opacity-80 leading-relaxed font-mono truncate-3-lines">
-                                            {{ processError }}</p>
-                                    </div>
-                                </div>
-                                <div v-else-if="processedUrl" class="absolute inset-0 flex items-center justify-center">
-                                    <img :src="processedUrl"
-                                        class="h-full w-full object-contain transition-all duration-300"
-                                        alt="Processed image" />
-                                </div>
-                            </div>
-                        </Card>
-                    </div>
+                    <SandboxSideBySide v-if="viewMode === 'side-by-side'" :original-url="originalUrl"
+                        :processed-url="processedUrl" :original-metadata="originalMetadata" :metrics="metrics"
+                        :is-processing="isProcessing" :process-error="processError"
+                        :preview-aspect-ratio="previewAspectRatio" @replace="triggerReplaceInput" />
 
                     <!-- View 2: Draggable Slider Comparison -->
-                    <div v-else
-                        class="flex-1 flex flex-col border border-hairline shadow-xs bg-surface-1 rounded-xl overflow-hidden relative py-0">
-                        <CardHeader
-                            class="h-11 px-4 py-0 pb-0 [.border-b]:!pb-0 border-b border-hairline shrink-0 flex flex-row items-center justify-between gap-2 overflow-visible">
-                            <CardTitle
-                                class="min-w-0 truncate text-xs leading-none font-medium text-ink-muted flex items-center gap-1.5 overflow-visible">
-                                <ArrowLeftRight class="w-3.5 h-3.5 text-ink-subtle shrink-0" />
-                                {{ $t('wasm_sandbox.view_slider') }}
-                            </CardTitle>
-                            <!-- Mini overlay info -->
-                            <Badge v-if="metrics" variant="outline"
-                                class="h-5 px-1.5 font-mono text-[10px] border-hairline bg-canvas shrink-0">
-                                {{ formatBytes(metrics.size) }} ({{ metrics.savings < 0 ? metrics.savings.toFixed(1)
-                                    + '%' : '+' + metrics.savings.toFixed(1) + '%' }}) </Badge>
-                        </CardHeader>
-                        <div ref="sliderContainer"
-                            class="relative w-full overflow-hidden select-none cursor-ew-resize preview-canvas rounded-b-xl flex items-center justify-center"
-                            :style="{ aspectRatio: previewAspectRatio }" @mousedown="startDrag" @touchstart="startDrag">
-                            <!-- Background (Processed image, right side) -->
-                            <img :src="processedUrl"
-                                class="absolute inset-0 h-full w-full object-contain pointer-events-none select-none"
-                                :class="{ 'transition-all duration-300': !isDragging }"
-                                :style="{ opacity: sliderPos === 100 ? 0 : 1 }" alt="Processed image" />
-
-                            <!-- Foreground Wrapper (Clipped vertically on the screen) -->
-                            <div class="absolute inset-0 pointer-events-none select-none"
-                                :class="{ 'transition-all duration-300': !isDragging }"
-                                :style="{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)`, opacity: sliderPos === 0 ? 0 : 1 }">
-                                <!-- Foreground (Original image, left side) -->
-                                <img :src="originalUrl"
-                                    class="absolute inset-0 h-full w-full object-contain pointer-events-none select-none"
-                                    alt="Original image" />
-                            </div>
-
-                            <!-- Split Line -->
-                            <div class="absolute top-0 bottom-0 w-[2px] bg-white shadow-[0_0_8px_rgba(0,0,0,0.25)] z-20 pointer-events-none"
-                                :style="{ left: sliderPos + '%' }">
-                                <!-- Circular Slider Button -->
-                                <div
-                                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white border border-border shadow-[0_4px_12px_rgba(0,0,0,0.1),_0_2px_4px_rgba(0,0,0,0.05)] flex items-center justify-center text-primary pointer-events-auto hover:scale-105 active:scale-95 transition-all duration-200 cursor-ew-resize">
-                                    <ArrowLeftRight class="w-4 h-4" />
-                                </div>
-                            </div>
-
-                            <!-- Small Loader Indicator when re-processing -->
-                            <div v-if="isProcessing"
-                                class="absolute bottom-3 right-3 bg-canvas/85 backdrop-blur-md px-2.5 py-1 rounded-md border border-hairline z-30 flex items-center gap-1.5 text-[11px] font-bold text-primary">
-                                <Cpu class="w-3.5 h-3.5 text-primary animate-pulse" />
-                                {{ $t('wasm_sandbox.processing') }}
-                            </div>
-                        </div>
-                    </div>
+                    <SandboxSliderCompare v-else v-model:slider-pos="sliderPos" :original-url="originalUrl"
+                        :processed-url="processedUrl" :metrics="metrics" :is-processing="isProcessing"
+                        :preview-aspect-ratio="previewAspectRatio" />
 
                 </div>
 
                 <!-- Metrics Dashboard Toolbar -->
-                <Card v-if="processedUrl && metrics"
-                    class="border border-hairline shadow-none shrink-0 bg-surface-1 py-0">
-                    <CardContent class="py-3 px-3 grid grid-cols-3 gap-4 text-center">
-                        <div class="flex flex-col items-center">
-                            <span class="text-xs font-medium text-ink-subtle">{{
-                                $t('wasm_sandbox.metric_speed') }}</span>
-                            <span class="text-base font-semibold text-ink mt-1 font-mono tabular-nums flex items-baseline gap-0.5">
-                                {{ metrics.duration > 100 ? (metrics.duration / 1000).toFixed(2) :
-                                    metrics.duration.toFixed(1) }}
-                                <span class="text-xs font-medium text-ink-subtle">{{ metrics.duration > 100 ? 's' : 'ms'
-                                }}</span>
-                            </span>
-                        </div>
-                        <div class="flex flex-col items-center border-x border-hairline">
-                            <span class="text-xs font-medium text-ink-subtle">{{
-                                $t('wasm_sandbox.metric_size') }}</span>
-                            <span class="text-base font-semibold text-ink mt-1 font-mono tabular-nums">
-                                {{ formatBytes(metrics.size) }}
-                            </span>
-                        </div>
-                        <div class="flex flex-col items-center">
-                            <span class="text-xs font-medium text-ink-subtle">{{
-                                $t('wasm_sandbox.metric_savings') }}</span>
-                            <div class="mt-0.5 flex justify-center">
-                                <Badge v-if="metrics.savings < 0"
-                                    class="bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 font-bold border border-emerald-200/40 hover:bg-emerald-50 text-xs">
-                                    {{ metrics.savings.toFixed(1) }}%
-                                </Badge>
-                                <Badge v-else
-                                    class="bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 font-bold border border-amber-200/40 hover:bg-amber-50 text-xs">
-                                    +{{ metrics.savings.toFixed(1) }}%
-                                </Badge>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                <SandboxMetricsBar v-if="processedUrl && metrics" :metrics="metrics" />
 
                 <!-- Metadata Card (Source Info when no metrics available) -->
-                <div v-if="originalMetadata && !processedUrl" class="grid grid-cols-3 gap-4 shrink-0 select-none">
-                    <div
-                        class="border border-hairline py-2 px-3 flex justify-between items-center rounded-xl bg-surface-1 text-xs">
-                        <span class="text-ink-subtle font-medium">{{ $t('wasm_sandbox.meta_format') }}</span>
-                        <Badge variant="outline" class="uppercase text-[11px] font-mono border-hairline bg-canvas">{{
-                            originalMetadata.format }}</Badge>
-                    </div>
-                    <div
-                        class="border border-hairline py-2 px-3 flex justify-between items-center rounded-xl bg-surface-1 text-xs">
-                        <span class="text-ink-subtle font-medium">{{ $t('wasm_sandbox.meta_dimensions') }}</span>
-                        <span class="text-ink font-bold font-mono text-xs">{{ originalMetadata.width }}x{{
-                            originalMetadata.height }}</span>
-                    </div>
-                    <div
-                        class="border border-hairline py-2 px-3 flex justify-between items-center rounded-xl bg-surface-1 text-xs">
-                        <span class="text-ink-subtle font-medium">{{ $t('wasm_sandbox.meta_size') }}</span>
-                        <span class="text-ink font-bold font-mono text-xs">{{ formatBytes(originalMetadata.size)
-                        }}</span>
-                    </div>
-                </div>
+                <SandboxSourceInfo v-if="originalMetadata && !processedUrl" :original-metadata="originalMetadata" />
 
                 <!-- Memory Warning -->
                 <div v-if="originalMetadata && originalMetadata.size > 10 * 1024 * 1024"
@@ -392,64 +127,18 @@
                 <div class="flex-1 overflow-y-auto py-6 px-5 space-y-6">
 
                     <!-- Run Mode & Trigger -->
-                    <div class="space-y-3 p-4 bg-surface-1 border border-hairline rounded-xl">
-                        <div class="flex items-center justify-between">
-                            <div class="flex flex-col gap-0.5">
-                                <Label class="text-xs font-semibold text-ink flex items-center gap-1.5 select-none">
-                                    <Sparkles class="w-3.5 h-3.5 text-primary" />
-                                    {{ $t('wasm_sandbox.auto_process') }}
-                                </Label>
-                                <span class="text-xs text-ink-subtle">{{ $t('wasm_sandbox.auto_process_desc') }}</span>
-                            </div>
-                            <button type="button"
-                                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                                :class="autoApply ? 'bg-primary' : 'bg-surface-4'"
-                                :disabled="!originalFile" @click="toggleAutoApply">
-                                <span
-                                    class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out"
-                                    :class="autoApply ? 'translate-x-4' : 'translate-x-0'" />
-                            </button>
-                        </div>
-
-                        <!-- Manual Run Button -->
-                        <Button v-if="!autoApply"
-                            class="w-full h-9 text-xs font-medium cursor-pointer justify-center transition-colors gap-1.5"
-                            :class="hasPendingChanges ? 'bg-primary text-primary-foreground hover:bg-primary-hover shadow-xs' : 'bg-surface-2 text-ink-subtle shadow-none disabled:opacity-100'"
-                            :disabled="items.length === 0 || isProcessing || !hasPendingChanges"
-                            @click="runManualProcess">
-                            <Cpu v-if="isProcessing" class="w-3.5 h-3.5 animate-pulse" />
-                            <Play v-else class="w-3.5 h-3.5" />
-                            {{ isProcessing ? $t('wasm_sandbox.processing') : (hasPendingChanges ?
-                                $t('wasm_sandbox.apply_and_reprocess') :
-                                $t('wasm_sandbox.all_changes_applied')) }}
-                        </Button>
-                        <span v-if="originalFile"
-                            class="text-xs text-ink-subtle text-center block w-full mt-1.5 select-none leading-normal">
-                            {{ $t('wasm_sandbox.drag_to_replace_hint') }}
-                        </span>
-                    </div>
+                    <SandboxRunPanel :auto-apply="autoApply" :has-pending-changes="hasPendingChanges"
+                        :is-processing="isProcessing" :has-items="items.length > 0" :has-file="!!originalFile"
+                        @toggle-auto-apply="queue.toggleAutoApply" @run="queue.runManualProcess" />
 
                     <ImageOptionsForm v-model="options" :formats="BROWSER_FORMATS" :disabled="isProcessing" />
 
                 </div>
 
                 <!-- Control Sticky Footer -->
-                <div class="p-5 border-t border-hairline bg-surface-1 shrink-0 space-y-2">
-                    <div v-if="originalFile" class="space-y-2 mb-2">
-                        <Label for="output-filename"
-                            class="text-xs font-medium text-ink-muted">{{
-                                $t('wasm_sandbox.output_filename') }}</Label>
-                        <Input id="output-filename" v-model="customFilename"
-                            class="h-9 font-mono text-xs bg-surface-1"
-                            :placeholder="$t('wasm_sandbox.output_filename_placeholder')" />
-                    </div>
-                    <Button
-                        class="w-full h-9 bg-primary hover:bg-primary-hover text-primary-foreground font-medium rounded-md text-sm cursor-pointer shadow-xs border-none gap-2 justify-center transition-colors"
-                        :disabled="!processedUrl || isProcessing || hasPendingChanges" @click="downloadImage">
-                        <Download class="w-3.5 h-3.5" />
-                        {{ $t('wasm_sandbox.download') }}
-                    </Button>
-                </div>
+                <SandboxDownloadFooter v-model:filename="customFilename" :has-file="!!originalFile"
+                    :disabled="!processedUrl || isProcessing || hasPendingChanges"
+                    @download="queue.downloadSelected(customFilename)" />
 
             </aside>
 
@@ -462,51 +151,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { useVips } from '~/composables/useVips'
+import { useSandboxQueue } from '~/composables/useSandboxQueue'
 import ImageOptionsForm from '@/components/ImageOptionsForm.vue'
-import type { ImageOptions } from '~/lib/types/image-options'
-import { sanitize } from '~/lib/image-options'
+import SandboxFilmstrip from '@/components/sandbox/SandboxFilmstrip.vue'
+import SandboxSideBySide from '@/components/sandbox/SandboxSideBySide.vue'
+import SandboxSliderCompare from '@/components/sandbox/SandboxSliderCompare.vue'
+import SandboxMetricsBar from '@/components/sandbox/SandboxMetricsBar.vue'
+import SandboxSourceInfo from '@/components/sandbox/SandboxSourceInfo.vue'
+import SandboxRunPanel from '@/components/sandbox/SandboxRunPanel.vue'
+import SandboxDownloadFooter from '@/components/sandbox/SandboxDownloadFooter.vue'
 import { BROWSER_FORMATS } from '~/lib/vips-ops'
-import {
-    Upload, Image, AlertTriangle, AlertCircle, Zap, Cpu, XCircle, X, Download, SlidersHorizontal, Info, ArrowLeftRight, Trash2, Play, Sparkles, Check
-} from '@lucide/vue'
+import { Upload, AlertTriangle, AlertCircle, ArrowLeftRight, Trash2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-export type BatchImageItem = {
-    id: string
-    file: File
-    originalUrl: string
-    originalBuffer: Uint8Array | null
-    metadata: { width: number; height: number; format: string; size: number } | null
-    processedUrl: string
-    processedBlob: Blob | null
-    metrics: { duration: number; size: number; savings: number } | null
-    error: string
-    status: 'pending' | 'processing' | 'done' | 'failed'
-    customFilename: string
-    processedFormat?: string
-}
-
-const { probe, process, error: wasmError } = useVips()
 const { t } = useI18n()
 
 useHead({
     title: t('wasm_sandbox.title') + ' | Transcoder',
 })
 
-// Original & Batch states
-const items = ref<BatchImageItem[]>([])
-const selectedItemId = ref<string | null>(null)
-const isReplacingActiveItem = ref<boolean>(false)
-const isProcessing = ref<boolean>(false)
-
-const selectedItem = computed(() => items.value.find(i => i.id === selectedItemId.value) || null)
+const queue = useSandboxQueue()
+const { wasmError, items, selectedItemId, selectedItem, isProcessing, options, autoApply, hasPendingChanges } = queue
 
 const previewAspectRatio = computed(() => {
     const metadata = selectedItem.value?.metadata
@@ -516,74 +182,13 @@ const previewAspectRatio = computed(() => {
     return `${metadata.width} / ${metadata.height}`
 })
 
-
-
-
-// Writable Computed Mappings for backward compatibility
-const originalFile = computed({
-    get: () => selectedItem.value?.file || null,
-    set: (val: File | null) => {
-        if (selectedItem.value && val) {
-            selectedItem.value.file = val
-        }
-    }
-})
-
-const originalUrl = computed({
-    get: () => selectedItem.value?.originalUrl || '',
-    set: (val: string) => {
-        if (selectedItem.value && selectedItem.value.originalUrl && selectedItem.value.originalUrl !== val) {
-            URL.revokeObjectURL(selectedItem.value.originalUrl)
-        }
-        if (selectedItem.value) selectedItem.value.originalUrl = val
-    }
-})
-
-const originalMetadata = computed({
-    get: () => selectedItem.value?.metadata || null,
-    set: (val: { width: number; height: number; format: string; size: number } | null) => {
-        if (selectedItem.value) selectedItem.value.metadata = val
-    }
-})
-
-const originalBuffer = computed({
-    get: () => selectedItem.value?.originalBuffer || null,
-    set: (val: Uint8Array | null) => {
-        if (selectedItem.value) selectedItem.value.originalBuffer = val
-    }
-})
-
-const processedUrl = computed({
-    get: () => selectedItem.value?.processedUrl || '',
-    set: (val: string) => {
-        if (selectedItem.value && selectedItem.value.processedUrl && selectedItem.value.processedUrl !== val) {
-            URL.revokeObjectURL(selectedItem.value.processedUrl)
-        }
-        if (selectedItem.value) selectedItem.value.processedUrl = val
-    }
-})
-
-const processedBlob = computed({
-    get: () => selectedItem.value?.processedBlob || null,
-    set: (val: Blob | null) => {
-        if (selectedItem.value) selectedItem.value.processedBlob = val
-    }
-})
-
-const processError = computed({
-    get: () => selectedItem.value?.error || '',
-    set: (val: string) => {
-        if (selectedItem.value) selectedItem.value.error = val
-    }
-})
-
-const metrics = computed({
-    get: () => selectedItem.value?.metrics || null,
-    set: (val: { duration: number; size: number; savings: number } | null) => {
-        if (selectedItem.value) selectedItem.value.metrics = val
-    }
-})
-
+// The selected item's fields, for the template.
+const originalFile = computed(() => selectedItem.value?.file || null)
+const originalUrl = computed(() => selectedItem.value?.originalUrl || '')
+const originalMetadata = computed(() => selectedItem.value?.metadata || null)
+const processedUrl = computed(() => selectedItem.value?.processedUrl || '')
+const processError = computed(() => selectedItem.value?.error || '')
+const metrics = computed(() => selectedItem.value?.metrics || null)
 const customFilename = computed({
     get: () => selectedItem.value?.customFilename || '',
     set: (val: string) => {
@@ -591,64 +196,25 @@ const customFilename = computed({
     }
 })
 
-const fileInput = ref<HTMLInputElement | null>(null)
-
-// Workbench Controls & Views
+// Workbench views
 const viewMode = ref<'side-by-side' | 'slider'>('slider')
-const defaultSandboxOptions = (): ImageOptions => ({ format: 'webp' })
-const options = ref<ImageOptions>(defaultSandboxOptions())
-watch(options, () => onParameterChange(), { deep: true })
+const sliderPos = ref<number>(50)
 
-// Manual Apply & Trigger States
-const autoApply = ref<boolean>(false)
-const hasPendingChanges = ref<boolean>(false)
+// The file picker either adds to the queue or replaces the selected image.
+const fileInput = ref<HTMLInputElement | null>(null)
+const isReplacingActiveItem = ref<boolean>(false)
+
 const dragCounter = ref<number>(0)
 const isDragActive = computed(() => dragCounter.value > 0)
 
-// Slidable Comparison Drag States
-const sliderContainer = ref<HTMLElement | null>(null)
-const sliderPos = ref<number>(50)
-const isDragging = ref<boolean>(false)
-
-let processDebounceTimeout: any = null
-
-onBeforeUnmount(() => {
-    clearDebounce()
-    revokeUrls()
-})
-
-const clearDebounce = () => {
-    if (processDebounceTimeout) {
-        clearTimeout(processDebounceTimeout)
-        processDebounceTimeout = null
-    }
-}
-
-const revokeItemUrls = (item: BatchImageItem) => {
-    if (item.originalUrl) URL.revokeObjectURL(item.originalUrl)
-    if (item.processedUrl) URL.revokeObjectURL(item.processedUrl)
-}
-
-const revokeUrls = () => {
-    items.value.forEach(revokeItemUrls)
-}
-
 const resetSandbox = () => {
-    revokeUrls()
-    items.value = []
-    selectedItemId.value = null
+    queue.reset()
     isReplacingActiveItem.value = false
-
-    // Reset controls & view mode
     viewMode.value = 'slider'
     sliderPos.value = 50
-    options.value = defaultSandboxOptions()
-    autoApply.value = false
-    hasPendingChanges.value = false
     dragCounter.value = 0
 }
 
-// Trigger browser file select
 const triggerFileInput = () => {
     isReplacingActiveItem.value = false
     fileInput.value?.click()
@@ -659,397 +225,31 @@ const triggerReplaceInput = () => {
     fileInput.value?.click()
 }
 
-const handleFileChange = (e: Event) => {
-    const files = (e.target as HTMLInputElement).files
-    if (files && files.length > 0) {
-        const firstFile = files[0]
-        if (isReplacingActiveItem.value && selectedItemId.value && firstFile) {
-            replaceSelectedFile(firstFile)
-            isReplacingActiveItem.value = false
-        } else {
-            addFilesToQueue(Array.from(files))
-        }
+const takeFiles = (files: FileList | null | undefined) => {
+    if (!files || files.length === 0) return
+    const firstFile = files[0]
+    if (isReplacingActiveItem.value && selectedItemId.value && firstFile) {
+        queue.replaceSelected(firstFile)
+        isReplacingActiveItem.value = false
+    } else {
+        queue.addFiles(Array.from(files))
     }
 }
 
-const handleDragEnter = (e: DragEvent) => {
+const handleFileChange = (e: Event) => {
+    takeFiles((e.target as HTMLInputElement).files)
+}
+
+const handleDragEnter = () => {
     dragCounter.value++
 }
 
-const handleDragLeave = (e: DragEvent) => {
+const handleDragLeave = () => {
     dragCounter.value--
 }
 
 const handleDrop = (e: DragEvent) => {
     dragCounter.value = 0
-    const files = e.dataTransfer?.files
-    if (files && files.length > 0) {
-        const firstFile = files[0]
-        if (isReplacingActiveItem.value && selectedItemId.value && firstFile) {
-            replaceSelectedFile(firstFile)
-            isReplacingActiveItem.value = false
-        } else {
-            addFilesToQueue(Array.from(files))
-        }
-    }
-}
-
-const addFilesToQueue = (files: File[]) => {
-    for (const file of files) {
-        const id = Math.random().toString(36).substring(2, 9)
-        const url = URL.createObjectURL(file)
-        const baseName = file.name.substring(0, file.name.lastIndexOf('.'))
-
-        const newItem: BatchImageItem = {
-            id,
-            file,
-            originalUrl: url,
-            originalBuffer: null,
-            metadata: null,
-            processedUrl: '',
-            processedBlob: null,
-            metrics: null,
-            error: '',
-            status: 'pending',
-            customFilename: `${baseName}-processed`
-        }
-
-        items.value.push(newItem)
-        if (!selectedItemId.value) {
-            selectedItemId.value = id
-        }
-
-        // Asynchronously load and process this item
-        loadAndProcessItem(newItem)
-    }
-}
-
-const replaceSelectedFile = (file: File) => {
-    const activeItem = selectedItem.value
-    if (!activeItem) return
-
-    // Revoke old URLs for this active item
-    revokeItemUrls(activeItem)
-
-    const baseName = file.name.substring(0, file.name.lastIndexOf('.'))
-
-    // Update active item attributes in-place
-    activeItem.file = file
-    activeItem.originalUrl = URL.createObjectURL(file)
-    activeItem.originalBuffer = null
-    activeItem.metadata = null
-    activeItem.processedUrl = ''
-    activeItem.processedBlob = null
-    activeItem.metrics = null
-    activeItem.error = ''
-    activeItem.status = 'pending'
-    activeItem.customFilename = `${baseName}-processed`
-
-    // Load and process replaced item
-    loadAndProcessItem(activeItem)
-}
-
-const loadAndProcessItem = async (item: BatchImageItem) => {
-    if (!item.originalBuffer) {
-        try {
-            const buffer = await item.file.arrayBuffer()
-            item.originalBuffer = new Uint8Array(buffer)
-        } catch (err: any) {
-            console.error('Failed to read file buffer:', err)
-            item.error = t('wasm_sandbox.read_file_failed', { error: err.message || String(err) })
-            item.status = 'failed'
-            return
-        }
-    }
-
-    if (!item.metadata && item.originalBuffer) {
-        try {
-            const meta = await probe(item.originalBuffer)
-            item.metadata = { width: meta.width, height: meta.height, format: meta.format, size: item.file.size }
-        } catch (e: any) {
-            console.error('wasm-vips probe failed:', e)
-            item.error = t('wasm_sandbox.parse_meta_failed', { error: e.message || String(e) })
-            item.status = 'failed'
-            return
-        }
-    }
-
-    triggerQueueProcessing()
-}
-
-let isQueueProcessing = false
-const triggerQueueProcessing = async () => {
-    if (isQueueProcessing) return
-    isQueueProcessing = true
-
-    try {
-        while (true) {
-            const pendingItem = items.value.find(item => item.status === 'pending')
-            if (!pendingItem) break
-
-            pendingItem.status = 'processing'
-            if (selectedItemId.value === pendingItem.id) {
-                isProcessing.value = true
-            }
-
-            try {
-                await processSingleItem(pendingItem)
-                pendingItem.status = 'done'
-            } catch (err: any) {
-                console.error(`Error processing item ${pendingItem.id}:`, err)
-                pendingItem.status = 'failed'
-                pendingItem.error = err.message || String(err)
-            } finally {
-                if (selectedItemId.value === pendingItem.id) {
-                    isProcessing.value = false
-                }
-            }
-        }
-        hasPendingChanges.value = false
-    } finally {
-        isQueueProcessing = false
-    }
-}
-
-const processSingleItem = async (item: BatchImageItem) => {
-    if (!item.originalBuffer) return
-    const startTime = performance.now()
-    const requested = sanitize(options.value)
-    const result = await process(item.originalBuffer, requested)
-    const duration = performance.now() - startTime
-
-    if (item.processedUrl) {
-        URL.revokeObjectURL(item.processedUrl)
-    }
-    item.processedBlob = new Blob([result.bytes as BlobPart], { type: result.mime })
-    item.processedUrl = URL.createObjectURL(item.processedBlob)
-    item.processedFormat = requested.format
-
-    const origSize = item.metadata ? item.metadata.size : item.file.size
-    item.metrics = {
-        duration,
-        size: result.bytes.length,
-        savings: ((result.bytes.length - origSize) / origSize) * 100,
-    }
-}
-
-const loadOriginalImage = (file: File) => {
-    if (isReplacingActiveItem.value && selectedItemId.value) {
-        replaceSelectedFile(file)
-        isReplacingActiveItem.value = false
-    } else {
-        addFilesToQueue([file])
-    }
-}
-
-const removeItem = (id: string) => {
-    const idx = items.value.findIndex(item => item.id === id)
-    if (idx !== -1) {
-        const item = items.value[idx]
-        if (item) {
-            revokeItemUrls(item)
-            items.value.splice(idx, 1)
-
-            if (selectedItemId.value === id) {
-                if (items.value.length > 0) {
-                    const fallbackItem = items.value[Math.max(0, idx - 1)]
-                    if (fallbackItem) {
-                        selectedItemId.value = fallbackItem.id
-                    }
-                } else {
-                    selectedItemId.value = null
-                }
-            }
-        }
-    }
-}
-
-const selectItem = (id: string) => {
-    selectedItemId.value = id
-}
-
-// Drag & Slide comparison logic
-let containerRect: { left: number; width: number } | null = null
-
-const handleDrag = (e: MouseEvent | TouchEvent) => {
-    if (!containerRect) return
-    const clientX = 'touches' in e ? (e.touches[0]?.clientX ?? 0) : (e as MouseEvent).clientX
-    const offsetX = clientX - containerRect.left
-    const percentage = Math.max(0, Math.min(100, (offsetX / containerRect.width) * 100))
-    sliderPos.value = percentage
-}
-
-const startDrag = (e: MouseEvent | TouchEvent) => {
-    e.preventDefault()
-    if (!sliderContainer.value) return
-    const rect = sliderContainer.value.getBoundingClientRect()
-    containerRect = {
-        left: rect.left,
-        width: rect.width || 1
-    }
-    isDragging.value = true
-    handleDrag(e)
-    window.addEventListener('mousemove', handleDrag)
-    window.addEventListener('mouseup', stopDrag)
-    window.addEventListener('touchmove', handleDrag, { passive: true })
-    window.addEventListener('touchend', stopDrag)
-}
-
-const stopDrag = () => {
-    isDragging.value = false
-    containerRect = null
-    window.removeEventListener('mousemove', handleDrag)
-    window.removeEventListener('mouseup', stopDrag)
-    window.removeEventListener('touchmove', handleDrag)
-    window.removeEventListener('touchend', stopDrag)
-}
-
-// Manual Apply Trigger & Quality Presets Handlers
-const toggleAutoApply = () => {
-    autoApply.value = !autoApply.value
-    if (autoApply.value && hasPendingChanges.value) {
-        debouncedProcess()
-        hasPendingChanges.value = false
-    }
-}
-
-const onParameterChange = () => {
-    hasPendingChanges.value = true
-    if (autoApply.value) {
-        debouncedProcess()
-    }
-}
-
-const reprocessAllItems = () => {
-    items.value.forEach(item => {
-        item.status = 'pending'
-    })
-    triggerQueueProcessing()
-}
-
-const runManualProcess = async () => {
-    if (isQueueProcessing) return
-    reprocessAllItems()
-    hasPendingChanges.value = false
-}
-
-const debouncedProcess = () => {
-    clearDebounce()
-    processDebounceTimeout = setTimeout(() => {
-        reprocessAllItems()
-    }, 250)
-}
-
-const processImage = async () => {
-    if (selectedItem.value) {
-        selectedItem.value.status = 'pending'
-        await triggerQueueProcessing()
-    }
-}
-
-const getMimeType = (format: string): string => {
-    switch (format.toLowerCase()) {
-        case 'png': return 'image/png'
-        case 'webp': return 'image/webp'
-        case 'avif': return 'image/avif'
-        case 'jxl': return 'image/jxl'
-        case 'jpeg':
-        case 'jpg':
-        default:
-            return 'image/jpeg'
-    }
-}
-
-const downloadImage = () => {
-    if (!processedBlob.value || !selectedItem.value) return
-
-    const fmt = selectedItem.value.processedFormat || options.value.format
-    const ext = fmt.toLowerCase() === 'jpeg' ? 'jpg' : fmt.toLowerCase()
-    const filename = `${customFilename.value || 'processed-image'}.${ext}`
-
-    const link = document.createElement('a')
-    link.href = processedUrl.value
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-}
-
-const downloadAll = async () => {
-    const { zipSync } = await import('fflate')
-    const files: Record<string, Uint8Array> = {}
-
-    for (const item of items.value) {
-        if (item.processedBlob && item.status === 'done') {
-            const buffer = new Uint8Array(await item.processedBlob.arrayBuffer())
-            const fmt = item.processedFormat || options.value.format
-            const ext = fmt.toLowerCase() === 'jpeg' ? 'jpg' : fmt.toLowerCase()
-            const filename = `${item.customFilename || 'processed'}.${ext}`
-            files[filename] = buffer
-        }
-    }
-
-    if (Object.keys(files).length === 0) return
-
-    const zipped = zipSync(files)
-    const zipBlob = new Blob([zipped], { type: 'application/zip' })
-    const zipUrl = URL.createObjectURL(zipBlob)
-
-    const link = document.createElement('a')
-    link.href = zipUrl
-    link.download = `transcoded-images.zip`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(zipUrl)
-}
-
-const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+    takeFiles(e.dataTransfer?.files)
 }
 </script>
-
-<style scoped>
-/* High-performance styling overrides for ranges to match dub system theme */
-input[type="range"] {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    height: 12px;
-    width: 12px;
-    border-radius: 50%;
-    background: var(--color-linear-violet, #5e6ad2);
-    cursor: pointer;
-    margin-top: -4px;
-    border: none;
-    box-shadow: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px;
-    transition: transform 0.1s ease-in-out;
-}
-
-input[type="range"]::-webkit-slider-thumb:hover {
-    transform: scale(1.15);
-}
-
-.preview-canvas {
-    background-color: var(--surface-2);
-    background-image: radial-gradient(var(--hairline-strong) 1px, transparent 1px);
-    background-size: 16px 16px;
-    background-position: center;
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 4px;
-    background: var(--color-ash-gray, #f4f4f5);
-    border-radius: 2px;
-    border: none;
-}
-</style>

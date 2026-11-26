@@ -1,128 +1,37 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
-import { Uppy } from "@uppy/core";
-import AwsS3 from "@uppy/aws-s3";
-import { useApi, parseApiError } from "~/composables/useApi";
+import { toast } from "vue-sonner";
+import { parseApiError } from "~/composables/useApi";
 import { useAuth } from "~/composables/useAuth";
-import type { Workflow } from "~/lib/types/task";
-import type { ApiResponse } from "~/lib/types/api";
 import { useCreateTask } from "~/composables/queries/tasks";
 import { useDeleteDraft, useDraftFiles } from "~/composables/queries/drafts";
-import { useWorkflowMutations, useWorkflows } from "~/composables/queries/workflows";
-import type {
-    CompleteUploadData,
-    DraftFile,
-    InitUploadData,
-    ListPartsData,
-    SignPartData,
-} from "~/lib/types/s3";
-import { createLimiter, probeImage, sha256File } from "~/lib/upload-prep";
-import { toast } from "vue-sonner";
+import { useUploadQueue } from "~/composables/useUploadQueue";
+import { useTaskDraft } from "~/composables/useTaskDraft";
+import { useWorkflowPresets } from "~/composables/useWorkflowPresets";
+import type { CompressionTarget } from "~/lib/types/task";
+import type { DraftFile } from "~/lib/types/s3";
+import type { ImageOptions } from "~/lib/types/image-options";
+import { defaultOptions, sanitize } from "~/lib/image-options";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import ImageOptionsForm from "@/components/ImageOptionsForm.vue";
-import type { SourceProbeSummary } from "@/components/ImageOptionsForm.vue";
-import type { CompressionTarget } from "~/lib/types/task";
-import type { ImageOptions } from "~/lib/types/image-options";
-import { defaultOptions, describe, sanitize } from "~/lib/image-options";
-import {
-    Plus,
-    X,
-    Check,
-    Loader2,
-    FileImage,
-    FileVideo,
-    FileCode,
-    UploadCloud,
-    AlertCircle,
-    Settings,
-    Layers,
-    HardDrive,
-    Trash2,
-} from "@lucide/vue";
+import WorkflowPresetPanel from "@/components/new-task/WorkflowPresetPanel.vue";
+import FileDropOverlay from "@/components/new-task/FileDropOverlay.vue";
+import UploadQueueList from "@/components/new-task/UploadQueueList.vue";
+import TaskSubmitBar from "@/components/new-task/TaskSubmitBar.vue";
+import DraftFilesPanel from "@/components/new-task/DraftFilesPanel.vue";
+import { Plus, Settings } from "@lucide/vue";
 
 useHead({
     title: $t("new_task.title") + " | Transcoder",
 });
 
 const router = useRouter();
-const api = useApi();
+const { isAuthenticated, showAuthModal, user } = useAuth();
 
 // Output options and optional target for every file in the task.
 const options = ref<ImageOptions>(defaultOptions());
 const target = ref<CompressionTarget | undefined>(undefined);
-
-// Saved option sets (workflows). While the form still matches the applied
-// workflow the task references it; any edit submits explicit options instead.
-const workflowsQuery = useWorkflows();
-const workflows = computed<Workflow[]>(() => workflowsQuery.data.value ?? []);
-const workflowMutations = useWorkflowMutations();
-const selectedWorkflowId = ref("none");
-const selectedWorkflow = computed(() => workflows.value.find((w) => w.id === selectedWorkflowId.value));
-const isMultiOutputWorkflow = computed(() => (selectedWorkflow.value?.outputs?.length ?? 0) > 1);
-const workflowDirty = ref(false);
-const isApplyingWorkflow = ref(false);
-const showPresetSave = ref(false);
-const presetName = ref("");
-const isSavingPreset = ref(false);
-
-// QueueItem type
-type QueueItem = {
-    id: string; // Client ID
-    source: "local" | "recent";
-    uppyId?: string;
-    serverFileId?: string;
-    name: string;
-    size: number;
-    progress: number;
-    status: "queued" | "uploading" | "uploaded" | "error" | "deleting" | "aborting";
-    type?: string;
-    error?: string;
-    hash?: string;
-    probe?: SourceProbeSummary;
-};
-
-// useAuth composable hook
-const { isAuthenticated, showAuthModal, user } = useAuth();
-
-// Uppy and Task Creation state
-const files = ref<QueueItem[]>([]);
-const globalProgress = ref(0);
-const isCreatingTask = ref(false);
-const taskCreated = ref(false);
-const uploadedFileIds = ref<Record<string, string>>({});
-const idempotencyKey = ref("");
-
-// Probe summary from the first uploaded file in current queue
-const firstFileProbe = computed<SourceProbeSummary | null>(() => {
-    const item = files.value.find((f) => f.probe);
-    return item?.probe || null;
-});
-
-const isUploading = computed(() => {
-    return files.value.some((f) => f.status === "uploading" || f.status === "queued");
-});
-
-const isFormDisabled = computed(() => isCreatingTask.value || taskCreated.value);
-const isParamsDisabled = computed(() => isCreatingTask.value || taskCreated.value);
-
-const isSubmitDisabled = computed(() => {
-    if (isUploading.value) return true;
-    if (isCreatingTask.value) return true;
-    if (taskCreated.value) return true;
-    if (files.value.length === 0) return true;
-    return !files.value.every((f) => f.status === "uploaded" && f.serverFileId);
-});
 
 // Authentication guard
 const checkAuthBeforeAction = (): boolean => {
@@ -133,126 +42,66 @@ const checkAuthBeforeAction = (): boolean => {
     return true;
 };
 
-// Draft Box handling
-const getDraftKey = () => {
-    const uId = user.value?.id || "anonymous";
-    return `task_new_draft:${uId}:v2`;
-};
+const presets = useWorkflowPresets(options, target, checkAuthBeforeAction);
+const {
+    workflows,
+    selectedWorkflowId,
+    selectedWorkflow,
+    isMultiOutputWorkflow,
+    workflowDirty,
+    usesWorkflow,
+    showPresetSave,
+    presetName,
+    isSavingPreset,
+} = presets;
 
-const pendingSubmission = ref<{ idempotencyKey: string; requestBody: string } | null>(null);
+// Recent uploads (Draft files)
+const draftsQuery = useDraftFiles();
+const deleteDraft = useDeleteDraft();
 
-const saveDraft = () => {
-    if (!isAuthenticated.value) return;
-    const selectedServerFileIds = files.value
-        .filter((f) => f.status === "uploaded" && f.serverFileId)
-        .map((f) => f.serverFileId as string);
+const queue = useUploadQueue({
+    onChange: () => draft.save(),
+    deleteServerFile: (fileId) => deleteDraft.mutateAsync(fileId),
+});
+const { files, uploadedFileIds, globalProgress, isUploading, firstFileProbe } = queue;
 
-    const draft = {
-        selectedServerFileIds,
-        options: options.value,
-        target: target.value,
-        updatedAt: Temporal.Now.instant().epochMilliseconds,
-        pendingSubmission: pendingSubmission.value,
-    };
-    localStorage.setItem(getDraftKey(), JSON.stringify(draft));
-};
+const draft = useTaskDraft({
+    files,
+    uploadedFileIds,
+    options,
+    target,
+    fetchServerFiles: () => draftsQuery.refetch(),
+});
+const { pendingSubmission, idempotencyKey } = draft;
 
-const clearDraft = () => {
-    localStorage.removeItem(getDraftKey());
-};
+const isCreatingTask = ref(false);
+const taskCreated = ref(false);
 
-const isReconciling = ref(false);
+const isFormDisabled = computed(() => isCreatingTask.value || taskCreated.value);
 
-const loadAndReconcileDraft = async () => {
-    if (!isAuthenticated.value) return;
-    const stored = localStorage.getItem(getDraftKey());
-    if (!stored) return;
-    try {
-        const draft = JSON.parse(stored);
-        if (!draft) return;
-        if (draft.options?.format) options.value = sanitize(draft.options);
-        if (draft.target?.max_bytes) target.value = { max_bytes: draft.target.max_bytes };
-        if (draft.pendingSubmission) {
-            pendingSubmission.value = draft.pendingSubmission;
-            idempotencyKey.value = draft.pendingSubmission.idempotencyKey;
-        }
-
-        isReconciling.value = true;
-        const { data: serverFiles = [], error } = await draftsQuery.refetch();
-        if (error) throw error;
-        const serverFileMap = new Map(serverFiles.map((f) => [f.id, f]));
-
-        if (draft.selectedServerFileIds && draft.selectedServerFileIds.length > 0) {
-            const reconciledFiles: QueueItem[] = [];
-            for (const serverId of draft.selectedServerFileIds) {
-                const sf = serverFileMap.get(serverId);
-                if (sf) {
-                    reconciledFiles.push({
-                        id: `recent-${sf.id}`,
-                        source: "recent",
-                        serverFileId: sf.id,
-                        name: sf.name,
-                        size: sf.size,
-                        progress: 100,
-                        status: "uploaded",
-                        type: sf.mime_type || "",
-                    });
-                    uploadedFileIds.value[`recent-${sf.id}`] = sf.id;
-                } else if (draft.pendingSubmission) {
-                    // Reconstruct from draft for pending submissions
-                    reconciledFiles.push({
-                        id: `recent-${serverId}`,
-                        source: "recent",
-                        serverFileId: serverId,
-                        name: "Pending file",
-                        size: 0,
-                        progress: 100,
-                        status: "uploaded",
-                        type: "",
-                    });
-                    uploadedFileIds.value[`recent-${serverId}`] = serverId;
-                }
-            }
-            files.value = reconciledFiles;
-        }
-    } catch (e) {
-        console.error("Failed to load draft:", e);
-    } finally {
-        isReconciling.value = false;
-    }
-};
-
-// Watchers for draft box
-watch(
-    [files, options],
-    () => {
-        saveDraft();
-    },
-    { deep: true },
-);
+const isSubmitDisabled = computed(() => {
+    if (isUploading.value) return true;
+    if (isCreatingTask.value) return true;
+    if (taskCreated.value) return true;
+    if (files.value.length === 0) return true;
+    return !files.value.every((f) => f.status === "uploaded" && f.serverFileId);
+});
 
 watch(
     () => user.value?.id,
     (newUid, oldUid) => {
         if (newUid !== oldUid) {
-            if (uppy) {
-                uppy.cancelAll();
-            }
-            files.value = [];
-            uploadedFileIds.value = {};
+            queue.reset();
             pendingSubmission.value = null;
             idempotencyKey.value = "";
             // The drafts and workflow queries refetch for the new user.
             if (newUid) {
-                loadAndReconcileDraft();
+                draft.loadAndReconcile();
             }
         }
     },
 );
 
-// Recent uploads (Draft files)
-const draftsQuery = useDraftFiles();
-const deleteDraft = useDeleteDraft();
 const recentFiles = computed<DraftFile[]>(() => draftsQuery.data.value ?? []);
 const filteredRecentFiles = computed(() => {
     return recentFiles.value.filter(
@@ -268,289 +117,38 @@ const fetchRecentFiles = () => {
 
 const addRecentFile = (file: DraftFile) => {
     if (!checkAuthBeforeAction()) return;
-    if (files.value.some((f) => f.serverFileId === file.id)) {
+    if (!queue.addServerFile(file)) {
         toast.info("文件已在处理队列中");
-        return;
     }
-    files.value.push({
-        id: `recent-${file.id}`,
-        source: "recent",
-        serverFileId: file.id,
-        name: file.name,
-        size: file.size,
-        progress: 100,
-        status: "uploaded",
-        type: file.mime_type || "",
-    });
-    uploadedFileIds.value[`recent-${file.id}`] = file.id;
-    saveDraft();
 };
 
 const deleteRecentFile = async (fileId: string) => {
     if (!checkAuthBeforeAction()) return;
     try {
         await deleteDraft.mutateAsync(fileId);
-        const idx = files.value.findIndex((f) => f.serverFileId === fileId);
-        if (idx !== -1) {
-            const item = files.value[idx];
-            if (item) {
-                const clientId = item.id;
-                files.value.splice(idx, 1);
-                delete uploadedFileIds.value[clientId];
-            }
-        }
+        queue.forgetServerFile(fileId);
         toast.success("文件物理删除成功");
-        saveDraft();
+        draft.save();
     } catch (err) {
         console.error("Failed to delete file:", err);
         toast.error("删除文件失败");
     }
 };
 
-let uppy: Uppy;
-
-// Presigned URLs live an hour; re-sign a part a little before that.
-const PART_URL_TTL_MS = 50 * 60 * 1000;
-// Hashing reads the whole file, so cap how many run at once.
-const prepareSlot = createLimiter(3);
-
+// Runs after the upload queue has set up Uppy.
 onMounted(() => {
-    uppy = new Uppy({
-        restrictions: {
-            maxNumberOfFiles: 50,
-            allowedFileTypes: ["image/*", "video/*"],
-        },
-        autoProceed: true,
-    });
-
-    // /upload/init has already run for every file Uppy sees: it chose single
-    // PUT or multipart by size and signed the URLs, which arrive in file.meta.
-    uppy.use(AwsS3, {
-        shouldUseMultipart: (file) => Boolean(file.meta.uploadId),
-        limit: 4,
-        // Same rule as partSize in server/internal/api/handlers/upload.go.
-        getChunkSize: (file) => Math.max(5 * 1024 * 1024, Math.ceil(file.size / 10000)),
-        getUploadParameters: (file) => ({ method: "PUT", url: file.meta.url as string }),
-        createMultipartUpload: (file) => ({
-            uploadId: file.meta.uploadId as string,
-            key: file.meta.key as string,
-        }),
-        listParts: async (file, { uploadId, key }) => {
-            const res = await api<ApiResponse<ListPartsData>>(
-                `/upload/multipart/${uploadId}/list-parts?key=${encodeURIComponent(key)}`,
-            );
-            return res.data.parts.map((p) => ({ PartNumber: p.part_number, Size: p.size, ETag: p.etag }));
-        },
-        signPart: async (file, { uploadId, key, partNumber }) => {
-            const cached = (file.meta.partUrls as string[] | undefined)?.[partNumber - 1];
-            const signedAt = (file.meta.signedAt as number | undefined) ?? 0;
-            if (cached && Temporal.Now.instant().epochMilliseconds - signedAt < PART_URL_TTL_MS) {
-                return { url: cached };
-            }
-            const res = await api<ApiResponse<SignPartData>>(
-                `/upload/multipart/${uploadId}/sign-part/${partNumber}?key=${encodeURIComponent(key)}`,
-            );
-            return { url: res.data.url };
-        },
-        abortMultipartUpload: async (file, { uploadId, key }) => {
-            await api(`/upload/multipart/${uploadId}/abort`, {
-                method: "POST",
-                body: { key },
-            });
-        },
-        // What this returns becomes the upload-success response body.
-        completeMultipartUpload: async (file, { key, parts }) => {
-            const res = await api<ApiResponse<CompleteUploadData>>("/upload/complete", {
-                method: "POST",
-                body: { key, parts: parts.map((p) => ({ part_number: p.PartNumber, etag: p.ETag })) },
-            });
-            return res.data;
-        },
-    });
-
-    uppy.on("file-added", (file) => {
-        const f = files.value.find((f) => f.id === file.meta.clientId);
-        if (f) {
-            f.uppyId = file.id;
-            f.status = "uploading";
-        }
-    });
-
-    uppy.on("file-removed", (file) => {
-        files.value = files.value.filter((f) => f.uppyId !== file.id);
-    });
-
-    uppy.on("upload-progress", (file, progress) => {
-        if (!file) return;
-        const f = files.value.find((f) => f.uppyId === file.id);
-        if (f) {
-            f.status = "uploading";
-            const p = progress as any;
-            f.progress = Math.round((p.bytesUploaded / p.bytesTotal) * 100);
-        }
-    });
-
-    uppy.on("progress", (progress) => {
-        globalProgress.value = progress;
-    });
-
-    uppy.on("upload-success", async (file, response) => {
-        if (!file) return;
-        const f = files.value.find((f) => f.uppyId === file.id);
-        try {
-            // Multipart was completed inside Uppy; a single PUT still needs
-            // the server to record the object.
-            let fileId = (response.body as CompleteUploadData | undefined)?.file_id;
-            if (!file.meta.uploadId) {
-                const res = await api<ApiResponse<CompleteUploadData>>("/upload/complete", {
-                    method: "POST",
-                    body: { key: file.meta.key },
-                });
-                fileId = res.data.file_id;
-            }
-            if (!f) return;
-            f.status = "uploaded";
-            f.progress = 100;
-            if (fileId) {
-                uploadedFileIds.value[f.id] = fileId;
-                f.serverFileId = fileId;
-            }
-            saveDraft();
-        } catch (err) {
-            if (f) {
-                f.status = "error";
-                f.error = parseApiError(err).userMessage;
-            }
-        }
-    });
-
-    uppy.on("upload-error", (file, error) => {
-        if (!file) return;
-        const f = files.value.find((f) => f.uppyId === file.id);
-        if (f) {
-            f.status = "error";
-            f.error = parseApiError(error).userMessage;
-        }
-    });
-
     if (isAuthenticated.value) {
-        loadAndReconcileDraft();
+        draft.loadAndReconcile();
     }
 });
-
-onUnmounted(() => {
-    if (uppy) {
-        const u = uppy as any;
-        if (typeof u.close === "function") {
-            u.close();
-        } else if (typeof u.destroy === "function") {
-            u.destroy();
-        }
-    }
-});
-
-const processSingleFile = async (file: File) => {
-    // Show the file at once; hashing, probing and /upload/init follow.
-    files.value.push({
-        id: `local-${crypto.randomUUID()}`,
-        source: "local",
-        name: file.name,
-        size: file.size,
-        progress: 0,
-        status: "queued",
-        type: file.type,
-    });
-    const item = files.value[files.value.length - 1]!;
-    const isQueued = () => files.value.includes(item);
-
-    try {
-        await prepareSlot(async () => {
-            if (!isQueued()) return;
-            const [hash, probe] = await Promise.all([sha256File(file), probeImage(file)]);
-            item.hash = hash;
-            item.probe = probe;
-
-            // Local duplicate prevention
-            if (files.value.some((f) => f !== item && f.hash === hash)) {
-                files.value = files.value.filter((f) => f !== item);
-                toast.warning(`文件 '${file.name}' 已经存在于当前列表中`);
-                return;
-            }
-
-            const { data: init } = await api<ApiResponse<InitUploadData>>("/upload/init", {
-                method: "POST",
-                body: { filename: file.name, type: file.type, size: file.size, hash },
-            });
-            if (!isQueued()) return;
-
-            if (init.fast_upload) {
-                item.serverFileId = init.file_id;
-                item.status = "uploaded";
-                item.progress = 100;
-                uploadedFileIds.value[item.id] = init.file_id;
-                toast.success(`文件 '${file.name}' 秒传成功！`);
-                saveDraft();
-                return;
-            }
-
-            uppy.addFile({
-                name: file.name,
-                type: file.type,
-                data: file,
-                meta: {
-                    clientId: item.id,
-                    key: init.key,
-                    url: init.url,
-                    uploadId: init.upload_id,
-                    partUrls: init.part_urls,
-                    signedAt: Temporal.Now.instant().epochMilliseconds,
-                },
-            });
-        });
-    } catch (err: any) {
-        console.error("Failed to process file:", err);
-        const errMsg = parseApiError(err).userMessage || err.message || String(err);
-        item.status = "error";
-        item.error = errMsg;
-        toast.error(`初始化文件 '${file.name}' 上传失败: ${errMsg}`);
-    }
-};
 
 const handleFileSelect = (event: Event) => {
     if (!checkAuthBeforeAction()) return;
     const input = event.target as HTMLInputElement;
     if (input.files) {
-        Array.from(input.files).forEach((file) => {
-            processSingleFile(file);
-        });
+        queue.addLocalFiles(input.files);
     }
     input.value = "";
-};
-
-const removeFile = async (id: string) => {
-    const idx = files.value.findIndex((f) => f.id === id);
-    if (idx === -1) return;
-    const f = files.value[idx];
-    if (!f) return;
-
-    files.value.splice(idx, 1);
-    if (f.uppyId) {
-        try {
-            uppy.removeFile(f.uppyId);
-        } catch (e) {
-            console.error(e);
-        }
-    }
-    if (f.serverFileId) {
-        delete uploadedFileIds.value[f.id];
-        f.status = "deleting";
-        try {
-            await deleteDraft.mutateAsync(f.serverFileId);
-        } catch (err) {
-            console.error("Failed to delete file on server:", err);
-        }
-    }
-    saveDraft();
 };
 
 const generateRequestSnapshot = () => {
@@ -560,7 +158,7 @@ const generateRequestSnapshot = () => {
 
     const items = sortedIds.map((id) => ({ file_id: id }));
 
-    if (selectedWorkflowId.value !== "none" && !workflowDirty.value) {
+    if (usesWorkflow.value) {
         return JSON.stringify({
             items,
             workflow_id: selectedWorkflowId.value,
@@ -573,124 +171,6 @@ const generateRequestSnapshot = () => {
         ...(target.value?.max_bytes ? { target: target.value } : {}),
     });
 };
-
-const describeWorkflow = (wf: Workflow) => {
-    const first = wf.outputs?.[0];
-    if (!first) return "";
-    const base = describe(first.options, first.target);
-    return wf.outputs.length > 1 ? `${base} (+${wf.outputs.length - 1})` : base;
-};
-
-const applyWorkflow = async (id: string) => {
-    const wf = workflows.value.find((w) => w.id === id);
-    const first = wf?.outputs?.[0];
-    if (!wf || !first) {
-        selectedWorkflowId.value = "none";
-        workflowDirty.value = false;
-        return;
-    }
-    isApplyingWorkflow.value = true;
-    try {
-        options.value = sanitize(first.options);
-        target.value = first.target?.max_bytes ? { max_bytes: first.target.max_bytes } : undefined;
-        selectedWorkflowId.value = wf.id;
-        workflowDirty.value = false;
-        toast.success(`已应用预设「${wf.name}」`);
-    } finally {
-        await nextTick();
-        isApplyingWorkflow.value = false;
-    }
-};
-
-const savePreset = async () => {
-    if (!checkAuthBeforeAction()) return;
-    const name = presetName.value.trim();
-    if (!name) {
-        toast.error("请输入预设名称");
-        return;
-    }
-    isSavingPreset.value = true;
-    try {
-        await workflowMutations.create.mutateAsync({
-            name,
-            outputs: [
-                {
-                    options: sanitize(options.value),
-                    ...(target.value?.max_bytes ? { target: target.value } : {}),
-                },
-            ],
-        });
-        toast.success(`预设「${name}」已保存`);
-        presetName.value = "";
-        showPresetSave.value = false;
-    } catch (err) {
-        console.error("Failed to save workflow:", err);
-        toast.error("保存预设失败", { description: parseApiError(err).userMessage });
-    } finally {
-        isSavingPreset.value = false;
-    }
-};
-
-const updatePreset = async () => {
-    if (selectedWorkflowId.value === "none") return;
-    const wf = workflows.value.find((w) => w.id === selectedWorkflowId.value);
-    if (!wf || (wf.outputs?.length ?? 0) > 1) return;
-    isSavingPreset.value = true;
-    try {
-        await workflowMutations.update.mutateAsync({
-            id: wf.id,
-            body: {
-                name: wf.name,
-                outputs: [
-                    {
-                        options: sanitize(options.value),
-                        ...(target.value?.max_bytes ? { target: target.value } : {}),
-                    },
-                ],
-            },
-        });
-        workflowDirty.value = false;
-        toast.success(`预设「${wf.name}」已更新为当前参数`);
-    } catch (err) {
-        console.error("Failed to update workflow:", err);
-        toast.error("更新预设失败", { description: parseApiError(err).userMessage });
-    } finally {
-        isSavingPreset.value = false;
-    }
-};
-
-const deletePreset = async () => {
-    if (selectedWorkflowId.value === "none") return;
-    const wf = workflows.value.find((w) => w.id === selectedWorkflowId.value);
-    if (!wf) return;
-    if (!window.confirm(`确认删除预设「${wf.name}」？已创建的任务不受影响。`)) return;
-    isSavingPreset.value = true;
-    try {
-        await workflowMutations.remove.mutateAsync(wf.id);
-        selectedWorkflowId.value = "none";
-        workflowDirty.value = false;
-        toast.success(`预设「${wf.name}」已删除`);
-    } catch (err) {
-        console.error("Failed to delete workflow:", err);
-        toast.error("删除预设失败", { description: parseApiError(err).userMessage });
-    } finally {
-        isSavingPreset.value = false;
-    }
-};
-
-// Mark the applied workflow as modified as soon as any parameter is tweaked.
-// The task still submits explicit params in that case; the link only survives
-// while the form matches the stored preset.
-watch(
-    [options, target],
-    () => {
-        if (isApplyingWorkflow.value) return;
-        if (selectedWorkflowId.value !== "none") {
-            workflowDirty.value = true;
-        }
-    },
-    { deep: true },
-);
 
 const createTask = useCreateTask();
 
@@ -708,7 +188,7 @@ const submitTask = async () => {
             idempotencyKey: key,
             requestBody: currentSnapshot,
         };
-        saveDraft();
+        draft.save();
     }
 
     const body = JSON.parse(currentSnapshot);
@@ -718,7 +198,7 @@ const submitTask = async () => {
     try {
         const created = await createTask.mutateAsync(body);
 
-        clearDraft();
+        draft.clear();
         pendingSubmission.value = null;
         idempotencyKey.value = "";
 
@@ -736,10 +216,6 @@ const submitTask = async () => {
     } finally {
         isCreatingTask.value = false;
     }
-};
-
-const handleAction = () => {
-    submitTask();
 };
 
 const submitButtonText = computed(() => {
@@ -766,27 +242,21 @@ const submitButtonText = computed(() => {
 const dragCounter = ref(0);
 const isDragActive = computed(() => dragCounter.value > 0);
 
-const handleDragEnter = (e: DragEvent) => {
+const handleDragEnter = () => {
     if (isFormDisabled.value) return;
     dragCounter.value++;
 };
 
-const handleDragLeave = (e: DragEvent) => {
+const handleDragLeave = () => {
     if (isFormDisabled.value) return;
     dragCounter.value = Math.max(0, dragCounter.value - 1);
-};
-
-const handleDragOver = (e: DragEvent) => {
-    e.preventDefault();
 };
 
 const handleDrop = (e: DragEvent) => {
     if (isFormDisabled.value) return;
     dragCounter.value = 0;
     if (e.dataTransfer?.files) {
-        Array.from(e.dataTransfer.files).forEach((file) => {
-            processSingleFile(file);
-        });
+        queue.addLocalFiles(e.dataTransfer.files);
     }
 };
 </script>
@@ -822,118 +292,32 @@ const handleDrop = (e: DragEvent) => {
                             {{ $t("new_task.params_subtitle") }}
                         </p>
                     </div>
-</CardHeader>
+                </CardHeader>
                 <CardContent class="p-5 space-y-6">
                     <!-- Workflow Presets -->
-                    <div
+                    <WorkflowPresetPanel
                         v-if="isAuthenticated"
-                        class="p-3.5 rounded-xl bg-surface-2 border border-hairline space-y-2.5"
-                    >
-                        <div class="flex items-center justify-between">
-                            <Label class="text-xs font-semibold text-ink flex items-center gap-1.5">
-                                <Layers class="w-3.5 h-3.5 text-primary" />
-                                我的转码预设 (Workflows)
-                            </Label>
-                            <button
-                                type="button"
-                                :disabled="isParamsDisabled"
-                                @click="showPresetSave = !showPresetSave"
-                                class="text-xs font-semibold text-primary hover:text-primary-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {{ showPresetSave ? "取消保存" : "保存当前参数为预设" }}
-                            </button>
-                        </div>
-                        <div class="flex gap-2">
-                            <Select
-                                :model-value="selectedWorkflowId"
-                                @update:model-value="val => applyWorkflow(String(val ?? 'none'))"
-                                :disabled="isParamsDisabled || workflows.length === 0"
-                            >
-                                <SelectTrigger
-                                    class="h-9 flex-1 rounded-md text-ink text-xs"
-                                >
-                                    <SelectValue
-                                        :placeholder="
-                                            workflows.length === 0
-                                                ? '暂无预设，可先保存当前参数'
-                                                : '选择预设以一键套用'
-                                        "
-                                    />
-                                </SelectTrigger>
-                                <SelectContent class="bg-surface-3 border-hairline rounded-lg">
-                                    <SelectItem value="none">不使用预设（手动参数）</SelectItem>
-                                    <SelectItem v-for="wf in workflows" :key="wf.id" :value="wf.id">
-                                        {{ wf.name }} · {{ describeWorkflow(wf) }}
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <Button
-                                v-if="selectedWorkflowId !== 'none' && !isMultiOutputWorkflow"
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                :disabled="isSavingPreset || isParamsDisabled"
-                                @click="updatePreset"
-                                class="h-9 px-3 rounded-lg border-hairline text-xs font-semibold cursor-pointer"
-                            >
-                                <Loader2 v-if="isSavingPreset" class="w-3.5 h-3.5 animate-spin" />
-                                <span v-else>更新预设</span>
-                            </Button>
-                            <Button
-                                v-if="selectedWorkflowId !== 'none'"
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                :disabled="isSavingPreset || isParamsDisabled"
-                                @click="deletePreset"
-                                class="h-9 px-3 rounded-lg border-hairline text-xs font-semibold text-red-500 hover:text-red-600 hover:bg-red-500/5 cursor-pointer"
-                            >
-                                删除
-                            </Button>
-                        </div>
-                        <p
-                            v-if="selectedWorkflowId !== 'none' && isMultiOutputWorkflow"
-                            class="text-[11px] font-medium text-amber-600 dark:text-amber-400"
-                        >
-                            {{
-                                workflowDirty
-                                    ? "多输出预设的参数已修改：提交将按当前单输出参数执行；如需保存修改可另存为新预设。"
-                                    : `多输出预设（共 ${selectedWorkflow?.outputs?.length} 份输出）：当前仅预览第 1 份，直接提交仍生成全部 ${selectedWorkflow?.outputs?.length} 份；网页端暂不支持就地更新多输出预设。`
-                            }}
-                        </p>
-                        <p
-                            v-else-if="selectedWorkflowId !== 'none' && workflowDirty"
-                            class="text-[11px] font-medium text-amber-600 dark:text-amber-400"
-                        >
-                            参数已修改：提交将使用当前参数；可点击「更新预设」覆盖原预设。
-                        </p>
-                        <div v-if="showPresetSave" class="flex gap-2 animate-in fade-in duration-200">
-                            <Input
-                                v-model="presetName"
-                                :disabled="isSavingPreset"
-                                placeholder="预设名称，例如：AVIF 画质优先"
-                                class="h-9 flex-1 rounded-md text-xs"
-                                @keyup.enter="savePreset"
-                            />
-                            <Button
-                                type="button"
-                                size="sm"
-                                :disabled="isSavingPreset || !presetName.trim()"
-                                @click="savePreset"
-                                class="h-9 px-4 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover text-xs font-semibold cursor-pointer gap-1.5"
-                            >
-                                <Loader2 v-if="isSavingPreset" class="w-3.5 h-3.5 animate-spin" />
-                                <span>保存</span>
-                            </Button>
-                        </div>
-                    </div>
+                        v-model:show-preset-save="showPresetSave"
+                        v-model:preset-name="presetName"
+                        :workflows="workflows"
+                        :selected-workflow-id="selectedWorkflowId"
+                        :selected-workflow="selectedWorkflow"
+                        :is-multi-output-workflow="isMultiOutputWorkflow"
+                        :workflow-dirty="workflowDirty"
+                        :is-saving-preset="isSavingPreset"
+                        :disabled="isFormDisabled"
+                        @apply="presets.applyWorkflow"
+                        @update="presets.updatePreset"
+                        @remove="presets.deletePreset"
+                        @save="presets.savePreset"
+                    />
 
                     <ImageOptionsForm
                         v-model="options"
                         v-model:target="target"
                         target-support
                         :source-probe="firstFileProbe"
-                        :disabled="isParamsDisabled"
+                        :disabled="isFormDisabled"
                         jpeg-repack
                     />
                 </CardContent>
@@ -946,35 +330,11 @@ const handleDrop = (e: DragEvent) => {
                     'border-primary ring-1 ring-primary/20 bg-primary-soft': isDragActive,
                 }"
                 @dragenter.prevent="handleDragEnter"
-                @dragover.prevent="handleDragOver"
+                @dragover.prevent
                 @drop.stop.prevent="handleDrop"
             >
                 <!-- Drag overlay -->
-                <Transition
-                    enter-active-class="transition duration-200 ease-out"
-                    enter-from-class="opacity-0 scale-95"
-                    enter-to-class="opacity-100 scale-100"
-                    leave-active-class="transition duration-150 ease-in"
-                    leave-from-class="opacity-100 scale-100"
-                    leave-to-class="opacity-0 scale-95"
-                >
-                    <div
-                        v-if="isDragActive"
-                        class="absolute inset-0 bg-canvas/90 backdrop-blur-[1px] z-50 flex flex-col items-center justify-center gap-4 transition-all duration-300 border border-dashed border-primary/50 rounded-xl pointer-events-auto"
-                        @dragleave.prevent="handleDragLeave"
-                        @dragover.prevent="handleDragOver"
-                        @drop.stop.prevent="handleDrop"
-                    >
-                        <div
-                            class="h-12 w-12 rounded-full bg-primary-soft flex items-center justify-center text-primary"
-                        >
-                            <UploadCloud class="w-6 h-6" />
-                        </div>
-                        <p class="text-xs font-semibold text-primary tracking-wide">
-                            {{ $t("new_task.drop_files") }}
-                        </p>
-                    </div>
-                </Transition>
+                <FileDropOverlay :active="isDragActive" @leave="handleDragLeave" @drop="handleDrop" />
 
                 <CardHeader
                     class="px-5 py-3.5 border-b border-hairline flex flex-row items-center justify-between space-y-0"
@@ -1002,229 +362,31 @@ const handleDrop = (e: DragEvent) => {
                     </div>
                 </CardHeader>
                 <CardContent class="p-5">
-                    <div v-if="files.length > 0" class="space-y-2">
-                        <div
-                            v-for="file in files"
-                            :key="file.id"
-                            class="group flex items-center justify-between p-3 rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 transition-colors"
-                        >
-                            <div class="flex items-center space-x-3 truncate flex-1 pr-4">
-                                <div
-                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-1 border border-hairline text-ink-subtle shadow-xs group-hover:text-primary group-hover:border-primary/20 transition-all"
-                                >
-                                    <FileImage
-                                        v-if="file.type?.startsWith('image/')"
-                                        class="w-4 h-4"
-                                    />
-                                    <FileVideo
-                                        v-else-if="file.type?.startsWith('video/')"
-                                        class="w-4 h-4"
-                                    />
-                                    <FileCode v-else class="w-4 h-4" />
-                                </div>
-                                <div class="flex-1 truncate">
-                                    <p class="text-xs font-semibold text-ink truncate">
-                                        {{ file.name }}
-                                    </p>
-                                    <p
-                                        v-if="file.status === 'error' && file.error"
-                                        class="text-xs font-medium text-red-500 mt-1 truncate"
-                                        :title="file.error"
-                                    >
-                                        {{ file.error }}
-                                    </p>
-                                    <p v-else class="text-xs font-medium text-ink-subtle mt-0.5">
-                                        {{ (file.size / 1024 / 1024).toFixed(2) }} MB
-                                    </p>
-                                </div>
-                            </div>
+                    <UploadQueueList
+                        :files="files"
+                        :is-creating-task="isCreatingTask"
+                        @remove="queue.removeFile"
+                    />
 
-                            <div class="flex items-center space-x-4">
-                                <div
-                                    v-if="file.status === 'queued'"
-                                    class="flex items-center gap-1.5 shrink-0 text-xs font-medium text-ink-subtle"
-                                >
-                                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                                    {{ $t("new_task.preparing") }}
-                                </div>
-                                <div
-                                    v-else-if="file.status === 'uploading'"
-                                    class="w-24 flex flex-col items-end gap-1 shrink-0"
-                                >
-                                    <span class="text-xs font-semibold text-primary"
-                                        >{{ file.progress }}%</span
-                                    >
-                                    <div
-                                        class="h-1 w-full rounded-full bg-surface-3 overflow-hidden"
-                                    >
-                                        <div
-                                            class="h-full bg-primary transition-all duration-500 ease-out"
-                                            :style="{ width: `${file.progress}%` }"
-                                        />
-                                    </div>
-                                </div>
-
-                                <Button
-                                    v-if="
-                                        !isCreatingTask &&
-                                        file.status !== 'deleting' &&
-                                        file.status !== 'aborting'
-                                    "
-                                    variant="ghost"
-                                    size="icon"
-                                    @click="removeFile(file.id)"
-                                    class="h-7 w-7 rounded-lg text-ink-subtle hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                                >
-                                    <X class="w-3.5 h-3.5" />
-                                </Button>
-                                <div
-                                    v-if="file.status === 'uploaded'"
-                                    class="w-7 h-7 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400"
-                                >
-                                    <Check
-                                        class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400"
-                                        stroke-width="2.5"
-                                    />
-                                </div>
-                                <div
-                                    v-else-if="file.status === 'error'"
-                                    class="w-7 h-7 rounded-full bg-red-500/10 flex items-center justify-center text-red-500"
-                                >
-                                    <AlertCircle class="w-3.5 h-3.5" />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div
-                        v-else
-                        class="flex flex-col items-center justify-center py-16 px-6 text-center border-[1.5px] border-dashed border-hairline-tertiary rounded-xl bg-surface-1"
-                    >
-                        <div
-                            class="h-10 w-10 rounded-full bg-primary-soft flex items-center justify-center mb-4 text-primary"
-                        >
-                            <UploadCloud class="w-5 h-5 opacity-70" />
-                        </div>
-                        <p class="text-sm font-semibold text-ink mb-1">
-                            {{ $t("new_task.no_files") }}
-                        </p>
-                        <p class="text-sm text-ink-subtle font-medium max-w-xs">
-                            {{ $t("new_task.no_files_desc") }}
-                        </p>
-                    </div>
-
-                    <div v-if="files.length > 0" class="pt-6 mt-6 border-t border-hairline">
-                        <div
-                            v-if="isUploading"
-                            class="space-y-3 mb-6 max-w-md ml-auto animate-in fade-in duration-300"
-                        >
-                            <div class="flex justify-between items-end">
-                                <span class="text-xs font-semibold text-ink-muted">
-                                    {{ $t("new_task.uploading", { count: files.length }) }}
-                                </span>
-                                <span
-                                    class="text-xl font-semibold text-primary dark:text-primary-hover"
-                                    >{{ globalProgress }}%</span
-                                >
-                            </div>
-                            <div class="h-1.5 w-full rounded-full bg-surface-3 overflow-hidden">
-                                <div
-                                    class="h-full bg-primary rounded-full transition-all duration-500 ease-out shadow-xs"
-                                    :style="{ width: `${globalProgress}%` }"
-                                />
-                            </div>
-                        </div>
-
-                        <div class="flex justify-end">
-                            <Button
-                                @click="handleAction"
-                                :disabled="isSubmitDisabled"
-                                class="rounded-lg px-6 h-9 text-xs font-semibold bg-primary hover:bg-primary-hover text-primary-foreground shadow-sm transition-all duration-200 cursor-pointer"
-                            >
-                                <Loader2
-                                    v-if="isUploading || isCreatingTask"
-                                    class="mr-2 h-3.5 w-3.5 animate-spin"
-                                />
-                                {{ submitButtonText }}
-                            </Button>
-                        </div>
-                    </div>
+                    <TaskSubmitBar
+                        v-if="files.length > 0"
+                        :file-count="files.length"
+                        :is-uploading="isUploading"
+                        :is-creating-task="isCreatingTask"
+                        :global-progress="globalProgress"
+                        :is-submit-disabled="isSubmitDisabled"
+                        :submit-button-text="submitButtonText"
+                        @submit="submitTask"
+                    />
 
                     <!-- Recent Uploads Section -->
-                    <div class="mt-8 pt-6 border-t border-hairline">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3
-                                class="text-xs font-semibold uppercase tracking-wider text-ink-muted flex items-center gap-1.5"
-                            >
-                                <HardDrive class="w-3.5 h-3.5" />
-                                未提交的历史文件草稿
-                            </h3>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                class="h-7 px-2 text-xs font-semibold text-primary hover:bg-primary/5 cursor-pointer"
-                                @click="fetchRecentFiles"
-                                :disabled="isLoadingRecent"
-                            >
-                                <Loader2 v-if="isLoadingRecent" class="mr-1 h-3 w-3 animate-spin" />
-                                刷新
-                            </Button>
-                        </div>
-
-                        <div
-                            v-if="filteredRecentFiles.length > 0"
-                            class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1"
-                        >
-                            <div
-                                v-for="file in filteredRecentFiles"
-                                :key="file.id"
-                                class="flex items-center justify-between p-2 rounded-lg border border-hairline bg-surface-1 hover:bg-surface-2 transition-colors"
-                            >
-                                <div
-                                    class="flex items-center space-x-2 truncate flex-1 min-w-0 mr-2"
-                                >
-                                    <FileImage
-                                        v-if="file.mime_type?.startsWith('image/')"
-                                        class="w-3.5 h-3.5 shrink-0 text-ink-subtle"
-                                    />
-                                    <FileVideo
-                                        v-else-if="file.mime_type?.startsWith('video/')"
-                                        class="w-3.5 h-3.5 shrink-0 text-ink-subtle"
-                                    />
-                                    <FileCode v-else class="w-3.5 h-3.5 shrink-0 text-ink-subtle" />
-                                    <span
-                                        class="text-xs font-medium text-ink truncate"
-                                        :title="file.name"
-                                        >{{ file.name }}</span
-                                    >
-                                </div>
-                                <div class="flex items-center space-x-1 shrink-0">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        class="h-6 px-1.5 text-xs text-primary hover:bg-primary/5 font-semibold cursor-pointer"
-                                        @click="addRecentFile(file)"
-                                    >
-                                        添加
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        class="h-6 w-6 text-ink-subtle hover:text-red-500 hover:bg-red-500/5 cursor-pointer"
-                                        @click="deleteRecentFile(file.id)"
-                                    >
-                                        <Trash2 class="w-3.5 h-3.5" />
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                        <div
-                            v-else
-                            class="text-center py-6 text-xs text-ink-subtle border border-dashed border-hairline rounded-lg"
-                        >
-                            无未提交的历史文件草稿
-                        </div>
-                    </div>
+                    <DraftFilesPanel
+                        :files="filteredRecentFiles"
+                        :loading="isLoadingRecent"
+                        @refresh="fetchRecentFiles"
+                        @add="addRecentFile"
+                        @remove="deleteRecentFile"
+                    />
                 </CardContent>
             </Card>
         </div>
