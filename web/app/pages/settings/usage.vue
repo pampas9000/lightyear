@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { computed } from 'vue'
 import { useAuth } from '~/composables/useAuth'
-import { useApi, parseApiError } from '~/composables/useApi'
-import type { ApiResponse } from '~/lib/types/api'
-import type { UsageSummary } from '~/lib/types/usage'
+import { parseApiError } from '~/composables/useApi'
+import { useUsage } from '~/composables/queries/usage'
+import { renderState } from '~/composables/queries/prefetch'
 import { Gauge, Loader2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 
@@ -14,33 +14,12 @@ useHead({
 })
 
 const { isAuthenticated, showAuthModal } = useAuth()
-const api = useApi()
 
-const usage = ref<UsageSummary | null>(null)
-const loading = ref(true)
-const error = ref<string | null>(null)
-
-const fetchUsage = async () => {
-    if (!isAuthenticated.value) {
-        loading.value = false
-        return
-    }
-    loading.value = true
-    error.value = null
-    try {
-        const res = await api<ApiResponse<UsageSummary>>('/usage')
-        usage.value = res.data
-    } catch (err) {
-        error.value = parseApiError(err).userMessage
-    } finally {
-        loading.value = false
-    }
-}
-
-watch(isAuthenticated, (val) => {
-    if (val) fetchUsage()
-})
-onMounted(fetchUsage)
+const usageQuery = useUsage()
+const usage = computed(() => usageQuery.data.value ?? null)
+const { loading, error: queryError } = renderState(usageQuery)
+const error = computed(() => queryError.value ? parseApiError(queryError.value).userMessage : null)
+const fetchUsage = () => usageQuery.refetch()
 
 const number = (n: number) => new Intl.NumberFormat(locale.value).format(n)
 

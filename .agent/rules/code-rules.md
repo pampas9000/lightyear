@@ -19,6 +19,8 @@ trigger: always_on
 - Use shadcn components when possible.
 - Type Safety for Backend APIs Responses.
 - Server data: Use TanStack Query (`@tanstack/vue-query`) for fetching, polling, caching and invalidation after mutations.
+  - Keys live in `web/app/lib/query-keys.ts`; queries and mutations live in `web/app/composables/queries/`.
+  - Every query a page renders is prefetched with `prefetchOnServer`, and pages render its loading and error through `renderState`, so the server HTML and the hydrated cache agree.
 - Virtual Scroll: Use TanStack Virtual only for lists that can exceed about 500 rows. Paginated lists do not need it.
 
 

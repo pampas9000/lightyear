@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { useAuth } from '~/composables/useAuth'
-import { useApi } from '~/composables/useApi'
-import { ref, onMounted, watch, computed } from 'vue'
-import type { Task, TaskStats, ListTasksData } from '~/lib/types/task'
+import { computed } from 'vue'
+import type { Task, TaskStats } from '~/lib/types/task'
 import { TaskStatus } from '~/lib/types/task'
-import type { ApiResponse } from '~/lib/types/api'
+import { useTaskList, useTaskStats } from '~/composables/queries/tasks'
+import { renderState } from '~/composables/queries/prefetch'
 import {
     Activity, Clock, CheckCircle2, AlertCircle,
     Plus, Loader2, Calendar, RotateCcw,
@@ -21,57 +20,27 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-const { user, isAuthenticated } = useAuth()
-const api = useApi()
-
 useHead({
     title: $t('nav.overview') + ' | Transcoder',
 })
 
-const stats = ref<TaskStats>({
+const EMPTY_STATS: TaskStats = {
     PENDING: 0,
     PROCESSING: 0,
     COMPLETED: 0,
     FAILED: 0,
     PARTIALLY_FAILED: 0
-})
-
-const tasks = ref<Task[] | null>(null)
-const loading = ref(true)
-
-const fetchDashboardData = async () => {
-    if (!isAuthenticated.value) {
-        loading.value = false
-        return
-    }
-
-    loading.value = true
-    try {
-        const [statsRes, tasksRes] = await Promise.all([
-            api<ApiResponse<TaskStats>>('/tasks/stats'),
-            api<ApiResponse<ListTasksData>>('/tasks')
-        ])
-
-        if (statsRes.success) {
-            stats.value = statsRes.data
-        }
-        if (tasksRes.success) {
-            tasks.value = tasksRes.data.items
-        }
-    } catch (err) {
-        console.error("Failed to fetch dashboard data:", err)
-    } finally {
-        loading.value = false
-    }
 }
 
-watch(isAuthenticated, (val) => {
-    if (val) fetchDashboardData()
-})
+// The overview shows the eight newest tasks.
+const statsQuery = useTaskStats()
+const recentQuery = useTaskList({ page: 1, limit: 8 })
 
-onMounted(() => {
-    fetchDashboardData()
-})
+const stats = computed(() => statsQuery.data.value ?? EMPTY_STATS)
+const tasks = computed<Task[] | null>(() => recentQuery.data.value?.items ?? null)
+const statsState = renderState(statsQuery)
+const recentState = renderState(recentQuery)
+const loading = computed(() => statsState.loading.value || recentState.loading.value)
 
 const getStatusStyle = (status: TaskStatus | string) => {
     switch (status) {

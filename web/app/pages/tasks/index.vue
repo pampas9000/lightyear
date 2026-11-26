@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { useAuth } from '~/composables/useAuth'
-import { useApi } from '~/composables/useApi'
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { describe } from '~/lib/image-options'
-import type { Task, TaskStatus, ListTasksData } from '~/lib/types/task'
-import type { ApiResponse } from '~/lib/types/api'
+import type { Task, TaskStatus } from '~/lib/types/task'
+import { useTaskList, useTaskMutations } from '~/composables/queries/tasks'
+import { renderState } from '~/composables/queries/prefetch'
 import {
     Activity, Clock, CheckCircle2, AlertCircle,
     Plus, Loader2, Calendar, RotateCcw,
@@ -46,25 +45,37 @@ useHead({
     title: $t('nav.tasks') + ' | Transcoder',
 })
 
-const { isAuthenticated } = useAuth()
-const api = useApi()
-
-const tasks = ref<Task[] | null>(null)
-const loading = ref(true)
 const searchQuery = ref("")
 const retryingTasks = ref<Record<string, boolean>>({})
+
+// Pagination & Filtering state
+const currentPage = ref(1)
+const itemsPerPage = 12
+const statusFilter = ref("ALL")
+// A new filter starts from its first page.
+watch(statusFilter, () => {
+    currentPage.value = 1
+})
+
+const listQuery = useTaskList(() => ({
+    page: currentPage.value,
+    limit: itemsPerPage,
+    status: statusFilter.value === 'ALL' ? undefined : statusFilter.value,
+}))
+const tasks = computed<Task[] | null>(() => listQuery.data.value?.items ?? null)
+const totalTasks = computed(() => listQuery.data.value?.total ?? 0)
+// The previous page stays in the cache while the next loads, but the list
+// shows the spinner as it always has.
+const listState = renderState(listQuery)
+const loading = computed(() => listState.loading.value || listQuery.isPlaceholderData.value)
+
+const { retry } = useTaskMutations()
 
 const retryTask = async (taskObj: Task) => {
     retryingTasks.value[taskObj.id] = true
     try {
-        const res = await api<ApiResponse<Task>>(`/tasks/${taskObj.id}/retry`, {
-            method: 'POST',
-            body: {}
-        })
-        if (res.success) {
-            toast.success($t('task_detail.toast_retry_success'))
-            fetchTasks()
-        }
+        await retry.mutateAsync({ taskId: taskObj.id, body: {} })
+        toast.success($t('task_detail.toast_retry_success'))
     } catch (err: any) {
         console.error('Failed to retry task:', err)
         toast.error(err.data?.message || $t('task_detail.toast_retry_failed'))
@@ -72,49 +83,6 @@ const retryTask = async (taskObj: Task) => {
         retryingTasks.value[taskObj.id] = false
     }
 }
-
-// Pagination & Filtering state
-const currentPage = ref(1)
-const itemsPerPage = 12
-const totalTasks = ref(0)
-const statusFilter = ref("ALL")
-
-const fetchTasks = async () => {
-    if (!isAuthenticated.value) {
-        loading.value = false
-        return
-    }
-
-    loading.value = true
-    try {
-        const query: Record<string, string | number> = { limit: itemsPerPage, page: currentPage.value }
-        if (statusFilter.value !== 'ALL') query.status = statusFilter.value
-
-        const res = await api<ApiResponse<ListTasksData>>('/tasks', { query })
-        if (res.success) {
-            tasks.value = res.data.items
-            totalTasks.value = res.data.total
-        }
-    } catch (err) {
-        console.error("Failed to fetch tasks:", err)
-    } finally {
-        loading.value = false
-    }
-}
-
-watch(isAuthenticated, (val) => {
-    if (val) fetchTasks()
-})
-
-watch([currentPage, statusFilter], () => {
-    if (isAuthenticated.value) {
-        fetchTasks()
-    }
-})
-
-onMounted(() => {
-    fetchTasks()
-})
 
 const getStatusStyle = (status: TaskStatus | string) => {
     switch (status) {

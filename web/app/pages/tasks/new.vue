@@ -5,8 +5,11 @@ import { Uppy } from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
 import { useApi, parseApiError } from "~/composables/useApi";
 import { useAuth } from "~/composables/useAuth";
-import type { Task, Workflow } from "~/lib/types/task";
-import type { ApiResponse, ListData } from "~/lib/types/api";
+import type { Workflow } from "~/lib/types/task";
+import type { ApiResponse } from "~/lib/types/api";
+import { useCreateTask } from "~/composables/queries/tasks";
+import { useDeleteDraft, useDraftFiles } from "~/composables/queries/drafts";
+import { useWorkflowMutations, useWorkflows } from "~/composables/queries/workflows";
 import type {
     CompleteUploadData,
     DraftFile,
@@ -61,7 +64,9 @@ const target = ref<CompressionTarget | undefined>(undefined);
 
 // Saved option sets (workflows). While the form still matches the applied
 // workflow the task references it; any edit submits explicit options instead.
-const workflows = ref<Workflow[]>([]);
+const workflowsQuery = useWorkflows();
+const workflows = computed<Workflow[]>(() => workflowsQuery.data.value ?? []);
+const workflowMutations = useWorkflowMutations();
 const selectedWorkflowId = ref("none");
 const selectedWorkflow = computed(() => workflows.value.find((w) => w.id === selectedWorkflowId.value));
 const isMultiOutputWorkflow = computed(() => (selectedWorkflow.value?.outputs?.length ?? 0) > 1);
@@ -173,8 +178,8 @@ const loadAndReconcileDraft = async () => {
         }
 
         isReconciling.value = true;
-        const res = await api<ApiResponse<ListData<DraftFile>>>("/drafts/list");
-        const serverFiles = res.data.items;
+        const { data: serverFiles = [], error } = await draftsQuery.refetch();
+        if (error) throw error;
         const serverFileMap = new Map(serverFiles.map((f) => [f.id, f]));
 
         if (draft.selectedServerFileIds && draft.selectedServerFileIds.length > 0) {
@@ -237,35 +242,28 @@ watch(
             uploadedFileIds.value = {};
             pendingSubmission.value = null;
             idempotencyKey.value = "";
+            // The drafts and workflow queries refetch for the new user.
             if (newUid) {
                 loadAndReconcileDraft();
-                fetchRecentFiles();
-                fetchWorkflows();
             }
         }
     },
 );
 
 // Recent uploads (Draft files)
-const recentFiles = ref<DraftFile[]>([]);
+const draftsQuery = useDraftFiles();
+const deleteDraft = useDeleteDraft();
+const recentFiles = computed<DraftFile[]>(() => draftsQuery.data.value ?? []);
 const filteredRecentFiles = computed(() => {
     return recentFiles.value.filter(
         (rf) => !files.value.some((f) => f.serverFileId === rf.id)
     );
 });
-const isLoadingRecent = ref(false);
+const isLoadingRecent = computed(() => draftsQuery.isFetching.value);
 
-const fetchRecentFiles = async () => {
+const fetchRecentFiles = () => {
     if (!isAuthenticated.value) return;
-    isLoadingRecent.value = true;
-    try {
-        const res = await api<ApiResponse<ListData<DraftFile>>>("/drafts/list");
-        recentFiles.value = res.data.items;
-    } catch (err) {
-        console.error("Failed to fetch recent files:", err);
-    } finally {
-        isLoadingRecent.value = false;
-    }
+    void draftsQuery.refetch();
 };
 
 const addRecentFile = (file: DraftFile) => {
@@ -291,8 +289,7 @@ const addRecentFile = (file: DraftFile) => {
 const deleteRecentFile = async (fileId: string) => {
     if (!checkAuthBeforeAction()) return;
     try {
-        await api(`/drafts/${fileId}/delete`, { method: "POST" });
-        recentFiles.value = recentFiles.value.filter((f) => f.id !== fileId);
+        await deleteDraft.mutateAsync(fileId);
         const idx = files.value.findIndex((f) => f.serverFileId === fileId);
         if (idx !== -1) {
             const item = files.value[idx];
@@ -438,8 +435,6 @@ onMounted(() => {
 
     if (isAuthenticated.value) {
         loadAndReconcileDraft();
-        fetchRecentFiles();
-        fetchWorkflows();
     }
 });
 
@@ -550,7 +545,7 @@ const removeFile = async (id: string) => {
         delete uploadedFileIds.value[f.id];
         f.status = "deleting";
         try {
-            await api(`/drafts/${f.serverFileId}/delete`, { method: "POST" });
+            await deleteDraft.mutateAsync(f.serverFileId);
         } catch (err) {
             console.error("Failed to delete file on server:", err);
         }
@@ -586,16 +581,6 @@ const describeWorkflow = (wf: Workflow) => {
     return wf.outputs.length > 1 ? `${base} (+${wf.outputs.length - 1})` : base;
 };
 
-const fetchWorkflows = async () => {
-    if (!isAuthenticated.value) return;
-    try {
-        const res = await api<ApiResponse<ListData<Workflow>>>("/workflows", { query: { limit: 100 } });
-        workflows.value = res.data.items;
-    } catch (err) {
-        console.error("Failed to fetch workflows:", err);
-    }
-};
-
 const applyWorkflow = async (id: string) => {
     const wf = workflows.value.find((w) => w.id === id);
     const first = wf?.outputs?.[0];
@@ -626,22 +611,18 @@ const savePreset = async () => {
     }
     isSavingPreset.value = true;
     try {
-        await api("/workflows", {
-            method: "POST",
-            body: {
-                name,
-                outputs: [
-                    {
-                        options: sanitize(options.value),
-                        ...(target.value?.max_bytes ? { target: target.value } : {}),
-                    },
-                ],
-            },
+        await workflowMutations.create.mutateAsync({
+            name,
+            outputs: [
+                {
+                    options: sanitize(options.value),
+                    ...(target.value?.max_bytes ? { target: target.value } : {}),
+                },
+            ],
         });
         toast.success(`预设「${name}」已保存`);
         presetName.value = "";
         showPresetSave.value = false;
-        await fetchWorkflows();
     } catch (err) {
         console.error("Failed to save workflow:", err);
         toast.error("保存预设失败", { description: parseApiError(err).userMessage });
@@ -656,8 +637,8 @@ const updatePreset = async () => {
     if (!wf || (wf.outputs?.length ?? 0) > 1) return;
     isSavingPreset.value = true;
     try {
-        await api(`/workflows/${wf.id}`, {
-            method: "PUT",
+        await workflowMutations.update.mutateAsync({
+            id: wf.id,
             body: {
                 name: wf.name,
                 outputs: [
@@ -670,7 +651,6 @@ const updatePreset = async () => {
         });
         workflowDirty.value = false;
         toast.success(`预设「${wf.name}」已更新为当前参数`);
-        await fetchWorkflows();
     } catch (err) {
         console.error("Failed to update workflow:", err);
         toast.error("更新预设失败", { description: parseApiError(err).userMessage });
@@ -686,11 +666,10 @@ const deletePreset = async () => {
     if (!window.confirm(`确认删除预设「${wf.name}」？已创建的任务不受影响。`)) return;
     isSavingPreset.value = true;
     try {
-        await api(`/workflows/${wf.id}`, { method: "DELETE" });
+        await workflowMutations.remove.mutateAsync(wf.id);
         selectedWorkflowId.value = "none";
         workflowDirty.value = false;
         toast.success(`预设「${wf.name}」已删除`);
-        await fetchWorkflows();
     } catch (err) {
         console.error("Failed to delete workflow:", err);
         toast.error("删除预设失败", { description: parseApiError(err).userMessage });
@@ -712,6 +691,8 @@ watch(
     },
     { deep: true },
 );
+
+const createTask = useCreateTask();
 
 const submitTask = async () => {
     if (!checkAuthBeforeAction()) return;
@@ -735,18 +716,15 @@ const submitTask = async () => {
 
     isCreatingTask.value = true;
     try {
-        const response = await api<ApiResponse<Task>>("/tasks", {
-            method: "POST",
-            body,
-        });
+        const created = await createTask.mutateAsync(body);
 
         clearDraft();
         pendingSubmission.value = null;
         idempotencyKey.value = "";
 
         taskCreated.value = true;
-        if (response && response.data && response.data.id) {
-            router.push(`/tasks/${response.data.id}`);
+        if (created?.id) {
+            router.push(`/tasks/${created.id}`);
         } else {
             router.push("/tasks");
         }

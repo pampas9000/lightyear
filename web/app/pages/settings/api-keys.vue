@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAuth } from '~/composables/useAuth'
-import { useApi, parseApiError } from '~/composables/useApi'
-import type { ApiResponse } from '~/lib/types/api'
-import type { ApiKey, ApiKeyScope, CreateApiKeyData, ListApiKeysData } from '~/lib/types/api-key'
+import { parseApiError } from '~/composables/useApi'
+import { useApiKeyMutations, useApiKeys } from '~/composables/queries/api-keys'
+import { renderState } from '~/composables/queries/prefetch'
+import type { ApiKey, ApiKeyScope } from '~/lib/types/api-key'
 import { KeyRound, Plus, Loader2, Copy, Check, TriangleAlert, Ban } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,19 +28,23 @@ useHead({
 })
 
 const { isAuthenticated, showAuthModal } = useAuth()
-const api = useApi()
 
-const keys = ref<ApiKey[]>([])
-const loading = ref(true)
+const keysQuery = useApiKeys()
+const keys = computed(() => keysQuery.data.value ?? [])
+const { loading } = renderState(keysQuery)
+watch(() => keysQuery.error.value, (err) => {
+    if (err) toast.error(parseApiError(err).userMessage)
+})
+const { create, revoke } = useApiKeyMutations()
 
 const name = ref('')
 const scopes = ref<Record<ApiKeyScope, boolean>>({ 'tasks:read': true, 'tasks:write': true })
-const creating = ref(false)
+const creating = computed(() => create.isPending.value)
 const createdKey = ref<string | null>(null)
 const copied = ref(false)
 
 const revokeTarget = ref<ApiKey | null>(null)
-const revoking = ref(false)
+const revoking = computed(() => revoke.isPending.value)
 
 const selectedScopes = computed(() =>
     (Object.keys(scopes.value) as ApiKeyScope[]).filter(s => scopes.value[s]),
@@ -51,40 +56,16 @@ const scopeLabel = (scope: ApiKeyScope) =>
 
 const { dateTime: formatDate } = useTime()
 
-const fetchKeys = async () => {
-    if (!isAuthenticated.value) {
-        loading.value = false
-        return
-    }
-    loading.value = true
-    try {
-        // At most 20 keys are active; one page of 100 also covers the revoked ones.
-        const res = await api<ApiResponse<ListApiKeysData>>('/api-keys', { query: { limit: 100 } })
-        keys.value = res.data.items
-    } catch (err) {
-        toast.error(parseApiError(err).userMessage)
-    } finally {
-        loading.value = false
-    }
-}
-
 const createKey = async () => {
     if (!canCreate.value) return
-    creating.value = true
     try {
-        const res = await api<ApiResponse<CreateApiKeyData>>('/api-keys', {
-            method: 'POST',
-            body: { name: name.value.trim(), scopes: selectedScopes.value },
-        })
-        createdKey.value = res.data.key
+        const data = await create.mutateAsync({ name: name.value.trim(), scopes: selectedScopes.value })
+        createdKey.value = data.key
         copied.value = false
-        keys.value = [res.data.api_key, ...keys.value]
         name.value = ''
         toast.success(t('api_keys.toast_created'))
     } catch (err) {
         toast.error(parseApiError(err).userMessage)
-    } finally {
-        creating.value = false
     }
 }
 
@@ -101,23 +82,14 @@ const copyKey = async () => {
 const revokeKey = async () => {
     const target = revokeTarget.value
     if (!target) return
-    revoking.value = true
     try {
-        const res = await api<ApiResponse<ApiKey>>(`/api-keys/${target.id}`, { method: 'DELETE' })
-        keys.value = keys.value.map(k => (k.id === target.id ? res.data : k))
+        await revoke.mutateAsync(target.id)
         toast.success(t('api_keys.toast_revoked'))
         revokeTarget.value = null
     } catch (err) {
         toast.error(parseApiError(err).userMessage)
-    } finally {
-        revoking.value = false
     }
 }
-
-watch(isAuthenticated, val => {
-    if (val) fetchKeys()
-})
-onMounted(fetchKeys)
 </script>
 
 <template>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useApi } from '~/composables/useApi'
+import { useApi, apiErrorStatus } from '~/composables/useApi'
+import { useTask, useTaskMutations, type RetryTaskBody } from '~/composables/queries/tasks'
+import { renderState } from '~/composables/queries/prefetch'
 import type { Task, Job, File, TaskStatus, CompressionTarget } from '~/lib/types/task'
 import type { ApiResponse } from '~/lib/types/api'
 import { describe, formatShortBytes } from '~/lib/image-options'
@@ -47,9 +49,22 @@ const router = useRouter()
 const api = useApi()
 const taskId = route.params.id as string
 
-const task = ref<Task | null>(null)
-const loading = ref(true)
-const polling = ref<any>(null)
+// Polls every 2s while the task runs, stops once it ends and pauses in a
+// background tab (see useTask).
+const taskQuery = useTask(taskId)
+const task = computed<Task | null>(() => taskQuery.data.value ?? null)
+const { loading } = renderState(taskQuery)
+const { retry: retryMutation, cancel: cancelMutation, remove: removeMutation } = useTaskMutations()
+
+watch(() => taskQuery.error.value, (err) => {
+    if (!err) return
+    console.error("Failed to fetch task:", err)
+    toast.error($t('task_detail.toast_fetch_failed'))
+    if (apiErrorStatus(err) === 404) {
+        router.push('/tasks')
+    }
+})
+
 const downloadingJobs = ref<Record<string, boolean>>({})
 const isDownloadingAll = ref(false)
 const isRefreshing = ref(false)
@@ -61,65 +76,13 @@ const selectedJobForPreview = ref<Job | null>(null)
 const previewImageUrl = ref<string | null>(null)
 const isPreviewLoading = ref(false)
 
-const fetchTask = async () => {
-    try {
-        const res = await api<ApiResponse<Task>>(`/tasks/${taskId}`)
-        if (res.success) {
-            task.value = res.data
-            // If completed, failed, or partially failed, stop polling
-            if (task.value.status !== 'PROCESSING' && task.value.status !== 'PENDING') {
-                stopPolling()
-            }
-        }
-    } catch (err: any) {
-        console.error("Failed to fetch task:", err)
-        toast.error($t('task_detail.toast_fetch_failed'))
-        if (err.statusCode === 404) {
-            router.push('/tasks')
-        }
-    } finally {
-        loading.value = false
-    }
-}
-
 const refreshTask = async () => {
     isRefreshing.value = true
-    await fetchTask()
+    await taskQuery.refetch()
     setTimeout(() => {
         isRefreshing.value = false
     }, 400)
 }
-
-const startPolling = () => {
-    if (polling.value) return
-    polling.value = setInterval(fetchTask, 2000)
-}
-
-const stopPolling = () => {
-    if (polling.value) {
-        clearInterval(polling.value)
-        polling.value = null
-    }
-}
-
-watch(() => task.value?.status, (newStatus) => {
-    if (newStatus === 'PROCESSING' || newStatus === 'PENDING') {
-        startPolling()
-    } else {
-        stopPolling()
-    }
-})
-
-onMounted(async () => {
-    await fetchTask()
-    if (task.value?.status === 'PROCESSING' || task.value?.status === 'PENDING') {
-        startPolling()
-    }
-})
-
-onUnmounted(() => {
-    stopPolling()
-})
 
 const getStatusStyle = (status: TaskStatus | string | undefined) => {
     if (!status) return 'bg-surface-2 text-ink-subtle border-hairline'
@@ -433,13 +396,17 @@ const closePreview = () => {
 }
 
 // Retry state & TaskRetryDrawer logic
-const isRetrying = ref(false)
-const retryingJobs = ref<Record<string, boolean>>({})
+const isRetrying = computed(() => retryMutation.isPending.value)
+const retryingJobs = computed<Record<string, boolean>>(() => {
+    if (!retryMutation.isPending.value) return {}
+    const ids = retryMutation.variables.value?.body.job_ids ?? []
+    return Object.fromEntries(ids.map(id => [id, true]))
+})
 const showRetryDrawer = ref(false)
 const selectedJobForRetry = ref<string | null>(null)
-const isCancelling = ref(false)
+const isCancelling = computed(() => cancelMutation.isPending.value)
 const showCancelDialog = ref(false)
-const isDeleting = ref(false)
+const isDeleting = computed(() => removeMutation.isPending.value)
 const showDeleteDialog = ref(false)
 
 // Error Diagnostic Dialog logic
@@ -479,109 +446,66 @@ const openRetryDrawer = (jobId?: string) => {
     showRetryDrawer.value = true
 }
 
+// A successful cancel or retry puts the returned task in the cache, which
+// starts or stops polling by its status, and refreshes lists and stats.
 const handleCancelTask = async () => {
-    isCancelling.value = true
     try {
-        const res = await api<ApiResponse<Task>>(`/tasks/${taskId}/cancel`, {
-            method: 'POST',
-        })
-        if (res.success) {
-            toast.success($t('task_detail.toast_cancel_success'))
-            task.value = res.data
-            showCancelDialog.value = false
-            stopPolling()
-        }
+        await cancelMutation.mutateAsync(taskId)
+        toast.success($t('task_detail.toast_cancel_success'))
+        showCancelDialog.value = false
     } catch (err: any) {
         console.error('Failed to cancel task:', err)
         toast.error(err.data?.message || $t('task_detail.toast_cancel_failed'))
-    } finally {
-        isCancelling.value = false
     }
 }
 
 // Only finished tasks can be deleted; the API answers 409 for active ones.
 const handleDeleteTask = async () => {
-    isDeleting.value = true
     try {
-        const res = await api<ApiResponse<unknown>>(`/tasks/${taskId}`, { method: 'DELETE' })
-        if (res.success) {
-            toast.success($t('task_detail.toast_delete_success'))
-            showDeleteDialog.value = false
-            stopPolling()
-            router.push('/tasks')
-        }
+        await removeMutation.mutateAsync(taskId)
+        toast.success($t('task_detail.toast_delete_success'))
+        showDeleteDialog.value = false
+        router.push('/tasks')
     } catch (err: any) {
         console.error('Failed to delete task:', err)
         toast.error(err.data?.message || $t('task_detail.toast_delete_failed'))
-    } finally {
-        isDeleting.value = false
     }
 }
 
 const handleDirectRetry = async (jobIds?: string[]) => {
-    isRetrying.value = true
+    const body: RetryTaskBody = {}
     if (jobIds && jobIds.length > 0) {
-        jobIds.forEach(id => {
-            retryingJobs.value[id] = true
-        })
+        body.job_ids = jobIds
     }
     try {
-        const body: any = {}
-        if (jobIds && jobIds.length > 0) {
-            body.job_ids = jobIds
-        }
-        const res = await api<ApiResponse<Task>>(`/tasks/${taskId}/retry`, {
-            method: 'POST',
-            body,
-        })
-        if (res.success) {
-            if (jobIds && jobIds.length === 1) {
-                toast.success($t('task_detail.toast_retry_single_success'))
-            } else {
-                toast.success($t('task_detail.toast_retry_all_success'))
-            }
-            task.value = res.data
-            startPolling()
+        await retryMutation.mutateAsync({ taskId, body })
+        if (jobIds && jobIds.length === 1) {
+            toast.success($t('task_detail.toast_retry_single_success'))
+        } else {
+            toast.success($t('task_detail.toast_retry_all_success'))
         }
     } catch (err: any) {
         console.error('Failed to retry task:', err)
         toast.error(err.data?.message || $t('task_detail.toast_retry_failed'))
-    } finally {
-        isRetrying.value = false
-        if (jobIds && jobIds.length > 0) {
-            jobIds.forEach(id => {
-                retryingJobs.value[id] = false
-            })
-        }
     }
 }
 
 const handleRetryFromDrawer = async (payload: { options?: ImageOptions; target?: CompressionTarget | null; retryAll: boolean; jobIds?: string[] }) => {
-    isRetrying.value = true
+    const body: RetryTaskBody = { retry_all: payload.retryAll }
+    if (payload.options) body.options = payload.options
+    if (payload.target !== undefined) body.target = payload.target
+    if (payload.jobIds && payload.jobIds.length > 0) {
+        body.job_ids = payload.jobIds
+        body.retry_all = false
+    }
     try {
-        const body: Record<string, unknown> = { retry_all: payload.retryAll }
-        if (payload.options) body.options = payload.options
-        if (payload.target !== undefined) body.target = payload.target
-        if (payload.jobIds && payload.jobIds.length > 0) {
-            body.job_ids = payload.jobIds
-            body.retry_all = false
-        }
-        const res = await api<ApiResponse<Task>>(`/tasks/${taskId}/retry`, {
-            method: 'POST',
-            body,
-        })
-        if (res.success) {
-            toast.success($t('task_detail.toast_retry_success'))
-            task.value = res.data
-            showRetryDrawer.value = false
-            selectedJobForRetry.value = null
-            startPolling()
-        }
+        await retryMutation.mutateAsync({ taskId, body })
+        toast.success($t('task_detail.toast_retry_success'))
+        showRetryDrawer.value = false
+        selectedJobForRetry.value = null
     } catch (err: any) {
         console.error('Failed to retry task:', err)
         toast.error(err.data?.message || $t('task_detail.toast_retry_failed'))
-    } finally {
-        isRetrying.value = false
     }
 }
 </script>

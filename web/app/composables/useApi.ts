@@ -136,13 +136,17 @@ export const parseApiError = (err: unknown): ApiError => {
 
 export const useApi = () => {
     const { logout, showAuthModal } = useAuth();
+    // During server rendering (TanStack Query prefetches) the browser's
+    // cookie is forwarded so the API sees the same session.
+    const headers = import.meta.server ? useRequestHeaders(["cookie"]) : undefined;
 
     // Authenticated by the HttpOnly session cookie, which the browser sends
     // on these same-origin requests.
     const apiFetch = $fetch.create({
         baseURL: "/api",
+        headers,
         async onResponseError({ response }) {
-            if (response.status === 401) {
+            if (import.meta.client && response.status === 401) {
                 logout();
                 showAuthModal.value = true;
             }
@@ -150,4 +154,11 @@ export const useApi = () => {
     });
 
     return apiFetch;
+};
+
+/** The HTTP status of a failed API call, or 0 when there was no response. */
+export const apiErrorStatus = (err: unknown): number => {
+    if (!err || typeof err !== "object") return 0;
+    const e = err as { statusCode?: number; status?: number };
+    return e.statusCode || e.status || 0;
 };
