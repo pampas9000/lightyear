@@ -50,16 +50,9 @@ Loaded with koanf from defaults, `server/.env` (falls back to `.env`) and enviro
 | `PORT` | — | Normalized to `:PORT` |
 | `DATABASE_URL` | local postgres `transcoder` | PostgreSQL |
 | `REDIS_URL` | `redis://localhost:6379/0` | Sessions, streams, cancellation flags |
-| `AUTO_MIGRATE` | `true` | GORM AutoMigrate on API boot |
-| `FRONTEND_URL` | `http://localhost:3000` | OAuth redirect target, and the only `Origin` accepted on state-changing `/api` requests |
+| `AUTO_MIGRATE` | `false` | GORM AutoMigrate on API boot (explicit `task migrate` is preferred) |
+| `FRONTEND_URL` | `http://localhost:3000` | OAuth redirect target, and the only `Origin` accepted on state-changing `/api` requests (`https://`, non-loopback required in production) |
 | `S3_ENDPOINT` / `S3_ACCESS_ID` / `S3_ACCESS_KEY` / `S3_BUCKET` | — | S3/R2 storage. The API and the orchestrator (storage lifecycle sweeps) both refuse to start without the bucket and keys |
 | `S3_REGION` | `auto` | |
 | `GOOGLE_CLIENT_ID` / `_SECRET` / `_CALLBACK_URL` | — | Google OIDC (enabled when set) |
 | `GITHUB_CLIENT_ID` / `_SECRET` / `_CALLBACK_URL` | — | GitHub OAuth (enabled when set) |
-| `JWT_SECRET` | dev value | Unused: the JWT middleware is dead code (session auth is active) |
-
-## Known gaps
-
-- HTTP routes are unversioned (`/api`); upload endpoints return camelCase objects outside the response envelope. See the HTTP contract.
-- `JWT_SECRET` and the JWT middleware are dead code.
-- The public `/v1` API, API keys, webhooks and MCP are planned in the [roadmap](../docs/roadmap.md).

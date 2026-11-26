@@ -533,7 +533,3 @@ ETag 由任务的完整状态（各 job 的状态、进度、参数、结果、�
 | `409` | `error.param.invalid` | 上传状态不允许该操作（见上传） |
 | `429` | `error.rate_limit.exceeded` | 写请求过于频繁，按 `Retry-After` 等待，见[限流](#限流) |
 | `500` | `error.internal` | 其他 |
-
-## 已知不一致
-
-- `JWT_SECRET` 配置与 JWT 中间件仍在代码中，但没有使用（实际是 session 认证）。

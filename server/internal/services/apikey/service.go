@@ -18,7 +18,6 @@ import (
 	"transcoder/server/internal/models"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -115,7 +114,7 @@ func (s *Service) Create(ctx context.Context, owner uuid.UUID, name string, scop
 		Name:    name,
 		Prefix:  plaintext[:displayPrefixLen],
 		KeyHash: Hash(plaintext),
-		Scopes:  pq.StringArray(normalized),
+		Scopes:  models.StringArray(normalized),
 	}
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Serialize creations per owner so the active-key limit holds.

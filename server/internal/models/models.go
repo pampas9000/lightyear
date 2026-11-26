@@ -12,7 +12,7 @@ import (
 	"transcoder/server/pkg/util"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgtype"
 	"gorm.io/gorm"
 )
 
@@ -68,6 +68,35 @@ func (j *JSON) Scan(value any) error {
 	}
 }
 
+var pgTypeMap = pgtype.NewMap()
+
+// StringArray is a PostgreSQL text[] column backed by pgx/v5.
+type StringArray []string
+
+func (a StringArray) Value() (driver.Value, error) {
+	if a == nil {
+		return nil, nil
+	}
+	buf, err := pgTypeMap.Encode(pgtype.TextArrayOID, pgtype.TextFormatCode, []string(a), nil)
+	if err != nil {
+		return nil, err
+	}
+	return string(buf), nil
+}
+
+func (a *StringArray) Scan(value any) error {
+	if value == nil {
+		*a = nil
+		return nil
+	}
+	var dst []string
+	if err := pgTypeMap.SQLScanner(&dst).Scan(value); err != nil {
+		return err
+	}
+	*a = dst
+	return nil
+}
+
 type User struct {
 	Base
 	Username     string `gorm:"uniqueIndex;not null" json:"username"`
@@ -90,7 +119,7 @@ type User struct {
 
 type UserOauthAccount struct {
 	Base
-	UserID            uuid.UUID `gorm:"not null;uniqueIndex:idx_provider_account" json:"user_id"`
+	UserID            uuid.UUID `gorm:"not null;index" json:"user_id"`
 	User              User      `gorm:"foreignKey:UserID" json:"user,omitempty"`
 	Provider          string    `gorm:"not null;uniqueIndex:idx_provider_account" json:"provider"`
 	ProviderAccountID string    `gorm:"not null;uniqueIndex:idx_provider_account" json:"provider_account_id"`
@@ -319,7 +348,7 @@ type APIKey struct {
 	Name       string         `gorm:"type:varchar(64);not null" json:"name"`
 	Prefix     string         `gorm:"type:varchar(16);not null" json:"prefix"`
 	KeyHash    string         `gorm:"type:varchar(64);not null;uniqueIndex" json:"-"`
-	Scopes     pq.StringArray `gorm:"type:text[];not null" json:"scopes"`
+	Scopes     StringArray `gorm:"type:text[];not null" json:"scopes"`
 	LastUsedAt *time.Time     `json:"last_used_at"`
 	RevokedAt  *time.Time     `json:"revoked_at"`
 }

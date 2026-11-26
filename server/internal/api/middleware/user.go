@@ -10,7 +10,7 @@ import (
 type userKey struct{}
 
 // SetUserID records the authenticated user for the rest of the request. The
-// session, API key and JWT middlewares call it.
+// session and API key middlewares call it.
 func SetUserID(c fiber.Ctx, id uuid.UUID) {
 	c.Locals(userKey{}, id)
 }

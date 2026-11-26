@@ -27,6 +27,9 @@ func main() {
 func run() error {
 	cfg := config.Load()
 	bootstrap.SetupLogger(cfg, slog.LevelInfo)
+	if err := cfg.ValidateOrchestrator(); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Checked first: it needs no network, so a missing variable is reported

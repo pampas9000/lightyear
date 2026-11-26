@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -14,13 +13,10 @@ import (
 const UniqueViolation = "23505"
 
 // IsUniqueViolation reports whether err is a unique constraint violation,
-// from pgx (the GORM driver), lib/pq, or GORM's translated ErrDuplicatedKey.
+// from pgx (the GORM driver) or GORM's translated ErrDuplicatedKey.
 func IsUniqueViolation(err error) bool {
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == UniqueViolation
-	}
-	if pqErr, ok := errors.AsType[*pq.Error](err); ok {
-		return pqErr.Code == UniqueViolation
 	}
 	return errors.Is(err, gorm.ErrDuplicatedKey)
 }

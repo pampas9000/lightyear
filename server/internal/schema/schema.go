@@ -29,6 +29,9 @@ func Migrate(db *gorm.DB) error {
 		END $$;`).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec(oauthAccountIndexCleanup).Error; err != nil {
+			return err
+		}
 		if err := tx.AutoMigrate(
 			&models.User{}, &models.UserOauthAccount{}, &models.File{}, &models.DraftFile{},
 			&models.Workflow{}, &models.Task{}, &models.Job{}, &models.Attempt{}, &models.APIKey{},
@@ -63,6 +66,26 @@ BEGIN
 		SELECT gen_random_uuid(), now(), queue, payload, id, now()
 		FROM attempts WHERE status = 'QUEUED' AND dispatched_at IS NULL;
 		ALTER TABLE attempts DROP COLUMN dispatched_at;
+	END IF;
+END $$;`
+
+// oauthAccountIndexCleanup drops an older idx_provider_account that included
+// user_id so AutoMigrate recreates it as unique on (provider, provider_account_id)
+// alone: one third-party account can never be bound to two users.
+const oauthAccountIndexCleanup = `
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1
+		FROM pg_index i
+		JOIN pg_class c ON c.oid = i.indexrelid
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+		WHERE n.nspname = current_schema()
+			AND c.relname = 'idx_provider_account'
+			AND a.attname = 'user_id'
+	) THEN
+		DROP INDEX idx_provider_account;
 	END IF;
 END $$;`
 

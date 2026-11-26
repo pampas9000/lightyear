@@ -18,6 +18,14 @@ func main() {
 	reset := flag.Bool("reset", false, "drop every application table and recreate the schema (destroys all data)")
 	flag.Parse()
 	cfg := config.Load()
+	if err := cfg.ValidateMigrate(); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
+	if *reset && cfg.IsProduction() {
+		slog.Error("refusing to run -reset in production")
+		os.Exit(1)
+	}
 	db, err := gorm.Open(postgres.New(postgres.Config{
 		DSN:                  cfg.DB.URL,
 		PreferSimpleProtocol: true,

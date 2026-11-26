@@ -146,8 +146,7 @@ func (q RedisQueue) Waiting(ctx context.Context, queue, id string) (bool, error)
 }
 
 func isMissing(err error) bool {
-	msg := err.Error()
-	return strings.HasPrefix(msg, "NOGROUP") || strings.Contains(msg, "no such key")
+	return redis.HasErrorPrefix(err, "NOGROUP") || redis.HasErrorPrefix(err, "ERR no such key")
 }
 
 // ParseStreamID splits a stream ID "<ms>-<seq>" into its two numbers.

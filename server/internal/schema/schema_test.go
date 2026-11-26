@@ -109,3 +109,33 @@ func TestMigrateReplacesTheGlobalDispatchIndex(t *testing.T) {
 		t.Fatalf("unexpected job indexes: %v", names)
 	}
 }
+
+func TestMigrateEnforcesUniqueOAuthProviderAccount(t *testing.T) {
+	db := testutil.OpenDatabase(t)
+	// Simulate the older 3-column index that included user_id.
+	if err := db.Exec(`DROP INDEX IF EXISTS idx_provider_account`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX idx_provider_account ON user_oauth_accounts (user_id, provider, provider_account_id)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	u1 := models.User{Username: "u1", Email: "u1@example.com"}
+	u2 := models.User{Username: "u2", Email: "u2@example.com"}
+	if err := db.Create(&u1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&u2).Error; err != nil {
+		t.Fatal(err)
+	}
+	a1 := models.UserOauthAccount{UserID: u1.ID, Provider: "google", ProviderAccountID: "sub-1", Email: u1.Email}
+	a2 := models.UserOauthAccount{UserID: u2.ID, Provider: "google", ProviderAccountID: "sub-1", Email: u2.Email}
+	if err := db.Create(&a1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&a2).Error; err == nil {
+		t.Fatal("duplicate (provider, provider_account_id) for another user succeeded; expected unique constraint error")
+	}
+}

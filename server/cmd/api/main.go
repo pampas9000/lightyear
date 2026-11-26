@@ -18,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/gofiber/fiber/v3"
-	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -41,6 +40,9 @@ func run() error {
 	time.Local = time.UTC
 	config := config.Load()
 	bootstrap.SetupLogger(config, slog.LevelDebug)
+	if err := config.ValidateAPI(); err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

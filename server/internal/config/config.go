@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +19,6 @@ import (
 type Config struct {
 	AppEnv      string `koanf:"APP_ENV"`
 	ListenAddr  string `koanf:"SERVER_ADDR"`
-	JWTSecret   string `koanf:"JWT_SECRET"`
 	FrontendURL string `koanf:"FRONTEND_URL"`
 	DB          DatabaseConfig
 	Redis       RedisConfig
@@ -109,6 +110,12 @@ type RetentionConfig struct {
 	OutputDays int `koanf:"OUTPUT_RETENTION_DAYS"`
 }
 
+const (
+	defaultDatabaseURL = "host=localhost port=5432 user=postgres password=postgres dbname=transcoder sslmode=disable"
+	defaultRedisURL    = "redis://localhost:6379/0"
+	defaultFrontendURL = "http://localhost:3000"
+)
+
 // Load reads runtime settings from environment variables and applies sane defaults.
 func Load() Config {
 	k := koanf.New(".")
@@ -116,14 +123,13 @@ func Load() Config {
 	// 1. Set defaults
 	k.Load(confmap.Provider(map[string]any{
 		"APP_ENV":      "development",
-		"DATABASE_URL": "host=localhost port=5432 user=postgres password=postgres dbname=transcoder sslmode=disable",
-		"REDIS_URL":    "redis://localhost:6379/0",
-		"JWT_SECRET":   "dev-secret-change-me-in-production",
+		"DATABASE_URL": defaultDatabaseURL,
+		"REDIS_URL":    defaultRedisURL,
 		// Off by default: the schema changes only when someone runs
 		// cmd/migrate (task migrate), never as a side effect of starting
 		// an API instance.
 		"AUTO_MIGRATE": false,
-		"FRONTEND_URL": "http://localhost:3000",
+		"FRONTEND_URL": defaultFrontendURL,
 	}, "."), nil)
 
 	// 2. Read from .env file if available
@@ -152,7 +158,6 @@ func Load() Config {
 	var cfg Config
 	cfg.AppEnv = k.String("APP_ENV")
 	cfg.ListenAddr = addr
-	cfg.JWTSecret = k.String("JWT_SECRET")
 	cfg.FrontendURL = k.String("FRONTEND_URL")
 
 	cfg.DB = DatabaseConfig{
@@ -245,6 +250,69 @@ func nonNegative(k *koanf.Koanf, key string, def int64) int64 {
 // IsProduction reports whether the service is running in production mode.
 func (c Config) IsProduction() bool {
 	return strings.EqualFold(c.AppEnv, "production")
+}
+
+// ValidateAPI checks that the API binary has valid configuration before it
+// dials any dependency. In production, development defaults for DATABASE_URL,
+// REDIS_URL and FRONTEND_URL are rejected, and FRONTEND_URL must be HTTPS on a
+// non-loopback host.
+func (c Config) ValidateAPI() error {
+	if err := c.ValidateOrchestrator(); err != nil {
+		return err
+	}
+	if !c.IsProduction() {
+		return nil
+	}
+	return validateProductionFrontendURL(c.FrontendURL)
+}
+
+// ValidateOrchestrator checks that the orchestrator binary has valid
+// configuration before it dials any dependency.
+func (c Config) ValidateOrchestrator() error {
+	if err := c.S3.Validate(); err != nil {
+		return err
+	}
+	if !c.IsProduction() {
+		return nil
+	}
+	if err := c.ValidateMigrate(); err != nil {
+		return err
+	}
+	if redisURL := strings.TrimSpace(c.Redis.URL); redisURL == "" || redisURL == defaultRedisURL {
+		return fmt.Errorf("REDIS_URL must be explicitly configured in production")
+	}
+	return nil
+}
+
+// ValidateMigrate checks that the migration binary has valid database
+// configuration in production.
+func (c Config) ValidateMigrate() error {
+	if !c.IsProduction() {
+		return nil
+	}
+	if dbURL := strings.TrimSpace(c.DB.URL); dbURL == "" || dbURL == defaultDatabaseURL {
+		return fmt.Errorf("DATABASE_URL must be explicitly configured in production")
+	}
+	return nil
+}
+
+func validateProductionFrontendURL(raw string) error {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == defaultFrontendURL {
+		return fmt.Errorf("FRONTEND_URL must be explicitly configured in production")
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Hostname() == "" {
+		return fmt.Errorf("FRONTEND_URL must be an https:// URL in production")
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "localhost" {
+		return fmt.Errorf("FRONTEND_URL must not point to localhost in production")
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return fmt.Errorf("FRONTEND_URL must not point to a loopback address in production")
+	}
+	return nil
 }
 
 func normalizeListenAddr(port string) string {
